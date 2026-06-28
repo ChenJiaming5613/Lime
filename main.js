@@ -1,4 +1,3 @@
-// ====== 1. 获取 GPU 适配器和设备 ======
 const canvas = document.getElementById('canvas');
 const errorEl = document.getElementById('error');
 
@@ -15,7 +14,6 @@ if (!adapter) {
 
 const device = await adapter.requestDevice();
 
-// ====== 2. 配置 Canvas 上下文 ======
 const context = canvas.getContext('webgpu');
 const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
@@ -25,24 +23,31 @@ context.configure({
   alphaMode: 'premultiplied',
 });
 
-// ====== 3. WGSL 着色器代码 ======
-// 顶点着色器：将顶点坐标输出到裁剪空间
-// 片段着色器：为每个像素输出颜色
 const shaderCode = `
+  struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+  };
+
   @vertex
-  fn vs_main(@location(0) position: vec2f) -> @builtin(position) vec4f {
-    return vec4f(position, 0.0, 1.0);
+  fn vs_main(
+    @location(0) position: vec2f,
+    @location(1) color: vec3f,
+  ) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = vec4f(position, 0.0, 1.0);
+    out.color = color;
+    return out;
   }
 
   @fragment
-  fn fs_main() -> @location(0) vec4f {
-    return vec4f(0.2, 0.6, 1.0, 1.0);  // 蓝色
+  fn fs_main(@location(0) color: vec3f) -> @location(0) vec4f {
+    return vec4f(color, 1.0);
   }
 `;
 
 const shaderModule = device.createShaderModule({ code: shaderCode });
 
-// ====== 4. 创建渲染管线 ======
 const pipeline = device.createRenderPipeline({
   layout: 'auto',
   vertex: {
@@ -50,12 +55,17 @@ const pipeline = device.createRenderPipeline({
     entryPoint: 'vs_main',
     buffers: [
       {
-        arrayStride: 2 * 4, // 每个顶点 2 个 float，共 8 字节
+        arrayStride: 5 * 4, // 每个顶点 5 个 float（2 位置 + 3 颜色），共 20 字节
         attributes: [
           {
             shaderLocation: 0,
             offset: 0,
             format: 'float32x2',
+          },
+          {
+            shaderLocation: 1,
+            offset: 2 * 4,
+            format: 'float32x3',
           },
         ],
       },
@@ -75,12 +85,11 @@ const pipeline = device.createRenderPipeline({
   },
 });
 
-// ====== 5. 创建顶点缓冲区（三角形） ======
-// 裁剪空间坐标范围: x[-1, 1], y[-1, 1]
+// 每个顶点: x, y, r, g, b
 const vertices = new Float32Array([
-   0.0,  0.8,   // 顶部顶点
-  -0.7, -0.5,   // 左下顶点
-   0.7, -0.5,   // 右下顶点
+   0.0,  0.8,   1.0, 0.0, 0.0,  // 顶部 - 红色
+  -0.7, -0.5,   0.0, 1.0, 0.0,  // 左下 - 绿色
+   0.7, -0.5,   0.0, 0.0, 1.0,  // 右下 - 蓝色
 ]);
 
 const vertexBuffer = device.createBuffer({
@@ -90,39 +99,27 @@ const vertexBuffer = device.createBuffer({
 
 device.queue.writeBuffer(vertexBuffer, 0, vertices);
 
-// ====== 6. 渲染循环 ======
 function frame() {
-  // 创建命令编码器
   const encoder = device.createCommandEncoder();
-
-  // 获取当前纹理视图
   const textureView = context.getCurrentTexture().createView();
 
-  // 开始渲染通道
   const renderPass = encoder.beginRenderPass({
     colorAttachments: [
       {
         view: textureView,
-        clearValue: { r: 0.05, g: 0.05, b: 0.1, a: 1.0 },  // 深色背景
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store',
       },
     ],
   });
 
-  // 绑定渲染管线
   renderPass.setPipeline(pipeline);
-  // 绑定顶点缓冲区
   renderPass.setVertexBuffer(0, vertexBuffer);
-  // 绘制 3 个顶点（1 个三角形）
   renderPass.draw(3);
-
-  // 结束渲染通道
   renderPass.end();
 
-  // 提交命令
   device.queue.submit([encoder.finish()]);
-
   requestAnimationFrame(frame);
 }
 
