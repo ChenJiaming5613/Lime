@@ -28,11 +28,24 @@
       text-align: center;
       display: none;
     }
+    #stats {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      color: #00ff00;
+      font-family: monospace;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      white-space: pre;
+      pointer-events: none;
+      user-select: none;
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="error"></div>
+  <div id="stats"></div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

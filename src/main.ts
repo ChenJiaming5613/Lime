@@ -173,7 +173,22 @@ const bindGroup = device.createBindGroup({
 
 const startTime = performance.now();
 
+const statsEl = document.getElementById('stats') as HTMLElement;
+let frameCount = 0;
+let lastStatsTime = performance.now();
+
 function frame() {
+  const now = performance.now();
+
+  frameCount++;
+  if (now - lastStatsTime >= 1000) {
+    const fps = frameCount;
+    const avgMs = (now - lastStatsTime) / frameCount;
+    statsEl.textContent = `FPS: ${fps}\nMS: ${avgMs.toFixed(2)}`;
+    frameCount = 0;
+    lastStatsTime = now;
+  }
+
   const encoder = device.createCommandEncoder();
   const textureView = context.getCurrentTexture().createView();
 
