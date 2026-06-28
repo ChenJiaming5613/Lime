@@ -1,0 +1,30 @@
+{
+  "name": "lime",
+  "version": "1.0.0",
+  "description": "WebGPU Hello Triangle",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChenJiaming5613/Lime.git"
+  },
+  "keywords": ["webgpu", "graphics"],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ChenJiaming5613/Lime/issues"
+  },
+  "homepage": "https://github.com/ChenJiaming5613/Lime#readme",
+  "devDependencies": {
+    "@webgpu/types": "^0.1.71",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0"
+  },
+  "dependencies": {
+    "wgpu-matrix": "^3.4.2"
+  }
+}
