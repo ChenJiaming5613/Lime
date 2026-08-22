@@ -45,6 +45,13 @@ namespace Lime
 			auto* Stream = static_cast<std::ofstream*>(Context);
 			Stream->write(static_cast<const char*>(Data), Size);
 		}
+
+		void WriteToVector(void* Context, void* Data, int Size)
+		{
+			auto* Buffer = static_cast<std::vector<uint8>*>(Context);
+			const auto* Bytes = static_cast<const uint8*>(Data);
+			Buffer->insert(Buffer->end(), Bytes, Bytes + Size);
+		}
 	} // namespace
 
 	const char* ToString(EScreenshotSource Source)
@@ -107,12 +114,12 @@ namespace Lime
 		return FPlatformPaths::GetSavedDirectory() / "Screenshots" / Requested;
 	}
 
-	bool FScreenshotService::Capture(EScreenshotSource Source, const std::filesystem::path& Path, std::string& OutError)
+	nvrhi::ITexture* FScreenshotService::ResolveTexture(EScreenshotSource Source, std::string& OutError) const
 	{
 		if (DeviceManager == nullptr || Renderer == nullptr)
 		{
 			OutError = "The screenshot service is not initialized";
-			return false;
+			return nullptr;
 		}
 
 		nvrhi::ITexture* Texture = nullptr;
@@ -121,7 +128,7 @@ namespace Lime
 			if (!Renderer->IsOffscreenRenderingEnabled())
 			{
 				OutError = "The viewport target only exists while the editor is active; capture the back buffer instead";
-				return false;
+				return nullptr;
 			}
 			Texture = Renderer->GetViewportTarget().GetTexture();
 		}
@@ -139,13 +146,94 @@ namespace Lime
 		if (Texture == nullptr)
 		{
 			OutError = fmt::format("No texture available for source '{}'", ToString(Source));
+		}
+		return Texture;
+	}
+
+	bool FScreenshotService::Capture(EScreenshotSource Source, const std::filesystem::path& Path, std::string& OutError)
+	{
+		nvrhi::ITexture* Texture = ResolveTexture(Source, OutError);
+		if (Texture == nullptr)
+		{
 			return false;
 		}
 
-		return ReadbackAndWrite(Texture, Path, OutError);
+		FImage Image;
+		if (!Readback(Texture, Image, OutError))
+		{
+			return false;
+		}
+
+		std::error_code ErrorCode;
+		std::filesystem::create_directories(Path.parent_path(), ErrorCode);
+
+		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
+		if (!Stream)
+		{
+			OutError = fmt::format("Could not open '{}' for writing", FPlatformPaths::ToUtf8(Path));
+			return false;
+		}
+
+		if (stbi_write_png_to_func(&WriteToStream, &Stream, static_cast<int>(Image.Width), static_cast<int>(Image.Height), 4,
+		                           Image.Pixels.data(), static_cast<int>(Image.Width * 4)) == 0)
+		{
+			OutError = "PNG encoding failed";
+			return false;
+		}
+
+		Stream.close();
+		if (!Stream)
+		{
+			OutError = fmt::format("Could not write '{}'", FPlatformPaths::ToUtf8(Path));
+			return false;
+		}
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_AUTOMATION, "Captured {}x{} to '{}'", Image.Width, Image.Height, FPlatformPaths::ToUtf8(Path));
+		return true;
 	}
 
-	bool FScreenshotService::ReadbackAndWrite(nvrhi::ITexture* Texture, const std::filesystem::path& Path, std::string& OutError)
+	bool FScreenshotService::CaptureToPng(EScreenshotSource Source, std::vector<uint8>& OutPng, uint32& OutWidth, uint32& OutHeight,
+	                                      std::string& OutError)
+	{
+		nvrhi::ITexture* Texture = ResolveTexture(Source, OutError);
+		if (Texture == nullptr)
+		{
+			return false;
+		}
+
+		FImage Image;
+		if (!Readback(Texture, Image, OutError))
+		{
+			return false;
+		}
+
+		if (!EncodePng(Image, OutPng, OutError))
+		{
+			return false;
+		}
+
+		OutWidth = Image.Width;
+		OutHeight = Image.Height;
+		return true;
+	}
+
+	bool FScreenshotService::EncodePng(const FImage& Image, std::vector<uint8>& OutPng, std::string& OutError)
+	{
+		OutPng.clear();
+		// PNG of an opaque screenshot lands well under a quarter of the raw size, so this only avoids
+		// the first few reallocations rather than trying to predict the result.
+		OutPng.reserve(Image.Pixels.size() / 4);
+
+		if (stbi_write_png_to_func(&WriteToVector, &OutPng, static_cast<int>(Image.Width), static_cast<int>(Image.Height), 4,
+		                           Image.Pixels.data(), static_cast<int>(Image.Width * 4)) == 0)
+		{
+			OutError = "PNG encoding failed";
+			return false;
+		}
+		return true;
+	}
+
+	bool FScreenshotService::Readback(nvrhi::ITexture* Texture, FImage& OutImage, std::string& OutError)
 	{
 		nvrhi::IDevice* Device = Renderer->GetDevice();
 		if (Device == nullptr)
@@ -223,11 +311,14 @@ namespace Lime
 
 		// Copied into a tightly packed buffer: the mapped rows carry backend specific padding, and
 		// alpha is forced opaque because the UI leaves parts of the back buffer translucent.
-		std::vector<uint8> Pixels(static_cast<SizeType>(Width) * Height * 4);
+		OutImage.Pixels.resize(static_cast<SizeType>(Width) * Height * 4);
+		OutImage.Width = Width;
+		OutImage.Height = Height;
+
 		for (uint32 Row = 0; Row < Height; ++Row)
 		{
 			const uint8* SourceRow = Mapped + static_cast<SizeType>(Row) * RowPitch;
-			uint8* DestRow = Pixels.data() + static_cast<SizeType>(Row) * Width * 4;
+			uint8* DestRow = OutImage.Pixels.data() + static_cast<SizeType>(Row) * Width * 4;
 
 			for (uint32 Column = 0; Column < Width; ++Column)
 			{
@@ -242,32 +333,6 @@ namespace Lime
 		}
 
 		Device->unmapStagingTexture(StagingTexture);
-
-		std::error_code ErrorCode;
-		std::filesystem::create_directories(Path.parent_path(), ErrorCode);
-
-		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
-		if (!Stream)
-		{
-			OutError = fmt::format("Could not open '{}' for writing", FPlatformPaths::ToUtf8(Path));
-			return false;
-		}
-
-		if (stbi_write_png_to_func(&WriteToStream, &Stream, static_cast<int>(Width), static_cast<int>(Height), 4, Pixels.data(),
-		                           static_cast<int>(Width * 4)) == 0)
-		{
-			OutError = "PNG encoding failed";
-			return false;
-		}
-
-		Stream.close();
-		if (!Stream)
-		{
-			OutError = fmt::format("Could not write '{}'", FPlatformPaths::ToUtf8(Path));
-			return false;
-		}
-
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_AUTOMATION, "Captured {}x{} to '{}'", Width, Height, FPlatformPaths::ToUtf8(Path));
 		return true;
 	}
 } // namespace Lime

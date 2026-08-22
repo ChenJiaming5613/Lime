@@ -79,6 +79,9 @@ add_subdirectory(Projects)
 if(LIME_BUILD_TESTS)
 	enable_testing()
 	add_subdirectory(Tests)
+	# Python suite driving a real engine over the automation server. Registered after Tests so the C++
+	# tests, which need no GPU, run first.
+	add_subdirectory(Automation)
 endif()
 
 message(STATUS "LimeEngine ${PROJECT_VERSION} | Editor: ${LIME_BUILD_EDITOR} | Tests: ${LIME_BUILD_TESTS} | Automation: ${LIME_BUILD_AUTOMATION} | D3D12: ${LIME_ENABLE_RHI_D3D12} | Vulkan: ${LIME_ENABLE_RHI_VULKAN}")

@@ -28,5 +28,9 @@ namespace Lime
 		static void SetProjectSourceDirectory(std::filesystem::path Directory);
 
 		static std::string ToUtf8(const std::filesystem::path& Path);
+
+		// Identifies this process. Lets an external tool confirm the engine it discovered is still
+		// alive rather than trusting a stale file left behind by a crash.
+		static uint32 GetProcessId();
 	};
 } // namespace Lime

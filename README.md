@@ -68,8 +68,18 @@ so the runtime path stays free of editor cost.
 
 ## Writing a project
 
-A project owns render passes, editor panels and shaders. It never defines `main`, never lists files
-in CMake and never calls into the engine to register anything.
+A project owns render passes, editor panels, shaders and automation scripts. It never defines `main`,
+never lists files in CMake and never calls into the engine to register anything.
+
+```
+Projects/<Name>/
+  CMakeLists.txt        One call to lime_add_project()
+  ProjectSettings.json  Name, window, RHI and automation configuration
+  Source/               Render passes and editor panels, globbed by CMake
+  Shaders/              HLSL plus a ShaderMake .cfg
+  Automation/           Python test scripts, discovered by name
+  Content/              Optional assets, copied next to the executable
+```
 
 `CMakeLists.txt` is one line:
 
@@ -204,12 +214,17 @@ static library would let the linker discard the object files whose only content 
 ctest --test-dir Build/ninja -C Debug --output-on-failure
 ```
 
-Coverage focuses on logic that can be verified without a GPU: the math library, the log ring buffer,
-the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering and
-stage assignment, viewport resize decisions, JSON reading, writing and key order preservation, the
-project settings value round trip, the reflection layer, and the automation reflection bridge.
+Two suites. Catch2 covers logic that can be verified without a GPU: the math library, the log ring
+buffer, the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering
+and stage assignment, viewport resize decisions, JSON reading, writing and key order preservation, the
+project settings value round trip, the reflection layer, the automation reflection bridge and
+automation script discovery.
 
-Rendering itself is verified by capturing the window, since the output is what matters:
+Everything that needs a device is covered by the Python suite instead, which drives a real engine over
+the automation server; see Automation below. Both are registered with ctest, so the command above runs
+them together.
+
+Rendering can also be checked by hand, since the output is what matters:
 
 ```powershell
 ./Scripts/Capture.ps1                                  # Debug, D3D12, editor enabled
@@ -224,40 +239,91 @@ logged.
 
 ## Automation
 
-A running engine exposes its state on a loopback socket, which lets an external script drive it and
-inspect the result. Debug builds enable it by default; `LIME_BUILD_AUTOMATION=OFF` removes the module
-outright.
+A running engine serves its state over HTTP on the loopback interface, which lets an external script
+drive it and inspect the result. Debug builds enable it by default; `LIME_BUILD_AUTOMATION=OFF` removes
+the module outright.
+
+`Automation/` holds a standalone Python package. The client needs only the standard library, so it runs
+from a checkout with no install step; the pytest suite needs `Automation/requirements.txt`.
 
 ```powershell
-python Scripts/automation_smoke.py                     # D3D12
-python Scripts/automation_smoke.py --backend vulkan
-python Scripts/automation_smoke.py --backend d3d12 --backend vulkan
+./Scripts/Automation.ps1 test                          # pytest suite, D3D12
+./Scripts/Automation.ps1 test -Backend d3d12,vulkan    # both backends
+./Scripts/Automation.ps1 list                          # a project's scripts
+./Scripts/Automation.ps1 run triangle                  # launch an engine and run one script
+./Scripts/Automation.ps1 run triangle -Remaining --attach   # use a running engine instead
+./Scripts/Automation.ps1 shell                         # interactive REPL with a live engine
 ```
 
-`Scripts/lime_automation.py` is the client library. `LimeSession` launches the executable, waits for
-it to answer and shuts it down again:
+The suite is registered with ctest, one test per backend, and skipped with a status line when pytest
+is absent:
+
+```powershell
+ctest --test-dir Build/ninja -C Debug -L automation
+```
+
+### Writing a script
+
+A project keeps its scripts in `Automation/` beside `Source/` and `Shaders/`. Each file exposes one
+`run(engine)`; there is nothing to register. A raised `AssertionError` fails the script, and returning
+`{"artifacts": [...]}` reports the files it wrote.
 
 ```python
-from lime_automation import LimeSession
+"""Verifies the triangle renders and its settings take effect."""
 
-with LimeSession(backend="vulkan", width=1280, height=720) as engine:
-    print(engine.engine_info()["adapter"])
-
-    # Reflected pass settings are readable and writable by name.
-    engine.set_pass_values("Triangle", {"bPaused": True, "Tint": [0.2, 1.0, 0.35, 1.0]})
-    engine.show_panel("Console", visible=False)
+def run(engine) -> dict:
+    triangle = engine.find_pass()
+    engine.set_pass_values(triangle, {"bPaused": True, "RotationSpeed": 0.0})
 
     engine.wait_frames(2)
-    engine.screenshot("triangle.png")               # whole window
-    engine.screenshot("scene.png", source="viewport")  # scene without editor chrome
+    before = engine.screenshot(source="viewport")
+
+    engine.set_pass_values(triangle, {"Tint": [0.2, 1.0, 0.35, 1.0]})
+    engine.wait_frames(2)
+    assert engine.screenshot(source="viewport") != before, "Tint did not change the image"
+
+    return {"artifacts": [engine.save_screenshot("tinted.png", source="viewport")]}
 ```
 
-The protocol is newline delimited JSON, one request object per line, so any language can speak it:
+The engine enumerates these files through `script.list` but never runs them: it embeds no interpreter,
+so execution belongs to the launcher. That keeps a Python dependency out of the engine while still
+letting one command reproduce a scenario.
+
+### Using the library directly
+
+```python
+from lime_automation import LimeSession, find_engine
+
+# Launch a dedicated engine and shut it down afterwards.
+with LimeSession(backend="vulkan", width=1280, height=720) as engine:
+    engine.set_pass_values("Triangle", {"bPaused": True})
+    engine.save_screenshot("shot.png", source="viewport")
+
+# Or attach to one that is already running, leaving its window open.
+engine = find_engine().connect()
+```
+
+### Protocol
+
+JSON over HTTP/1.1. Any language with an HTTP client can drive the engine:
 
 ```
--> {"id": 1, "command": "pass.set", "params": {"pass": "Triangle", "values": {"RotationSpeed": 0.0}}}
-<- {"id": 1, "ok": true, "result": {...}}
+POST /command          {"command": "pass.set", "params": {...}}  -> {"ok": true, "result": {...}}
+POST /command/<name>   {...params...}                            -> same, name taken from the path
+POST /batch            [{"command": ...}, ...]                   -> one reply per entry, in order
+GET  /                                                           -> identity, protocol version, frame
+GET  /commands                                                   -> the command catalogue
+GET  /screenshot?source=viewport                                 -> image/png bytes
 ```
+
+```powershell
+curl -X POST http://127.0.0.1:8787/command/engine.info
+curl -o shot.png "http://127.0.0.1:8787/screenshot?source=viewport"
+```
+
+A rejected command is a `200` with `ok=false`, because the request itself was well formed; malformed
+bodies and unknown routes use `4xx`. Batches keep going past a failure, so one bad entry does not
+discard the results around it.
 
 | Command | Purpose |
 | --- | --- |
@@ -267,21 +333,31 @@ The protocol is newline delimited JSON, one request object per line, so any lang
 | `pass.list`, `pass.describe`, `pass.get`, `pass.set` | Enumerate passes and read or write their reflected settings |
 | `panel.list`, `panel.show`, `panel.resetLayout` | Panel visibility and dock layout |
 | `settings.get`, `settings.set`, `settings.save` | Project settings, including writing `ProjectSettings.json` |
-| `screenshot.capture` | PNG of the back buffer or the viewport target |
+| `screenshot.capture` | Writes a PNG on the engine's own machine |
+| `script.list` | Automation scripts the running project ships |
 
-Two properties make this usable as a test harness. Commands run on the main thread between frames, so
-a handler sees consistent state and a change is visible in the frame that same tick produces.
-Screenshots read back the GPU texture instead of grabbing the screen, so they are unaffected by
-window occlusion, z-order and display scaling, and work while the window is in the background.
+### Why this is reliable
 
-Reflection is what keeps this generic: a pass that declares `LIME_REFLECT` becomes scriptable with no
-automation code of its own, and `pass.describe` reports each field's type, range and tooltip so a
-script can discover valid values rather than hardcode them. Writes to unknown, read-only or mistyped
-fields are rejected with a message naming the field.
+Commands run on the main thread between frames, so a handler sees consistent state and a change is
+visible in the frame that same tick produces. Screenshots read back the GPU texture rather than
+grabbing the screen, so they are unaffected by window occlusion, z-order and display scaling, and work
+while the window is in the background. Together those two properties make byte comparison of captures
+a usable assertion: pause a pass and two consecutive captures are identical.
 
-Passing `port=0` lets the OS assign a port, which is how several sessions run at once; the chosen
-value is written to `AutomationPort.txt` next to the executable. The listener binds `127.0.0.1` only,
-since the commands expose full engine state.
+Reflection keeps it generic. A pass that declares `LIME_REFLECT` becomes scriptable with no automation
+code of its own, and `pass.describe` reports each field's type, range and tooltip so a script can
+discover valid values instead of hardcoding them. Writes to unknown, read-only or mistyped fields are
+rejected with a message naming the field.
+
+Networking comes from cpp-httplib, so the module contains no platform specific socket code.
+
+### Discovery and concurrency
+
+`port=0`, the default for `LimeSession`, asks the OS for a free port, which is what lets several
+engines run at once. Each publishes `Saved/Automation/<pid>.json` plus a shared
+`AutomationEndpoint.json` next to the executable, so `find_engine()` can attach to a session started by
+hand. `discover_engines()` probes each candidate, so a file left behind by a crash is filtered out.
+The listener binds `127.0.0.1` only, since the commands expose full engine state.
 
 Adding a command takes one registration, and a project can add its own the same way:
 
@@ -366,9 +442,10 @@ Engine/
     Runtime/    Core, Platform, RHI, Renderer, Automation, Engine, Launch
     Editor/     Editor layer, registry and built-in panels
 Projects/       One directory per application, each with a ProjectSettings.json
+Automation/     Python client library and the pytest suite
 Tests/          Catch2 unit tests
 ThirdParty/     Submodules
-Scripts/        Submodule setup, build, formatting, static analysis, capture, Python automation
+Scripts/        Submodule setup, build, formatting, static analysis, capture, automation
 ```
 
 Headers and sources live side by side; there is no separate `include/` tree.

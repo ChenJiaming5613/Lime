@@ -260,5 +260,52 @@ namespace Lime
 				                      Result["source"] = ToString(Source);
 			                      });
 		                  });
+
+		// Backs GET /screenshot. Encodes into memory so the transport can return the image itself,
+		// which is what lets a client capture without sharing a file system with the engine. Not
+		// useful over a JSON reply, so it is not part of the documented command set.
+		Registry.RegisterHidden("screenshot.encode", "Captures a PNG into memory. Params: source (backBuffer|viewport)",
+		                        [](FAutomationInvocation& Invocation)
+		                        {
+			                        if (Invocation.GetContext().Screenshots == nullptr)
+			                        {
+				                        Invocation.Fail("The screenshot service is unavailable");
+				                        return;
+			                        }
+
+			                        std::string SourceText;
+			                        std::string Error;
+			                        if (!Invocation.TryGetString("source", SourceText, Error))
+			                        {
+				                        Invocation.Fail(std::move(Error));
+				                        return;
+			                        }
+
+			                        EScreenshotSource Source = EScreenshotSource::BackBuffer;
+			                        if (!SourceText.empty() && !TryParseScreenshotSource(SourceText, Source))
+			                        {
+				                        Invocation.Fail(fmt::format("Unknown source '{}'; expected backBuffer or viewport", SourceText));
+				                        return;
+			                        }
+
+			                        Invocation.Defer(
+			                            [Source](FAutomationContext& Context, FJson& Result, std::string& OutError)
+			                            {
+				                            std::vector<uint8> Png;
+				                            uint32 Width = 0;
+				                            uint32 Height = 0;
+				                            if (!Context.Screenshots->CaptureToPng(Source, Png, Width, Height, OutError))
+				                            {
+					                            return;
+				                            }
+
+				                            Result["source"] = ToString(Source);
+				                            Result["width"] = Width;
+				                            Result["height"] = Height;
+				                            // A binary node, so the HTTP layer can hand the bytes over without a
+				                            // base64 round trip. Never serialized as JSON on this path.
+				                            Result["bytes"] = FJson::binary(std::move(Png));
+			                            });
+		                        });
 	}
 } // namespace Lime

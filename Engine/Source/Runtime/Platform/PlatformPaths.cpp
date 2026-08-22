@@ -2,6 +2,8 @@
 
 #if defined(_WIN32)
 #include <Windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace Lime
@@ -99,5 +101,14 @@ namespace Lime
 	{
 		const std::u8string Utf8 = Path.u8string();
 		return std::string(Utf8.begin(), Utf8.end());
+	}
+
+	uint32 FPlatformPaths::GetProcessId()
+	{
+#if defined(_WIN32)
+		return static_cast<uint32>(::GetCurrentProcessId());
+#else
+		return static_cast<uint32>(::getpid());
+#endif
 	}
 } // namespace Lime

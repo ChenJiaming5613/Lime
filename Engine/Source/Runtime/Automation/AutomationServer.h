@@ -1,13 +1,19 @@
-// Local TCP server exposing engine state to external automation scripts.
+// Local HTTP server exposing engine state to external automation scripts.
 //
-// Protocol: newline delimited JSON over TCP, one request object per line, one reply object per line.
-//   -> {"id": 1, "command": "engine.info", "params": {}}
-//   <- {"id": 1, "ok": true, "result": {...}}
-//   <- {"id": 1, "ok": false, "error": "..."}
+// Protocol: JSON over HTTP on the loopback interface.
+//   POST /command            {"command": "engine.info", "params": {}}   -> {"ok": true, "result": {...}}
+//   POST /command/<name>     {...params...}                             -> same, name from the path
+//   POST /batch              [{"command": ...}, ...]                    -> array of replies
+//   GET  /                                                             -> server identity and metadata
+//   GET  /commands                                                     -> the command catalogue
+//   GET  /screenshot?source=backBuffer                                 -> image/png bytes
 //
-// Threading: each connection gets a thread that only parses and writes. Commands are queued and run
-// by Tick() on the main thread between frames, so handlers see a consistent engine state and need no
-// locking of their own. The calling thread blocks on a future until its command has been executed.
+// Built on cpp-httplib, so this file contains no platform specific socket code and the module
+// compiles anywhere the rest of the engine does.
+//
+// Threading: httplib serves each request from its own thread pool. Commands are queued and run by
+// Tick() on the main thread between frames, so handlers see a consistent engine state and need no
+// locking of their own. The serving thread blocks on a future until its command has been executed.
 //
 // The listener binds to the loopback interface only. This is a debug facility with full access to
 // engine state, so it must never be reachable from outside the machine.
@@ -17,12 +23,19 @@
 #include "Automation/AutomationTypes.h"
 
 #include <atomic>
-#include <condition_variable>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
+
+// Forward declared so <httplib.h> stays out of this header; it is a heavy include that also pulls in
+// <windows.h>. The lower case name is the library's own and cannot follow the engine convention.
+namespace httplib // NOLINT(readability-identifier-naming)
+{
+	class Server;
+} // namespace httplib
 
 namespace Lime
 {
@@ -30,20 +43,23 @@ namespace Lime
 	{
 		uint16 Port = 8787;
 		// Written next to the executable so a script can discover the port without being told.
-		bool bWritePortFile = true;
+		bool bWriteEndpointFile = true;
+		// How long a request waits for the main thread before giving up. A hung main loop must not
+		// leave the client blocked forever.
+		uint32 CommandTimeoutSeconds = 30;
 	};
 
 	class FAutomationServer
 	{
 	public:
-		FAutomationServer() = default;
+		FAutomationServer();
 		~FAutomationServer();
 
 		LIME_NON_COPYABLE(FAutomationServer);
 		LIME_NON_MOVABLE(FAutomationServer);
 
-		// Starts listening. Returns false when the socket layer or the bind failed, which is not
-		// fatal for the engine: it simply runs without automation.
+		// Starts listening. Returns false when the bind failed, which is not fatal for the engine: it
+		// simply runs without automation.
 		bool Initialize(const FAutomationServerDesc& Desc, FAutomationContext Context);
 		void Shutdown();
 
@@ -64,7 +80,7 @@ namespace Lime
 		{
 			std::string Name;
 			FJson Params;
-			// Fulfilled by the main thread; the connection thread waits on the matching future.
+			// Fulfilled by the main thread; the serving thread waits on the matching future.
 			std::promise<FJson> Reply;
 		};
 
@@ -75,27 +91,26 @@ namespace Lime
 			std::promise<FJson> Reply;
 		};
 
-		void ListenerLoop();
-		void ConnectionLoop(uintptr_t ClientSocket);
-		// Parses one request line and returns the reply object.
-		FJson HandleRequestLine(const std::string& Line);
-		// Queues a command and waits for the main thread to run it.
-		FJson DispatchCommand(std::string Name, FJson Params, const FJson& Id);
+		void InstallRoutes();
+		// Runs one command through the queue and returns the reply object.
+		FJson Execute(std::string Name, FJson Params);
+		// Parses a request body into a command name and params. Returns false and fills OutError when
+		// the body is not a usable request.
+		static bool ParseCommandBody(const std::string& Body, std::string& OutName, FJson& OutParams, std::string& OutError);
 
-		static FJson MakeError(const FJson& Id, std::string Message);
-		static FJson MakeSuccess(const FJson& Id, FJson Result);
+		static FJson MakeError(std::string Message);
+		static FJson MakeSuccess(FJson Result);
 
-		void WritePortFile() const;
-		void RemovePortFile() const;
+		void WriteEndpointFile() const;
+		void RemoveEndpointFile() const;
 
 		FAutomationServerDesc Desc;
 		FAutomationContext Context;
 
-		// Stored as an integer so <winsock2.h> stays out of this header.
-		std::atomic<uintptr_t> ListenSocket{ ~uintptr_t{ 0 } };
+		// Held by pointer so <httplib.h> stays out of this header; it is a heavy include that also
+		// pulls in <windows.h>.
+		std::unique_ptr<httplib::Server> Server;
 		std::thread ListenerThread;
-		std::vector<std::thread> ConnectionThreads;
-		std::mutex ConnectionMutex;
 
 		std::mutex QueueMutex;
 		std::vector<std::unique_ptr<FPendingCommand>> Queue;

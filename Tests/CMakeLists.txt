@@ -18,11 +18,15 @@ endif()
 if(TARGET LimeRuntime)
 	list(APPEND TestDeps LimeRuntime)
 endif()
-# The reflection bridge is pure value logic, so it is tested without starting a server.
+# The reflection bridge and script discovery are pure value logic, so they are tested without
+# starting a server.
 if(TARGET LimeAutomation)
 	list(APPEND TestDeps LimeAutomation)
 else()
-	list(REMOVE_ITEM TestSources "${CMAKE_CURRENT_SOURCE_DIR}/Automation/AutomationReflectionTests.cpp")
+	list(REMOVE_ITEM TestSources
+		"${CMAKE_CURRENT_SOURCE_DIR}/Automation/AutomationReflectionTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/Automation/AutomationScriptTests.cpp"
+	)
 endif()
 
 add_executable(LimeTests ${TestSources})

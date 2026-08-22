@@ -22,6 +22,9 @@ namespace Lime
 		// One line summary returned by the "help" command.
 		std::string Description;
 		FAutomationHandler Handler;
+		// Hidden commands back an HTTP route rather than being called by name, so they are left out of
+		// the catalogue to keep it an accurate list of what a client should call.
+		bool bHidden = false;
 	};
 
 	class FAutomationCommandRegistry
@@ -31,13 +34,16 @@ namespace Lime
 
 		// A duplicate name replaces the previous entry, so a project can override a built-in command.
 		void Register(std::string Name, std::string Description, FAutomationHandler Handler);
+		void RegisterHidden(std::string Name, std::string Description, FAutomationHandler Handler);
 
 		const FAutomationCommand* Find(const std::string& Name) const;
-		// Sorted by name, which keeps the help output stable.
+		// Sorted by name, which keeps the help output stable. Hidden commands are excluded.
 		std::vector<const FAutomationCommand*> GetAll() const;
 
 	private:
 		FAutomationCommandRegistry() = default;
+
+		void RegisterInternal(std::string Name, std::string Description, FAutomationHandler Handler, bool bHidden);
 
 		std::map<std::string, FAutomationCommand> Commands;
 	};

@@ -4,90 +4,55 @@
 #include "Platform/PlatformPaths.h"
 
 #include "Automation/AutomationCommandRegistry.h"
+#include "Automation/ScreenshotService.h"
 
-// Winsock must come before windows.h, which some other header may already have pulled in.
+#include <chrono>
 #include <fstream>
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
-#pragma comment(lib, "ws2_32.lib")
+#include <httplib.h>
 
 namespace Lime
 {
 	namespace
 	{
-		constexpr uintptr_t InvalidSocket = ~uintptr_t{ 0 };
-		// Guards against a malformed client streaming an unbounded line into memory.
-		constexpr SizeType MaxRequestBytes = 1u << 20;
-		constexpr const char* PortFileName = "AutomationPort.txt";
+		constexpr const char* EndpointFileName = "AutomationEndpoint.json";
+		// Loopback only: the commands expose full engine state and must not leave the machine.
+		constexpr const char* BindAddress = "127.0.0.1";
+		constexpr const char* JsonContentType = "application/json";
 
-		// Reference counted per process, so repeated Initialize/Shutdown cycles stay valid.
-		class FWinsockScope
+		void SendJson(httplib::Response& Response, const FJson& Payload, int StatusCode = 200)
 		{
-		public:
-			static bool Acquire()
-			{
-				std::lock_guard<std::mutex> Lock(GetMutex());
-				if (GetRefCount() == 0)
-				{
-					WSADATA Data{};
-					const int Result = WSAStartup(MAKEWORD(2, 2), &Data);
-					if (Result != 0)
-					{
-						LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "WSAStartup failed ({})", Result);
-						return false;
-					}
-				}
-				++GetRefCount();
-				return true;
-			}
+			Response.status = StatusCode;
+			Response.set_content(Payload.dump(), JsonContentType);
+		}
 
-			static void Release()
-			{
-				std::lock_guard<std::mutex> Lock(GetMutex());
-				if (GetRefCount() == 0)
-				{
-					return;
-				}
-				if (--GetRefCount() == 0)
-				{
-					WSACleanup();
-				}
-			}
-
-		private:
-			static std::mutex& GetMutex()
-			{
-				static std::mutex Mutex;
-				return Mutex;
-			}
-
-			static int32& GetRefCount()
-			{
-				static int32 RefCount = 0;
-				return RefCount;
-			}
-		};
-
-		bool SendAll(uintptr_t Socket, const std::string& Payload)
+		// A failed command is a 200 with ok=false rather than an HTTP error: the request itself was
+		// well formed and the client distinguishes cases through the payload. Malformed requests and
+		// unknown commands do use HTTP status codes, since those are transport level mistakes.
+		void SendCommandReply(httplib::Response& Response, const FJson& Reply)
 		{
-			SizeType Sent = 0;
-			while (Sent < Payload.size())
-			{
-				const int Result = send(static_cast<SOCKET>(Socket), Payload.data() + Sent, static_cast<int>(Payload.size() - Sent), 0);
-				if (Result <= 0)
-				{
-					return false;
-				}
-				Sent += static_cast<SizeType>(Result);
-			}
-			return true;
+			SendJson(Response, Reply);
 		}
 	} // namespace
 
+	FAutomationServer::FAutomationServer() = default;
+
 	FAutomationServer::~FAutomationServer()
 	{
-		Shutdown();
+		// Shutdown touches the file system and parses JSON, either of which can throw. Escaping a
+		// destructor would terminate the process during teardown, which is worse than losing a stale
+		// endpoint file.
+		try
+		{
+			Shutdown();
+		}
+		catch (const std::exception& Error)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "Shutdown failed: {}", Error.what());
+		}
+		catch (...)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "Shutdown failed with an unknown exception");
+		}
 	}
 
 	bool FAutomationServer::Initialize(const FAutomationServerDesc& InDesc, FAutomationContext InContext)
@@ -100,70 +65,51 @@ namespace Lime
 		Desc = InDesc;
 		Context = std::move(InContext);
 
-		if (!FWinsockScope::Acquire())
-		{
-			return false;
-		}
-
-		const SOCKET Listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (Listener == INVALID_SOCKET)
-		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "socket() failed ({})", WSAGetLastError());
-			FWinsockScope::Release();
-			return false;
-		}
-
-		// Without this a restart within the TIME_WAIT window fails to bind the same port.
-		int ReuseFlag = 1;
-		setsockopt(Listener, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&ReuseFlag), sizeof(ReuseFlag));
-
-		sockaddr_in Address{};
-		Address.sin_family = AF_INET;
-		Address.sin_port = htons(Desc.Port);
-		// Loopback only: the commands expose full engine state and must not leave the machine.
-		Address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-		if (bind(Listener, reinterpret_cast<const sockaddr*>(&Address), sizeof(Address)) == SOCKET_ERROR)
-		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "Cannot bind 127.0.0.1:{} ({}); automation is disabled", Desc.Port,
-			               WSAGetLastError());
-			closesocket(Listener);
-			FWinsockScope::Release();
-			return false;
-		}
-
-		if (listen(Listener, SOMAXCONN) == SOCKET_ERROR)
-		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "listen() failed ({})", WSAGetLastError());
-			closesocket(Listener);
-			FWinsockScope::Release();
-			return false;
-		}
-
-		// Port 0 asks the OS to pick one, so the real value has to be read back. A failure here leaves
-		// the requested port, which is only wrong in the port 0 case and is reported below anyway.
-		BoundPort = Desc.Port;
-		sockaddr_in BoundAddress{};
-		int BoundLength = sizeof(BoundAddress);
-		if (getsockname(Listener, reinterpret_cast<sockaddr*>(&BoundAddress), &BoundLength) == 0)
-		{
-			BoundPort = ntohs(BoundAddress.sin_port);
-		}
-
 		RegisterBuiltinAutomationCommands();
 
-		ListenSocket.store(static_cast<uintptr_t>(Listener));
-		bStopping.store(false);
-		bRunning.store(true);
-		ListenerThread = std::thread([this] { ListenerLoop(); });
+		Server = std::make_unique<httplib::Server>();
+		InstallRoutes();
 
-		if (Desc.bWritePortFile)
+		// Binding before listening is what makes port 0 usable: the OS assigned port is known here, so
+		// it can be published before any request arrives. The two httplib entry points differ in what
+		// they report, hence the lambda rather than a plain conditional.
+		const int Bound = [this]
 		{
-			WritePortFile();
+			if (Desc.Port == 0)
+			{
+				// Returns the port the OS chose, or 0 on failure.
+				return Server->bind_to_any_port(BindAddress);
+			}
+			// Only reports success, so the requested port is what gets used.
+			const bool bBound = Server->bind_to_port(BindAddress, static_cast<int>(Desc.Port));
+			return bBound ? static_cast<int>(Desc.Port) : 0;
+		}();
+
+		if (Bound <= 0)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "Cannot bind {}:{}; automation is disabled", BindAddress, Desc.Port);
+			Server.reset();
+			return false;
 		}
 
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_AUTOMATION, "Automation server listening on 127.0.0.1:{} with {} command(s)", BoundPort,
-		              FAutomationCommandRegistry::Get().GetAll().size());
+		BoundPort = static_cast<uint16>(Bound);
+		bStopping.store(false);
+		bRunning.store(true);
+
+		ListenerThread = std::thread(
+		    [this]
+		    {
+			    // Blocks until stop() is called from Shutdown.
+			    Server->listen_after_bind();
+		    });
+
+		if (Desc.bWriteEndpointFile)
+		{
+			WriteEndpointFile();
+		}
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_AUTOMATION, "Automation server listening on http://{}:{} with {} command(s)", BindAddress,
+		              BoundPort, FAutomationCommandRegistry::Get().GetAll().size());
 		return true;
 	}
 
@@ -176,204 +122,286 @@ namespace Lime
 
 		bStopping.store(true);
 
-		// Closing the listener is what unblocks accept(); there is no portable interruption.
-		const uintptr_t Listener = ListenSocket.exchange(InvalidSocket);
-		if (Listener != InvalidSocket)
+		// stop() unblocks listen_after_bind and closes the listening socket. In flight handlers are
+		// allowed to finish, and the ones waiting on the queue are released just below.
+		if (Server != nullptr)
 		{
-			closesocket(static_cast<SOCKET>(Listener));
+			Server->stop();
 		}
 
-		if (ListenerThread.joinable())
-		{
-			ListenerThread.join();
-		}
-
-		{
-			std::lock_guard<std::mutex> Lock(ConnectionMutex);
-			for (std::thread& Thread : ConnectionThreads)
-			{
-				if (Thread.joinable())
-				{
-					Thread.join();
-				}
-			}
-			ConnectionThreads.clear();
-		}
-
-		// Anything still queued would otherwise leave a client blocked on a broken promise.
+		// Anything still queued would otherwise leave a handler blocked until its timeout expires.
 		{
 			std::lock_guard<std::mutex> Lock(QueueMutex);
 			for (std::unique_ptr<FPendingCommand>& Command : Queue)
 			{
-				Command->Reply.set_value(MakeError(nullptr, "The engine is shutting down"));
+				Command->Reply.set_value(MakeError("The engine is shutting down"));
 			}
 			Queue.clear();
 		}
 
 		for (FDeferredCommand& Command : Deferred)
 		{
-			Command.Reply.set_value(MakeError(nullptr, "The engine is shutting down"));
+			Command.Reply.set_value(MakeError("The engine is shutting down"));
 		}
 		Deferred.clear();
 
-		if (Desc.bWritePortFile)
+		if (ListenerThread.joinable())
 		{
-			RemovePortFile();
+			ListenerThread.join();
+		}
+		Server.reset();
+
+		if (Desc.bWriteEndpointFile)
+		{
+			RemoveEndpointFile();
 		}
 
-		FWinsockScope::Release();
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_AUTOMATION, "Automation server stopped");
 	}
 
-	void FAutomationServer::WritePortFile() const
+	void FAutomationServer::InstallRoutes()
 	{
-		const std::filesystem::path Path = FPlatformPaths::GetExecutableDirectory() / PortFileName;
-		std::ofstream File(Path, std::ios::trunc);
-		if (!File)
-		{
-			LIME_LOG_WARNING(LIME_LOG_CATEGORY_AUTOMATION, "Could not write '{}'", Path.string());
-			return;
-		}
-		File << BoundPort << '\n';
+		// Identity document. A client can use this both to discover what it is talking to and, since
+		// it needs no command dispatch, to detect readiness before the first frame.
+		Server->Get("/",
+		            [this](const httplib::Request&, httplib::Response& Response)
+		            {
+			            FJson Payload = FJson::object();
+			            Payload["server"] = "LimeEngine";
+			            Payload["protocol"] = 1;
+			            Payload["project"] = Context.ProjectName;
+			            Payload["port"] = BoundPort;
+			            Payload["frame"] = Context.FrameCount;
+			            Payload["commandCount"] = FAutomationCommandRegistry::Get().GetAll().size();
+			            SendJson(Response, Payload);
+		            });
+
+		Server->Get("/commands",
+		            [](const httplib::Request&, httplib::Response& Response)
+		            {
+			            FJson Commands = FJson::array();
+			            for (const FAutomationCommand* Command : FAutomationCommandRegistry::Get().GetAll())
+			            {
+				            FJson Entry = FJson::object();
+				            Entry["name"] = Command->Name;
+				            Entry["description"] = Command->Description;
+				            Commands.push_back(std::move(Entry));
+			            }
+
+			            FJson Payload = FJson::object();
+			            Payload["commands"] = std::move(Commands);
+			            SendJson(Response, Payload);
+		            });
+
+		// Command name in the body.
+		Server->Post("/command",
+		             [this](const httplib::Request& Request, httplib::Response& Response)
+		             {
+			             std::string Name;
+			             FJson Params;
+			             std::string Error;
+			             if (!ParseCommandBody(Request.body, Name, Params, Error))
+			             {
+				             SendJson(Response, MakeError(std::move(Error)), 400);
+				             return;
+			             }
+			             SendCommandReply(Response, Execute(std::move(Name), std::move(Params)));
+		             });
+
+		// Command name in the path, body is the params object. Lets a command be invoked with plain
+		// curl and makes the access log readable.
+		Server->Post(R"(/command/([A-Za-z0-9_.\-]+))",
+		             [this](const httplib::Request& Request, httplib::Response& Response)
+		             {
+			             FJson Params = FJson::object();
+			             if (!Request.body.empty())
+			             {
+				             try
+				             {
+					             Params = FJson::parse(Request.body);
+				             }
+				             catch (const FJson::parse_error& Error)
+				             {
+					             SendJson(Response, MakeError(std::string("Malformed JSON: ") + Error.what()), 400);
+					             return;
+				             }
+				             if (!Params.is_object())
+				             {
+					             SendJson(Response, MakeError("The body must be a params object"), 400);
+					             return;
+				             }
+			             }
+			             SendCommandReply(Response, Execute(Request.matches[1].str(), std::move(Params)));
+		             });
+
+		// Several commands in one round trip. Each is dispatched in order and gets its own reply, so a
+		// failure in the middle does not discard the results before it.
+		Server->Post("/batch",
+		             [this](const httplib::Request& Request, httplib::Response& Response)
+		             {
+			             FJson Body;
+			             try
+			             {
+				             Body = FJson::parse(Request.body);
+			             }
+			             catch (const FJson::parse_error& Error)
+			             {
+				             SendJson(Response, MakeError(std::string("Malformed JSON: ") + Error.what()), 400);
+				             return;
+			             }
+
+			             if (!Body.is_array())
+			             {
+				             SendJson(Response, MakeError("A batch must be a JSON array"), 400);
+				             return;
+			             }
+
+			             FJson Replies = FJson::array();
+			             for (const FJson& Entry : Body)
+			             {
+				             const auto NameIterator = Entry.is_object() ? Entry.find("command") : Entry.end();
+				             if (NameIterator == Entry.end() || !NameIterator->is_string())
+				             {
+					             Replies.push_back(MakeError("Each entry needs a 'command' string"));
+					             continue;
+				             }
+
+				             FJson Params = FJson::object();
+				             if (const auto ParamsIterator = Entry.find("params"); ParamsIterator != Entry.end())
+				             {
+					             if (!ParamsIterator->is_object())
+					             {
+						             Replies.push_back(MakeError("'params' must be an object"));
+						             continue;
+					             }
+					             Params = *ParamsIterator;
+				             }
+
+				             Replies.push_back(Execute(NameIterator->get<std::string>(), std::move(Params)));
+			             }
+
+			             FJson Payload = FJson::object();
+			             Payload["ok"] = true;
+			             Payload["replies"] = std::move(Replies);
+			             SendJson(Response, Payload);
+		             });
+
+		// Returns the image itself rather than a path, so a client does not need to share a file
+		// system with the engine. Encoding happens in memory; nothing is written to disk.
+		Server->Get("/screenshot",
+		            [this](const httplib::Request& Request, httplib::Response& Response)
+		            {
+			            EScreenshotSource Source = EScreenshotSource::BackBuffer;
+			            if (Request.has_param("source"))
+			            {
+				            const std::string SourceText = Request.get_param_value("source");
+				            if (!TryParseScreenshotSource(SourceText, Source))
+				            {
+					            SendJson(Response, MakeError("Unknown source '" + SourceText + "'; expected backBuffer or viewport"), 400);
+					            return;
+				            }
+			            }
+
+			            FJson Params = FJson::object();
+			            Params["source"] = ToString(Source);
+			            // Routed through the queue like any other command, so the capture still happens at
+			            // the one point in the frame where the back buffer holds what was just drawn.
+			            const FJson Reply = Execute("screenshot.encode", std::move(Params));
+
+			            if (!Reply.value("ok", false))
+			            {
+				            SendJson(Response, Reply, 500);
+				            return;
+			            }
+
+			            const FJson& Result = Reply["result"];
+			            const auto BytesIterator = Result.find("bytes");
+			            if (BytesIterator == Result.end() || !BytesIterator->is_binary())
+			            {
+				            SendJson(Response, MakeError("The capture produced no image data"), 500);
+				            return;
+			            }
+
+			            const FJson::binary_t& Bytes = BytesIterator->get_binary();
+			            Response.set_content(reinterpret_cast<const char*>(Bytes.data()), Bytes.size(), "image/png");
+		            });
+
+		Server->set_exception_handler(
+		    [](const httplib::Request&, httplib::Response& Response, const std::exception_ptr& Exception)
+		    {
+			    std::string Message = "Unhandled exception";
+			    try
+			    {
+				    std::rethrow_exception(Exception);
+			    }
+			    catch (const std::exception& Error)
+			    {
+				    Message = Error.what();
+			    }
+			    catch (...)
+			    {
+			    }
+			    SendJson(Response, MakeError(std::move(Message)), 500);
+		    });
+
+		// A wrong URL is a client bug worth reporting clearly rather than returning httplib's default
+		// HTML error page.
+		Server->set_error_handler(
+		    [](const httplib::Request& Request, httplib::Response& Response)
+		    {
+			    if (Response.status == 404)
+			    {
+				    SendJson(Response, MakeError("No route for " + Request.method + " " + Request.path), 404);
+			    }
+		    });
 	}
 
-	void FAutomationServer::RemovePortFile() const
-	{
-		std::error_code ErrorCode;
-		std::filesystem::remove(FPlatformPaths::GetExecutableDirectory() / PortFileName, ErrorCode);
-	}
-
-	void FAutomationServer::ListenerLoop()
-	{
-		while (!bStopping.load())
-		{
-			const uintptr_t Listener = ListenSocket.load();
-			if (Listener == InvalidSocket)
-			{
-				break;
-			}
-
-			const SOCKET Client = accept(static_cast<SOCKET>(Listener), nullptr, nullptr);
-			if (Client == INVALID_SOCKET)
-			{
-				// Expected once the listener was closed by Shutdown.
-				if (!bStopping.load())
-				{
-					LIME_LOG_WARNING(LIME_LOG_CATEGORY_AUTOMATION, "accept() failed ({})", WSAGetLastError());
-				}
-				break;
-			}
-
-			std::lock_guard<std::mutex> Lock(ConnectionMutex);
-			// Threads of closed connections are reaped here rather than in a dedicated thread.
-			for (auto Iterator = ConnectionThreads.begin(); Iterator != ConnectionThreads.end();)
-			{
-				if (!Iterator->joinable())
-				{
-					Iterator = ConnectionThreads.erase(Iterator);
-				}
-				else
-				{
-					++Iterator;
-				}
-			}
-			ConnectionThreads.emplace_back([this, Client] { ConnectionLoop(static_cast<uintptr_t>(Client)); });
-		}
-	}
-
-	void FAutomationServer::ConnectionLoop(uintptr_t ClientSocket)
-	{
-		std::string Buffer;
-		std::array<char, 4096> Chunk{};
-
-		while (!bStopping.load())
-		{
-			const int Received = recv(static_cast<SOCKET>(ClientSocket), Chunk.data(), static_cast<int>(Chunk.size()), 0);
-			if (Received <= 0)
-			{
-				break;
-			}
-
-			Buffer.append(Chunk.data(), static_cast<SizeType>(Received));
-			if (Buffer.size() > MaxRequestBytes)
-			{
-				SendAll(ClientSocket, MakeError(nullptr, "Request exceeds the size limit").dump() + "\n");
-				break;
-			}
-
-			// One line is one request; a partial tail stays in the buffer for the next recv.
-			SizeType LineEnd = Buffer.find('\n');
-			while (LineEnd != std::string::npos)
-			{
-				std::string Line = Buffer.substr(0, LineEnd);
-				Buffer.erase(0, LineEnd + 1);
-
-				if (!Line.empty() && Line.back() == '\r')
-				{
-					Line.pop_back();
-				}
-
-				if (!Line.empty())
-				{
-					const FJson Reply = HandleRequestLine(Line);
-					if (!SendAll(ClientSocket, Reply.dump() + "\n"))
-					{
-						closesocket(static_cast<SOCKET>(ClientSocket));
-						return;
-					}
-				}
-
-				LineEnd = Buffer.find('\n');
-			}
-		}
-
-		closesocket(static_cast<SOCKET>(ClientSocket));
-	}
-
-	FJson FAutomationServer::HandleRequestLine(const std::string& Line)
+	bool FAutomationServer::ParseCommandBody(const std::string& Body, std::string& OutName, FJson& OutParams, std::string& OutError)
 	{
 		FJson Request;
 		try
 		{
-			Request = FJson::parse(Line);
+			Request = FJson::parse(Body);
 		}
 		catch (const FJson::parse_error& Error)
 		{
-			return MakeError(nullptr, std::string("Malformed JSON: ") + Error.what());
+			OutError = std::string("Malformed JSON: ") + Error.what();
+			return false;
 		}
 
 		if (!Request.is_object())
 		{
-			return MakeError(nullptr, "A request must be a JSON object");
+			OutError = "A request must be a JSON object";
+			return false;
 		}
 
-		// Echoed back untouched so a client can correlate replies without assuming a type.
-		const FJson Id = Request.contains("id") ? Request["id"] : FJson(nullptr);
-
-		const auto CommandIterator = Request.find("command");
-		if (CommandIterator == Request.end() || !CommandIterator->is_string())
+		const auto NameIterator = Request.find("command");
+		if (NameIterator == Request.end() || !NameIterator->is_string())
 		{
-			return MakeError(Id, "A request needs a 'command' string");
+			OutError = "A request needs a 'command' string";
+			return false;
 		}
 
-		FJson Params = FJson::object();
+		OutParams = FJson::object();
 		if (const auto ParamsIterator = Request.find("params"); ParamsIterator != Request.end())
 		{
 			if (!ParamsIterator->is_object())
 			{
-				return MakeError(Id, "'params' must be an object");
+				OutError = "'params' must be an object";
+				return false;
 			}
-			Params = *ParamsIterator;
+			OutParams = *ParamsIterator;
 		}
 
-		return DispatchCommand(CommandIterator->get<std::string>(), std::move(Params), Id);
+		OutName = NameIterator->get<std::string>();
+		return true;
 	}
 
-	FJson FAutomationServer::DispatchCommand(std::string Name, FJson Params, const FJson& Id)
+	FJson FAutomationServer::Execute(std::string Name, FJson Params)
 	{
 		if (FAutomationCommandRegistry::Get().Find(Name) == nullptr)
 		{
-			return MakeError(Id, "Unknown command '" + Name + "'; call 'help' for the list");
+			return MakeError("Unknown command '" + Name + "'; GET /commands for the list");
 		}
 
 		auto Command = std::make_unique<FPendingCommand>();
@@ -385,39 +413,98 @@ namespace Lime
 			std::lock_guard<std::mutex> Lock(QueueMutex);
 			if (!bRunning.load())
 			{
-				return MakeError(Id, "The engine is shutting down");
+				return MakeError("The engine is shutting down");
 			}
 			Queue.push_back(std::move(Command));
 		}
 
 		// The main thread runs the command during its next Tick. A dead main loop would hang the
 		// client forever, so the wait is bounded.
-		if (Future.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+		if (Future.wait_for(std::chrono::seconds(Desc.CommandTimeoutSeconds)) != std::future_status::ready)
 		{
-			return MakeError(Id, "Timed out waiting for the main thread");
+			return MakeError("Timed out waiting for the main thread");
 		}
-
-		FJson Reply = Future.get();
-		Reply["id"] = Id;
-		return Reply;
+		return Future.get();
 	}
 
-	FJson FAutomationServer::MakeError(const FJson& Id, std::string Message)
+	FJson FAutomationServer::MakeError(std::string Message)
 	{
 		FJson Reply = FJson::object();
-		Reply["id"] = Id;
 		Reply["ok"] = false;
 		Reply["error"] = std::move(Message);
 		return Reply;
 	}
 
-	FJson FAutomationServer::MakeSuccess(const FJson& Id, FJson Result)
+	FJson FAutomationServer::MakeSuccess(FJson Result)
 	{
 		FJson Reply = FJson::object();
-		Reply["id"] = Id;
 		Reply["ok"] = true;
 		Reply["result"] = std::move(Result);
 		return Reply;
+	}
+
+	void FAutomationServer::WriteEndpointFile() const
+	{
+		// JSON rather than a bare port: a client can then also confirm which project and protocol
+		// version it found, which matters when several engines run at once.
+		FJson Payload = FJson::object();
+		Payload["port"] = BoundPort;
+		Payload["url"] = std::string("http://") + BindAddress + ":" + std::to_string(BoundPort);
+		Payload["protocol"] = 1;
+		Payload["project"] = Context.ProjectName;
+		Payload["pid"] = FPlatformPaths::GetProcessId();
+
+		const std::string Serialized = Payload.dump(2);
+
+		// Two files on purpose. The per process one under Saved/Automation is what makes concurrent
+		// instances discoverable: sharing a single name would have them overwrite each other, and a
+		// client would then connect to whichever wrote last. The well known name beside the executable
+		// stays for the common single instance case, where guessing a PID would be awkward.
+		std::error_code ErrorCode;
+		const std::filesystem::path Directory = FPlatformPaths::GetSavedDirectory() / "Automation";
+		std::filesystem::create_directories(Directory, ErrorCode);
+
+		const std::filesystem::path Paths[] = { Directory / (std::to_string(FPlatformPaths::GetProcessId()) + ".json"),
+		                                        FPlatformPaths::GetExecutableDirectory() / EndpointFileName };
+
+		for (const std::filesystem::path& Path : Paths)
+		{
+			std::ofstream File(Path, std::ios::trunc);
+			if (!File)
+			{
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_AUTOMATION, "Could not write '{}'", Path.string());
+				continue;
+			}
+			File << Serialized << '\n';
+		}
+	}
+
+	void FAutomationServer::RemoveEndpointFile() const
+	{
+		std::error_code ErrorCode;
+		std::filesystem::remove(
+		    FPlatformPaths::GetSavedDirectory() / "Automation" / (std::to_string(FPlatformPaths::GetProcessId()) + ".json"), ErrorCode);
+
+		// Only removed when it still describes this process: another instance may have replaced it, and
+		// deleting that would leave the surviving engine undiscoverable.
+		const std::filesystem::path Shared = FPlatformPaths::GetExecutableDirectory() / EndpointFileName;
+		std::ifstream File(Shared);
+		if (!File)
+		{
+			return;
+		}
+
+		// Non-throwing parse: this runs during shutdown, including from the destructor, where an
+		// exception would be worse than leaving the file behind.
+		const FJson Existing = FJson::parse(File, nullptr, false);
+		File.close();
+
+		// A corrupt file cannot be attributed to another instance, so removing it is better than
+		// leaving one no client can use.
+		if (Existing.is_discarded() || Existing.value("pid", 0u) == FPlatformPaths::GetProcessId())
+		{
+			std::filesystem::remove(Shared, ErrorCode);
+		}
 	}
 
 	void FAutomationServer::UpdateContext(float DeltaSeconds, float FramesPerSecond, double TotalSeconds, uint64 FrameCount)
@@ -448,7 +535,7 @@ namespace Lime
 			if (Entry == nullptr)
 			{
 				// Possible when a command was replaced between dispatch and execution.
-				Command->Reply.set_value(MakeError(nullptr, "Unknown command '" + Command->Name + "'"));
+				Command->Reply.set_value(MakeError("Unknown command '" + Command->Name + "'"));
 				continue;
 			}
 
@@ -460,13 +547,13 @@ namespace Lime
 			catch (const std::exception& Error)
 			{
 				// A handler bug must not take the engine down mid frame.
-				Command->Reply.set_value(MakeError(nullptr, std::string("Command threw: ") + Error.what()));
+				Command->Reply.set_value(MakeError(std::string("Command threw: ") + Error.what()));
 				continue;
 			}
 
 			if (Invocation.HasFailed())
 			{
-				Command->Reply.set_value(MakeError(nullptr, Invocation.GetError()));
+				Command->Reply.set_value(MakeError(Invocation.GetError()));
 				continue;
 			}
 
@@ -476,7 +563,7 @@ namespace Lime
 				continue;
 			}
 
-			Command->Reply.set_value(MakeSuccess(nullptr, Invocation.GetResult()));
+			Command->Reply.set_value(MakeSuccess(Invocation.GetResult()));
 		}
 	}
 
@@ -504,11 +591,11 @@ namespace Lime
 
 			if (Error.empty())
 			{
-				Command.Reply.set_value(MakeSuccess(nullptr, std::move(Command.Result)));
+				Command.Reply.set_value(MakeSuccess(std::move(Command.Result)));
 			}
 			else
 			{
-				Command.Reply.set_value(MakeError(nullptr, std::move(Error)));
+				Command.Reply.set_value(MakeError(std::move(Error)));
 			}
 		}
 	}

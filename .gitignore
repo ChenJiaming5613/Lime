@@ -30,10 +30,14 @@ imgui.ini
 # Written next to the executable, which already lives under an ignored Build tree; listed so a
 # relocated output directory does not start tracking them either.
 Saved/
-AutomationPort.txt
+AutomationEndpoint.json
 
-# Python automation scripts
+# Python automation
 __pycache__/
 *.pyc
+.pytest_cache/
+# Local virtual environments for the automation suite.
+.venv/
+venv/
 
 .codebuddy/

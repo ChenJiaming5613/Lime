@@ -12,6 +12,16 @@ namespace Lime
 
 	void FAutomationCommandRegistry::Register(std::string Name, std::string Description, FAutomationHandler Handler)
 	{
+		RegisterInternal(std::move(Name), std::move(Description), std::move(Handler), false);
+	}
+
+	void FAutomationCommandRegistry::RegisterHidden(std::string Name, std::string Description, FAutomationHandler Handler)
+	{
+		RegisterInternal(std::move(Name), std::move(Description), std::move(Handler), true);
+	}
+
+	void FAutomationCommandRegistry::RegisterInternal(std::string Name, std::string Description, FAutomationHandler Handler, bool bHidden)
+	{
 		if (Name.empty() || Handler == nullptr)
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_AUTOMATION, "Ignoring an automation command with no name or handler");
@@ -24,7 +34,7 @@ namespace Lime
 			LIME_LOG_INFO(LIME_LOG_CATEGORY_AUTOMATION, "Automation command '{}' was replaced", Name);
 		}
 
-		Commands[Name] = FAutomationCommand{ Name, std::move(Description), std::move(Handler) };
+		Commands[Name] = FAutomationCommand{ Name, std::move(Description), std::move(Handler), bHidden };
 	}
 
 	const FAutomationCommand* FAutomationCommandRegistry::Find(const std::string& Name) const
@@ -40,7 +50,10 @@ namespace Lime
 		Result.reserve(Commands.size());
 		for (const auto& [Name, Command] : Commands)
 		{
-			Result.push_back(&Command);
+			if (!Command.bHidden)
+			{
+				Result.push_back(&Command);
+			}
 		}
 		return Result;
 	}

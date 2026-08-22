@@ -130,6 +130,31 @@ add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Json/include)
 
 # ---------------------------------------------------------------------------------------
+# cpp-httplib. Header only, used by the automation server. Replaces hand written socket
+# code, so that module contains no platform specific networking at all.
+#
+# Deliberately not add_subdirectory: its CMakeLists builds an install/package configuration
+# and probes for OpenSSL, zlib and Brotli. None of that is wanted here, since the server is
+# plain HTTP on the loopback interface. An INTERFACE target over the single header is the
+# whole integration.
+#
+# CPPHTTPLIB_NO_EXCEPTIONS is not set: the engine already relies on exceptions for JSON
+# parsing, and httplib uses them to report malformed requests.
+# ---------------------------------------------------------------------------------------
+if(LIME_BUILD_AUTOMATION)
+	add_library(httplib INTERFACE)
+	target_include_directories(httplib SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/HttpLib)
+	# The header pulls in <windows.h>; without this it defines the min/max macros that break
+	# std::min and std::max, and drags in a large amount of unrelated API surface.
+	if(WIN32)
+		target_compile_definitions(httplib INTERFACE WIN32_LEAN_AND_MEAN NOMINMAX)
+	endif()
+	# Threads are required on POSIX; on Windows this resolves to a no-op.
+	find_package(Threads REQUIRED)
+	target_link_libraries(httplib INTERFACE Threads::Threads)
+endif()
+
+# ---------------------------------------------------------------------------------------
 # Catch2.
 # ---------------------------------------------------------------------------------------
 if(LIME_BUILD_TESTS)

@@ -1,0 +1,11 @@
+# Python dependencies for the automation test suite.
+#
+# The client library itself needs nothing beyond the standard library, so a script can run from a bare
+# checkout. Only the pytest suite requires these.
+#
+#   python -m pip install -r Automation/requirements.txt
+
+pytest>=8.0
+# Runs the backend matrix in parallel, since each test owns its own engine process. Optional: the
+# suite works without it, just serially.
+pytest-xdist>=3.5

@@ -1,7 +1,9 @@
-# LimeAutomation: local TCP command server used by external test scripts.
+# LimeAutomation: local HTTP command server used by external test scripts.
 #
 # Optional via LIME_BUILD_AUTOMATION. Links the editor when it is present, because the panel commands
 # reach into the editor layer.
+#
+# Networking comes from cpp-httplib, so this module carries no platform specific socket code.
 
 set(AutomationDeps LimeRenderer)
 if(LIME_BUILD_EDITOR)
@@ -15,6 +17,8 @@ lime_add_module(
 		AutomationCommandRegistry.cpp
 		AutomationReflection.h
 		AutomationReflection.cpp
+		AutomationScript.h
+		AutomationScript.cpp
 		AutomationServer.h
 		AutomationServer.cpp
 		AutomationTypes.h
@@ -25,9 +29,12 @@ lime_add_module(
 		Commands/CoreCommands.cpp
 		Commands/EditorCommands.cpp
 		Commands/RenderPassCommands.cpp
+		Commands/ScriptCommands.cpp
 		Commands/SettingsCommands.cpp
 	PUBLIC_DEPS ${AutomationDeps}
+	# httplib is private: it appears only in the server's translation unit, so its <windows.h> include
+	# does not leak into anything that links this module.
 	# stb_image_write comes from the tinygltf target, which already compiles its implementation.
-	PRIVATE_DEPS tinygltf
+	PRIVATE_DEPS tinygltf httplib
 	FOLDER "Engine/Runtime"
 )
