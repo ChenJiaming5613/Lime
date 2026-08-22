@@ -223,9 +223,10 @@ TEST_CASE("Automation command line switches are parsed", "[Engine][ProjectSettin
 	Settings.ApplyCommandLine(2, DisableArguments);
 	REQUIRE_FALSE(Settings.bEnableAutomation);
 
-	// An out of range port is ignored rather than truncated into a different one.
-	Settings.AutomationPort = 8787;
+	// An out of range port is ignored rather than truncated into a different one. A value distinct
+	// from the default is used, so the check proves preservation rather than coincidence.
+	Settings.AutomationPort = 6120;
 	const char* BadArguments[] = { "LimeEngine.exe", "--automation-port=70000" };
 	Settings.ApplyCommandLine(2, BadArguments);
-	REQUIRE(Settings.AutomationPort == 8787);
+	REQUIRE(Settings.AutomationPort == 6120);
 }

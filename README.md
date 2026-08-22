@@ -96,7 +96,7 @@ lime_add_project()
   "window": { "title": "LimeEngine - HelloTriangle", "width": 1600, "height": 900 },
   "rhi": { "backend": "d3d12", "vsync": true, "backBufferCount": 3, "validation": "debugOnly" },
   "editor": { "enabled": true, "persistPassSettings": false },
-  "automation": { "enabled": true, "port": 8787 }
+  "automation": { "enabled": true, "port": 5613 }
 }
 ```
 
@@ -317,8 +317,8 @@ GET  /screenshot?source=viewport                                 -> image/png by
 ```
 
 ```powershell
-curl -X POST http://127.0.0.1:8787/command/engine.info
-curl -o shot.png "http://127.0.0.1:8787/screenshot?source=viewport"
+curl -X POST http://127.0.0.1:5613/command/engine.info
+curl -o shot.png "http://127.0.0.1:5613/screenshot?source=viewport"
 ```
 
 A rejected command is a `200` with `ok=false`, because the request itself was well formed; malformed

@@ -43,7 +43,7 @@ namespace Lime
 		// Local automation server. Enabled by default in debug builds only: it exposes engine state
 		// over a loopback socket, which belongs in development rather than in a shipped build.
 		bool bEnableAutomation = LIME_DEBUG != 0;
-		uint32 AutomationPort = 8787;
+		uint32 AutomationPort = 5613;
 
 		// <exe>/ProjectSettings.json, falling back to the source tree during development.
 		static std::filesystem::path ResolveSettingsPath();

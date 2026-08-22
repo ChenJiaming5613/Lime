@@ -41,7 +41,7 @@ namespace Lime
 {
 	struct FAutomationServerDesc
 	{
-		uint16 Port = 8787;
+		uint16 Port = 5613;
 		// Written next to the executable so a script can discover the port without being told.
 		bool bWriteEndpointFile = true;
 		// How long a request waits for the main thread before giving up. A hung main loop must not

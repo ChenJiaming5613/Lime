@@ -38,7 +38,7 @@ class LimeClient:
     restarts, as long as the port stays the same.
     """
 
-    def __init__(self, url: str = "http://127.0.0.1:8787", timeout: float = DEFAULT_TIMEOUT) -> None:
+    def __init__(self, url: str = "http://127.0.0.1:5613", timeout: float = DEFAULT_TIMEOUT) -> None:
         self.url = url.rstrip("/")
         # Slightly longer than the engine's own dispatch timeout, so a stalled main thread surfaces as
         # the engine's error message rather than as an opaque client side timeout.
