@@ -13,7 +13,9 @@
 
 namespace Lime
 {
-	using FJson = nlohmann::json;
+	// ordered_json rather than json: it preserves key insertion order, so saving a config file keeps
+	// the hand authored layout instead of reordering everything alphabetically.
+	using FJson = nlohmann::ordered_json;
 
 	class FJsonUtils
 	{
@@ -21,8 +23,17 @@ namespace Lime
 		// Parses the file with comments allowed. Returns false and logs on IO or syntax errors.
 		static bool LoadFromFile(const std::filesystem::path& Path, FJson& OutJson);
 
+		// Writes via a temporary file and a rename, so a crash mid-write cannot leave a truncated
+		// config behind. Creates parent directories as needed.
+		static bool SaveToFile(const std::filesystem::path& Path, const FJson& Json, int32 IndentWidth = 1, char IndentChar = '\t');
+
 		// Dot separated lookup, for example "window.width". Returns nullptr when absent.
 		static const FJson* Find(const FJson& Root, std::string_view DottedPath);
+
+		// Assigns a value at a dot separated path, creating intermediate objects. Existing siblings are
+		// preserved, which is what keeps hand written keys intact when the editor saves.
+		// Returns false when a path segment exists but is not an object.
+		static bool Set(FJson& Root, std::string_view DottedPath, FJson Value);
 
 		// Reads a value, logging a warning and returning Fallback on a type mismatch.
 		// Context is prefixed to diagnostics so the caller can name the file.

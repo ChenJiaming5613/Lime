@@ -79,7 +79,7 @@ namespace Lime
 #if LIME_WITH_EDITOR
 		bEditorEnabled = Settings.bEnableEditor;
 		// The editor also switches the renderer to offscreen scene rendering.
-		if (bEditorEnabled && !Editor.Initialize(Window, Renderer))
+		if (bEditorEnabled && !Editor.Initialize(Window, Renderer, Settings))
 		{
 			bEditorEnabled = false;
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_CORE, "Editor initialization failed; continuing without it");

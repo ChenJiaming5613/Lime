@@ -19,6 +19,7 @@ namespace Lime
 {
 	class FRenderer;
 	class FWindow;
+	struct FProjectSettings;
 
 	class FEditorLayer
 	{
@@ -31,7 +32,8 @@ namespace Lime
 
 		// Creates the ImGui context and installs the GLFW platform backend. The renderer backend is
 		// registered separately as a render pass. Routes the scene into a viewport panel.
-		bool Initialize(FWindow& Window, FRenderer& Renderer);
+		// Settings are passed so the project settings panel can edit and persist them.
+		bool Initialize(FWindow& Window, FRenderer& Renderer, const FProjectSettings& Settings);
 		void Shutdown();
 
 		void BeginFrame();
@@ -49,7 +51,7 @@ namespace Lime
 
 	private:
 		void ApplyDarkTheme();
-		void CreatePanels();
+		void CreatePanels(FWindow& Window, const FProjectSettings& Settings);
 		void DrawDockSpace();
 		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();

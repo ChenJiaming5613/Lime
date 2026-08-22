@@ -14,6 +14,10 @@ endif()
 if(TARGET LimeRenderer)
 	list(APPEND TestDeps LimeRenderer)
 endif()
+# Project settings live in LimeRuntime; only their value mapping is exercised, not the engine loop.
+if(TARGET LimeRuntime)
+	list(APPEND TestDeps LimeRuntime)
+endif()
 
 add_executable(LimeTests ${TestSources})
 target_link_libraries(LimeTests PRIVATE ${TestDeps} Catch2::Catch2WithMain)

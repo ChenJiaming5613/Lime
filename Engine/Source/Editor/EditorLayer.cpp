@@ -4,6 +4,7 @@
 #include "Editor/EditorPanelRegistry.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/StatsPanel.h"
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
@@ -25,7 +26,7 @@ namespace Lime
 		Shutdown();
 	}
 
-	bool FEditorLayer::Initialize(FWindow& Window, FRenderer& InRenderer)
+	bool FEditorLayer::Initialize(FWindow& Window, FRenderer& InRenderer, const FProjectSettings& Settings)
 	{
 		if (bInitialized)
 		{
@@ -58,7 +59,7 @@ namespace Lime
 			return false;
 		}
 
-		CreatePanels();
+		CreatePanels(Window, Settings);
 
 		// Registered rather than added directly so it is ordered by priority together with the
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
@@ -124,7 +125,7 @@ namespace Lime
 		Renderer->GetViewportTarget().RequestResize(ViewportPanel->GetDesiredWidth(), ViewportPanel->GetDesiredHeight());
 	}
 
-	void FEditorLayer::CreatePanels()
+	void FEditorLayer::CreatePanels(FWindow& Window, const FProjectSettings& Settings)
 	{
 		// Built-in panels first, then whatever the project registered.
 		ViewportPanel = std::make_shared<FViewportPanel>();
@@ -132,6 +133,10 @@ namespace Lime
 		Panels.push_back(std::make_shared<FConsolePanel>());
 		Panels.push_back(std::make_shared<FStatsPanel>());
 		Panels.push_back(std::make_shared<FInspectorPanel>());
+
+		auto SettingsPanel = std::make_shared<FProjectSettingsPanel>();
+		SettingsPanel->Initialize(Settings, &Window);
+		Panels.push_back(std::move(SettingsPanel));
 
 		for (std::shared_ptr<IEditorPanel>& Panel : FEditorPanelRegistry::Get().InstantiateAll())
 		{
@@ -148,6 +153,12 @@ namespace Lime
 			{
 				Panels.push_back(std::move(Panel));
 			}
+		}
+
+		// Applied here so every panel, built-in or from a project, honours its declared default.
+		for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
+		{
+			Panel->SetVisible(Panel->IsVisibleByDefault());
 		}
 	}
 

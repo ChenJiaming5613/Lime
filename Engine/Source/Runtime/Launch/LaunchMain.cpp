@@ -31,6 +31,13 @@ namespace
 
 int main(int ArgumentCount, char** Arguments)
 {
+	// This translation unit is compiled into the executable, so it is the only place that sees the
+	// per project defines lime_add_project sets. The path is handed to the engine, whose libraries
+	// cannot see them.
+#if defined(LIME_PROJECT_SOURCE_DIR)
+	Lime::FPlatformPaths::SetProjectSourceDirectory(LIME_PROJECT_SOURCE_DIR);
+#endif
+
 	// Logging comes first so settings parsing diagnostics are captured.
 	Lime::FLogConfig LogConfig;
 	LogConfig.FileName = Lime::FPlatformPaths::GetSavedDirectory() / "Logs" / "LimeEngine.log";

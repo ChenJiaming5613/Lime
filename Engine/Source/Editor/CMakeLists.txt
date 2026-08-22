@@ -16,6 +16,8 @@ lime_add_module(
 		Panels/EditorPanel.h
 		Panels/InspectorPanel.h
 		Panels/InspectorPanel.cpp
+		Panels/ProjectSettingsPanel.h
+		Panels/ProjectSettingsPanel.cpp
 		Panels/StatsPanel.h
 		Panels/StatsPanel.cpp
 		Panels/ViewportPanel.h

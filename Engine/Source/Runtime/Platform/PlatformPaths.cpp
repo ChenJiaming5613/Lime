@@ -73,18 +73,26 @@ namespace Lime
 		return Directory;
 	}
 
+	namespace
+	{
+		// Set once at startup by the launcher, which is the only place that sees the project's defines.
+		std::filesystem::path GProjectSourceDirectory;
+	} // namespace
+
 	const std::filesystem::path& FPlatformPaths::GetProjectSourceDirectory()
 	{
-		// LIME_PROJECT_SOURCE_DIR is injected per project by lime_add_project.
-		static const std::filesystem::path Directory = []
+		return GProjectSourceDirectory;
+	}
+
+	void FPlatformPaths::SetProjectSourceDirectory(std::filesystem::path Directory)
+	{
+		std::error_code ErrorCode;
+		if (!Directory.empty() && !std::filesystem::is_directory(Directory, ErrorCode))
 		{
-#if defined(LIME_PROJECT_SOURCE_DIR)
-			return std::filesystem::path(LIME_PROJECT_SOURCE_DIR);
-#else
-			return std::filesystem::path();
-#endif
-		}();
-		return Directory;
+			// A stale path from an older build would send saves to a directory that no longer exists.
+			return;
+		}
+		GProjectSourceDirectory = std::move(Directory);
 	}
 
 	std::string FPlatformPaths::ToUtf8(const std::filesystem::path& Path)

@@ -45,12 +45,14 @@ function(lime_add_project)
 		message(FATAL_ERROR "No sources found under ${LIME_PROJ_SOURCE_DIR}")
 	endif()
 
-	add_executable(${LIME_PROJ_NAME} ${ProjectSources})
+	# The launch source is compiled per project rather than shared through a library target, so that
+	# LIME_PROJECT_SOURCE_DIR is visible while compiling main. A shared target could not carry a value
+	# that differs per project.
+	add_executable(${LIME_PROJ_NAME} ${ProjectSources} "${LIME_LAUNCH_SOURCE}")
 	target_include_directories(${LIME_PROJ_NAME} PRIVATE "${LIME_PROJ_SOURCE_DIR}")
-	# LimeLaunch supplies main; linking its objects directly guarantees the registrars are kept.
-	target_link_libraries(${LIME_PROJ_NAME} PRIVATE LimeCompilerOptions LimeRuntime LimeLaunch)
+	target_link_libraries(${LIME_PROJ_NAME} PRIVATE LimeCompilerOptions LimeRuntime)
 
-	# Lets the runtime fall back to the source tree before the post build copies have run.
+	# Lets the runtime resolve and write the authored settings file in the source tree.
 	target_compile_definitions(${LIME_PROJ_NAME} PRIVATE
 		LIME_PROJECT_NAME="${LIME_PROJ_NAME}"
 		LIME_PROJECT_SOURCE_DIR="${ProjectDir}"

@@ -18,6 +18,20 @@ namespace Lime
 		}
 	}
 
+	const char* ToConfigToken(ERHIBackend Backend)
+	{
+		// Must stay in the set TryParseBackend accepts, so a saved value can be read back.
+		switch (Backend)
+		{
+			case ERHIBackend::D3D12:
+				return "d3d12";
+			case ERHIBackend::Vulkan:
+				return "vulkan";
+			default:
+				return "d3d12";
+		}
+	}
+
 	bool TryParseBackend(std::string_view Text, ERHIBackend& OutBackend)
 	{
 		std::string Lowered(Text);

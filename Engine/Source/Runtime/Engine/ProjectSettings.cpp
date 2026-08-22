@@ -14,40 +14,6 @@ namespace Lime
 		constexpr const char* SettingsFileName = "ProjectSettings.json";
 		constexpr const char* LogContext = "ProjectSettings.json";
 
-		bool TryParseValidation(std::string_view Text, EValidationMode& OutMode)
-		{
-			if (Text == "off")
-			{
-				OutMode = EValidationMode::Off;
-				return true;
-			}
-			if (Text == "debugOnly" || Text == "debugonly")
-			{
-				OutMode = EValidationMode::DebugOnly;
-				return true;
-			}
-			if (Text == "on")
-			{
-				OutMode = EValidationMode::On;
-				return true;
-			}
-			return false;
-		}
-
-		const char* ToString(EValidationMode Mode)
-		{
-			switch (Mode)
-			{
-				case EValidationMode::Off:
-					return "off";
-				case EValidationMode::On:
-					return "on";
-				case EValidationMode::DebugOnly:
-					return "debugOnly";
-			}
-			return "debugOnly";
-		}
-
 		bool TryParseUInt(std::string_view Text, uint32& OutValue)
 		{
 			uint32 Parsed = 0;
@@ -70,6 +36,122 @@ namespace Lime
 			return true;
 		}
 	} // namespace
+
+	const char* ToString(EValidationMode Mode)
+	{
+		switch (Mode)
+		{
+			case EValidationMode::Off:
+				return "off";
+			case EValidationMode::On:
+				return "on";
+			case EValidationMode::DebugOnly:
+				return "debugOnly";
+		}
+		return "debugOnly";
+	}
+
+	bool TryParseValidation(std::string_view Text, EValidationMode& OutMode)
+	{
+		if (Text == "off")
+		{
+			OutMode = EValidationMode::Off;
+			return true;
+		}
+		if (Text == "debugOnly" || Text == "debugonly")
+		{
+			OutMode = EValidationMode::DebugOnly;
+			return true;
+		}
+		if (Text == "on")
+		{
+			OutMode = EValidationMode::On;
+			return true;
+		}
+		return false;
+	}
+
+	std::filesystem::path FProjectSettings::ResolveAuthoringPath()
+	{
+		// Only the source tree copy is worth writing: the one beside the executable is overwritten by
+		// the next build's post build step.
+		const std::filesystem::path& SourceRoot = FPlatformPaths::GetProjectSourceDirectory();
+		if (SourceRoot.empty())
+		{
+			return {};
+		}
+		return SourceRoot / SettingsFileName;
+	}
+
+	bool FProjectSettings::SaveToFile() const
+	{
+		const std::filesystem::path AuthoringPath = ResolveAuthoringPath();
+		if (AuthoringPath.empty())
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_CORE, "No project source directory is known, so settings cannot be saved");
+			return false;
+		}
+
+		// Load and modify rather than serialize from scratch: comments and any keys a newer version of
+		// the engine might add have to survive a save from an older one.
+		FJson Root;
+		if (!FJsonUtils::LoadFromFile(AuthoringPath, Root) || !Root.is_object())
+		{
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "'{}' could not be read; writing a fresh file", AuthoringPath.string());
+			Root = FJson::object();
+			Root["version"] = 1;
+		}
+
+		// ProjectName is deliberately not written: CMake reads it at configure time to derive the
+		// target and the shader output directory, so changing it here would desync the build.
+		bool bOk = true;
+		bOk &= FJsonUtils::Set(Root, "window.title", WindowTitle);
+		bOk &= FJsonUtils::Set(Root, "window.width", WindowWidth);
+		bOk &= FJsonUtils::Set(Root, "window.height", WindowHeight);
+		bOk &= FJsonUtils::Set(Root, "rhi.backend", ToConfigToken(Backend));
+		bOk &= FJsonUtils::Set(Root, "rhi.vsync", bVSync);
+		bOk &= FJsonUtils::Set(Root, "rhi.backBufferCount", BackBufferCount);
+		bOk &= FJsonUtils::Set(Root, "rhi.validation", Lime::ToString(Validation));
+		bOk &= FJsonUtils::Set(Root, "editor.enabled", bEnableEditor);
+		bOk &= FJsonUtils::Set(Root, "editor.persistPassSettings", bPersistPassSettings);
+
+		if (!bOk)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_CORE, "Refusing to save: '{}' has a key whose type conflicts with the schema",
+			               AuthoringPath.string());
+			return false;
+		}
+
+		if (!FJsonUtils::SaveToFile(AuthoringPath, Root))
+		{
+			return false;
+		}
+
+		// Keep the deployed copy in step so a restart without a rebuild sees the new values.
+		const std::filesystem::path DeployedPath = FPlatformPaths::GetExecutableDirectory() / SettingsFileName;
+		if (DeployedPath != AuthoringPath && std::filesystem::exists(DeployedPath))
+		{
+			std::error_code ErrorCode;
+			std::filesystem::copy_file(AuthoringPath, DeployedPath, std::filesystem::copy_options::overwrite_existing, ErrorCode);
+			if (ErrorCode)
+			{
+				// Not fatal: the authored file is already correct, the next build will copy it.
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "Saved settings but could not refresh '{}': {}", DeployedPath.string(),
+				                 ErrorCode.message());
+			}
+		}
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_CORE, "Project settings saved to '{}'", AuthoringPath.string());
+		return true;
+	}
+
+	bool FProjectSettings::operator==(const FProjectSettings& Other) const
+	{
+		return ProjectName == Other.ProjectName && WindowTitle == Other.WindowTitle && WindowWidth == Other.WindowWidth &&
+		       WindowHeight == Other.WindowHeight && Backend == Other.Backend && BackBufferCount == Other.BackBufferCount &&
+		       bVSync == Other.bVSync && Validation == Other.Validation && bEnableEditor == Other.bEnableEditor &&
+		       bPersistPassSettings == Other.bPersistPassSettings;
+	}
 
 	std::filesystem::path FProjectSettings::ResolveSettingsPath()
 	{
@@ -127,7 +209,7 @@ namespace Lime
 		{
 			FJsonUtils::WarnUnknownKeys(*Rhi, { "backend", "vsync", "backBufferCount", "validation" }, "rhi", LogContext);
 
-			const std::string BackendText = FJsonUtils::ReadOr<std::string>(Root, "rhi.backend", Lime::ToString(Backend), LogContext);
+			const std::string BackendText = FJsonUtils::ReadOr<std::string>(Root, "rhi.backend", ToConfigToken(Backend), LogContext);
 			ERHIBackend ParsedBackend = Backend;
 			if (!TryParseBackend(BackendText, ParsedBackend))
 			{

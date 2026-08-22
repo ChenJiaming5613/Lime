@@ -21,9 +21,11 @@ namespace Lime
 		// Writable location for logs, layout and saved settings.
 		static const std::filesystem::path& GetSavedDirectory();
 
-		// Source directory of the project being run, injected by lime_add_project. Empty in
-		// installed builds, where everything is expected to sit next to the executable.
+		// Source directory of the project being run. Injected at startup rather than compiled in,
+		// because the define only exists on the executable target and this code lives in a library.
+		// Empty in installed builds, where everything sits next to the executable.
 		static const std::filesystem::path& GetProjectSourceDirectory();
+		static void SetProjectSourceDirectory(std::filesystem::path Directory);
 
 		static std::string ToUtf8(const std::filesystem::path& Path);
 	};

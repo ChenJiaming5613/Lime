@@ -28,6 +28,8 @@ namespace Lime
 		virtual EEditorDockSlot GetDefaultDockSlot() const { return EEditorDockSlot::Right; }
 		// Menu category used to group entries under Window.
 		virtual const char* GetMenuCategory() const { return "Panels"; }
+		// Panels that are only occasionally useful can start hidden and be opened from the menu.
+		virtual bool IsVisibleByDefault() const { return true; }
 
 		virtual void OnDrawUI(const FEditorContext& Context) = 0;
 

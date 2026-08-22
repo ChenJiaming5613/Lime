@@ -16,7 +16,11 @@ namespace Lime
 		Vulkan
 	};
 
+	// Display name, for logs and the editor UI.
 	const char* ToString(ERHIBackend Backend);
+	// Lower case token used in ProjectSettings.json and on the command line, so what is written back
+	// round trips through TryParseBackend.
+	const char* ToConfigToken(ERHIBackend Backend);
 	// Accepts "d3d12", "dx12", "vulkan", "vk"; returns false when unrecognized.
 	bool TryParseBackend(std::string_view Text, ERHIBackend& OutBackend);
 	bool IsBackendEnabled(ERHIBackend Backend);

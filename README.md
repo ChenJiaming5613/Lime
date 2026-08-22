@@ -91,6 +91,17 @@ lime_add_project()
 CMake reads the same file at configure time, so the project name cannot drift between the build and
 the runtime.
 
+The editor can edit this file: `Window > Project Settings` opens a panel that writes back to the copy
+in the project source tree, and refreshes the copy beside the executable so a restart picks the values
+up without rebuilding. Saving is a load-modify-save, so comments, key order and any keys the engine
+does not recognise are preserved.
+
+Most of these values are read once at startup, so the panel edits the configuration for the *next*
+launch and marks those fields `(restart)`. The backend, buffer count and validation mode are fixed
+when the device is created, and turning the editor off would remove the UI needed to turn it back on.
+The window title is the exception and applies immediately. `name` is intentionally not editable,
+because CMake derives the target and the shader output directory from it.
+
 ### A render pass
 
 Declare the tunables once and the editor generates the controls from them:
@@ -182,8 +193,8 @@ LIME_IMPLEMENT_APPLICATION(FMyApp)
 ```
 
 Self registration depends on static initializers running, which is why `lime_add_project` compiles
-project sources straight into the executable. Moving them into a static library would let the linker
-discard the object files whose only content is a registration.
+project sources, and the engine's `LaunchMain.cpp`, straight into the executable. Moving them into a
+static library would let the linker discard the object files whose only content is a registration.
 
 ## Tests
 
@@ -193,7 +204,8 @@ ctest --test-dir Build/ninja -C Debug --output-on-failure
 
 Coverage focuses on logic that can be verified without a GPU: the math library, the log ring buffer,
 the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering and
-stage assignment, viewport resize decisions, JSON fallback behaviour, and the reflection layer.
+stage assignment, viewport resize decisions, JSON reading, writing and key order preservation, the
+project settings value round trip, and the reflection layer.
 
 Rendering itself is verified by capturing the window, since the output is what matters:
 
@@ -219,7 +231,7 @@ LimeRHI       IDeviceManager plus the D3D12 and Vulkan implementations, shader l
 LimeRenderer  Frame orchestration, the render pass registry, the viewport target, the ImGui backend.
 LimeEditor    Editor layer, dock space, panel registry, built-in panels. Optional.
 LimeRuntime   FEngine and project settings.
-LimeLaunch    main(). An OBJECT library so registrars are never discarded.
+LimeLaunch    main(). Compiled into each executable so registrars are never discarded.
 ```
 
 Projects depend only on the engine; the engine never references a project. Passes and panels travel
