@@ -78,7 +78,8 @@ namespace Lime
 
 #if LIME_WITH_EDITOR
 		bEditorEnabled = Settings.bEnableEditor;
-		if (bEditorEnabled && !Editor.Initialize(Window))
+		// The editor also switches the renderer to offscreen scene rendering.
+		if (bEditorEnabled && !Editor.Initialize(Window, Renderer))
 		{
 			bEditorEnabled = false;
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_CORE, "Editor initialization failed; continuing without it");
@@ -149,9 +150,21 @@ namespace Lime
 
 		if (Renderer.BeginFrame(DeltaSeconds, Timer.GetTotalSeconds()))
 		{
-			Renderer.RenderPasses();
+			// Two stages: the scene goes to the viewport target in editor mode and straight to the
+			// back buffer otherwise, while UI passes always target the back buffer.
+			Renderer.RenderScene();
+			Renderer.RenderUI();
 			Renderer.EndFrame();
 		}
+
+#if LIME_WITH_EDITOR
+		// The panel size is only known once the UI has been laid out, so the request is queued here
+		// and applied by the next BeginFrame.
+		if (bEditorEnabled)
+		{
+			Editor.SubmitViewportSize();
+		}
+#endif
 
 		DeviceManager->Present();
 	}

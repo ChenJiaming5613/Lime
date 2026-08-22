@@ -8,7 +8,7 @@
 	},
 	"rhi": {
 		"backend": "d3d12",
-		"vsync": true,
+		"vsync": false,
 		"backBufferCount": 3,
 		"validation": "debugOnly"
 	},

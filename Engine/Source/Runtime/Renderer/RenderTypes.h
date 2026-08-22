@@ -38,6 +38,9 @@ namespace Lime
 		uint32 ViewportHeight = 0;
 		nvrhi::IFramebuffer* Framebuffer = nullptr;
 		nvrhi::ICommandList* CommandList = nullptr;
+		// True when the scene renders into the editor viewport instead of the swap chain. Passes only
+		// need this if they care about the distinction; the framebuffer and size already differ.
+		bool bIsOffscreen = false;
 
 		float GetAspectRatio() const
 		{
@@ -67,9 +70,19 @@ namespace Lime
 		virtual const char* GetName() const = 0;
 		// Identifies the concrete class. TRenderPass supplies this automatically.
 		virtual FRenderPassTypeId GetTypeId() const = 0;
+		// Decides both the draw order and which stage the pass belongs to. TRenderPass forwards the
+		// static Priority member, so a pass declares it in exactly one place.
+		virtual ERenderPassPriority GetPriority() const = 0;
 
 		virtual bool Initialize(FRenderer& Renderer) = 0;
 		virtual void Shutdown() = 0;
+		// Runs before the render targets are cleared, so a pass can update renderer wide state such as
+		// the clear colour. Doing that from Render would be one frame late.
+		virtual void OnBeginFrame(FRenderer& Renderer, const FFrameContext& Context)
+		{
+			LIME_UNUSED(Renderer);
+			LIME_UNUSED(Context);
+		}
 		virtual void Render(const FFrameContext& Context) = 0;
 		// Called when the back buffer changes, so pipelines bound to a framebuffer can be rebuilt.
 		virtual void OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer) { LIME_UNUSED(Framebuffer); }
@@ -79,7 +92,8 @@ namespace Lime
 		virtual FReflectedRef GetReflectedSettings() { return {}; }
 	};
 
-	// CRTP helper providing the type identity. Passes derive from this rather than IRenderPass.
+	// CRTP helper providing the type identity and the priority. Passes derive from this rather than
+	// IRenderPass, and declare `static constexpr ERenderPassPriority Priority`.
 	template<typename DerivedType>
 	class TRenderPass : public IRenderPass
 	{
@@ -92,6 +106,7 @@ namespace Lime
 		}
 
 		FRenderPassTypeId GetTypeId() const override { return StaticTypeId(); }
+		ERenderPassPriority GetPriority() const override { return DerivedType::Priority; }
 	};
 
 	// Builds the reflected reference for a settings object; registers the type on first use.

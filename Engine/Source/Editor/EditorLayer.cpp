@@ -7,8 +7,10 @@
 #include "Editor/Panels/StatsPanel.h"
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
+#include "RHI/DeviceManager.h"
 #include "Renderer/ImGui/ImGuiRenderer.h"
 #include "Renderer/RenderPassRegistry.h"
+#include "Renderer/Renderer.h"
 
 #include <imgui_impl_glfw.h>
 #include <imgui_internal.h>
@@ -23,12 +25,14 @@ namespace Lime
 		Shutdown();
 	}
 
-	bool FEditorLayer::Initialize(FWindow& Window)
+	bool FEditorLayer::Initialize(FWindow& Window, FRenderer& InRenderer)
 	{
 		if (bInitialized)
 		{
 			return true;
 		}
+
+		Renderer = &InRenderer;
 
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
@@ -61,14 +65,70 @@ namespace Lime
 		// the linker would be free to discard a translation unit that only registers.
 		FRenderPassRegistry::Get().Register("ImGui", FImGuiRenderer::Priority, [] { return std::make_shared<FImGuiRenderer>(); });
 
+		// The scene goes to an offscreen target so it can be shown inside the viewport panel. The
+		// initial size is the back buffer; the panel corrects it on the first frame it is drawn.
+		IDeviceManager& DeviceManager = InRenderer.GetDeviceManager();
+		if (!InRenderer.EnableOffscreenRendering(DeviceManager.GetBackBufferWidth(), DeviceManager.GetBackBufferHeight()))
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_EDITOR, "Failed to create the viewport target");
+			ImGui_ImplGlfw_Shutdown();
+			ImGui::DestroyContext();
+			return false;
+		}
+
+		// The texture object changes on resize, so the binding set has to be rebuilt each time.
+		InRenderer.SetViewportResizedDelegate([this](FViewportTarget&) { RefreshViewportTexture(); });
+
 		bInitialized = true;
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Editor initialized with {} panel(s)", Panels.size());
 		return true;
 	}
 
+	void FEditorLayer::RefreshViewportTexture()
+	{
+		if (Renderer == nullptr || ViewportPanel == nullptr)
+		{
+			return;
+		}
+
+		FImGuiRenderer* ImGuiPass = Renderer->FindPass<FImGuiRenderer>();
+		if (ImGuiPass == nullptr)
+		{
+			// The pass is created after Initialize, so the first call is expected to find nothing.
+			return;
+		}
+
+		nvrhi::ITexture* Texture = Renderer->GetViewportTarget().GetTexture();
+		if (Texture == nullptr)
+		{
+			return;
+		}
+
+		// Reusing the id keeps the panel's handle stable across resizes.
+		const ImTextureID TextureId = ImGuiPass->RegisterTexture(Texture, ViewportTextureId);
+		if (TextureId != ImTextureID_Invalid)
+		{
+			ViewportTextureId = TextureId;
+			ViewportPanel->SetTextureId(TextureId);
+		}
+	}
+
+	void FEditorLayer::SubmitViewportSize()
+	{
+		if (Renderer == nullptr || ViewportPanel == nullptr || !Renderer->IsOffscreenRenderingEnabled())
+		{
+			return;
+		}
+
+		// Applied at the start of the next frame, before anything binds the target.
+		Renderer->GetViewportTarget().RequestResize(ViewportPanel->GetDesiredWidth(), ViewportPanel->GetDesiredHeight());
+	}
+
 	void FEditorLayer::CreatePanels()
 	{
 		// Built-in panels first, then whatever the project registered.
+		ViewportPanel = std::make_shared<FViewportPanel>();
+		Panels.push_back(ViewportPanel);
 		Panels.push_back(std::make_shared<FConsolePanel>());
 		Panels.push_back(std::make_shared<FStatsPanel>());
 		Panels.push_back(std::make_shared<FInspectorPanel>());
@@ -109,6 +169,20 @@ namespace Lime
 		{
 			return;
 		}
+
+		if (Renderer != nullptr)
+		{
+			Renderer->SetViewportResizedDelegate(nullptr);
+			// The binding set references the viewport texture, so it goes before the target does.
+			if (FImGuiRenderer* ImGuiPass = Renderer->FindPass<FImGuiRenderer>())
+			{
+				ImGuiPass->UnregisterTexture(ViewportTextureId);
+			}
+			Renderer->DisableOffscreenRendering();
+		}
+		ViewportTextureId = ImTextureID_Invalid;
+		ViewportPanel.reset();
+		Renderer = nullptr;
 
 		Panels.clear();
 
@@ -331,6 +405,13 @@ namespace Lime
 		if (!bInitialized)
 		{
 			return;
+		}
+
+		// The ImGui pass is instantiated after Initialize, so the first frame is where the viewport
+		// texture can finally be bound.
+		if (ViewportTextureId == ImTextureID_Invalid)
+		{
+			RefreshViewportTexture();
 		}
 
 		DrawDockSpace();

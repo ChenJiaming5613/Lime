@@ -57,10 +57,13 @@ HelloTriangle.exe --validation=off   # also: debugOnly (default), on
 HelloTriangle.exe --project=<path to a ProjectSettings.json>
 ```
 
-A rotating triangle is drawn with the editor docked on top: `Console` at the bottom, `Stats` and
-`Inspector` on the right, the project's own `Triangle` panel on the left, and a transparent central
-node so the scene stays visible. The layout is saved to `Saved/EditorLayout.ini` next to the
-executable; delete it or use `Window > Reset layout` to restore the default arrangement.
+A rotating triangle is drawn with the editor docked on top: the scene lives in the `Viewport` panel,
+`Console` at the bottom, `Stats` and `Inspector` on the right, and the project's own `Triangle` panel
+on the left. The layout is saved to `Saved/EditorLayout.ini` next to the executable; delete it or use
+`Window > Reset layout` to restore the default arrangement.
+
+With `--no-editor` the scene renders straight into the swap chain and no offscreen target is created,
+so the runtime path stays free of editor cost.
 
 ## Writing a project
 
@@ -113,6 +116,8 @@ public:
     const char* GetName() const override { return "Triangle"; }
     bool Initialize(Lime::FRenderer& Renderer) override;
     void Shutdown() override;
+    // Runs before the targets are cleared, for renderer wide state such as the clear colour.
+    void OnBeginFrame(Lime::FRenderer& Renderer, const Lime::FFrameContext& Context) override;
     void Render(const Lime::FFrameContext& Context) override;
 
     // Opting in makes the settings appear in the generic Inspector panel.
@@ -128,8 +133,9 @@ private:
 LIME_REGISTER_RENDER_PASS(HelloTriangle::FTrianglePass);
 ```
 
-Passes are instantiated by the engine once the device exists and drawn in `Priority` order, so the
-editor's UI pass is always last regardless of registration order.
+Passes are instantiated by the engine once the device exists. `Priority` decides two things: the draw
+order, and which render stage the pass belongs to (see Render stages below). A pass renders against
+whatever `FFrameContext` hands it, so it does not need to know whether the editor is active.
 
 ### An editor panel
 
@@ -186,8 +192,8 @@ ctest --test-dir Build/ninja -C Debug --output-on-failure
 ```
 
 Coverage focuses on logic that can be verified without a GPU: the math library, the log ring buffer,
-the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering, JSON
-fallback behaviour, and the reflection layer.
+the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering and
+stage assignment, viewport resize decisions, JSON fallback behaviour, and the reflection layer.
 
 ## Architecture
 
@@ -197,7 +203,7 @@ Strictly one-directional layering, one static library per layer:
 LimeCore      Types, logging, assertions, math, JSON, reflection. No graphics dependencies.
 LimePlatform  Window, input, timing, path resolution (GLFW).
 LimeRHI       IDeviceManager plus the D3D12 and Vulkan implementations, shader loading (NVRHI).
-LimeRenderer  Frame orchestration, the render pass registry, the NVRHI based ImGui backend.
+LimeRenderer  Frame orchestration, the render pass registry, the viewport target, the ImGui backend.
 LimeEditor    Editor layer, dock space, panel registry, built-in panels. Optional.
 LimeRuntime   FEngine and project settings.
 LimeLaunch    main(). An OBJECT library so registrars are never discarded.
@@ -211,6 +217,28 @@ NVRHI does not provide device or swap chain management, so `IDeviceManager` is i
 backend. The ImGui renderer is written against NVRHI rather than using `imgui_impl_dx12` /
 `imgui_impl_vulkan`, so both backends share one drawing path; only `imgui_impl_glfw` is reused for
 platform input.
+
+## Render stages
+
+A frame runs in two stages, split at `ERenderPassPriority::UI`:
+
+| Stage | Passes | Target with editor | Target without editor |
+| --- | --- | --- | --- |
+| Scene | priority < `UI` | `FViewportTarget` (offscreen) | back buffer |
+| UI | priority >= `UI` | back buffer | back buffer |
+
+They are submitted as two separate command lists, because the UI stage samples the texture the scene
+stage wrote. `--no-editor` never creates the offscreen target at all, so the runtime path is exactly
+what it was before the viewport existed.
+
+The viewport panel only learns its size while the UI is being built, which is after the scene has
+already been rendered. The requested size is therefore applied at the start of the next frame, so
+dragging the panel stretches the image for one frame before the target matches again. When the target
+is recreated, the ImGui binding set is rebuilt through `FRenderer::SetViewportResizedDelegate` while
+the `ImTextureID` handed to the panel stays the same.
+
+`IRenderPass::OnBeginFrame` exists for state that has to be set before the targets are cleared, such
+as the clear colour. Doing that from `Render` would apply one frame late.
 
 ## Reflection
 
@@ -302,5 +330,5 @@ and `.clang-tidy`.
 ## Roadmap
 
 - glTF scene loading through the vendored tinygltf
-- Viewport panel rendering into an offscreen target
+- Depth buffer and camera controls in the viewport
 - Scene graph, material system and a render graph

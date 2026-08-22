@@ -7,6 +7,7 @@
 
 #include "Editor/EditorContext.h"
 #include "Editor/Panels/EditorPanel.h"
+#include "Editor/Panels/ViewportPanel.h"
 
 #include <imgui.h>
 
@@ -29,8 +30,8 @@ namespace Lime
 		LIME_NON_MOVABLE(FEditorLayer);
 
 		// Creates the ImGui context and installs the GLFW platform backend. The renderer backend is
-		// registered separately as a render pass.
-		bool Initialize(FWindow& Window);
+		// registered separately as a render pass. Routes the scene into a viewport panel.
+		bool Initialize(FWindow& Window, FRenderer& Renderer);
 		void Shutdown();
 
 		void BeginFrame();
@@ -38,6 +39,10 @@ namespace Lime
 		void DrawUI(const FEditorContext& Context);
 		// Finalizes the draw data; the ImGui render pass consumes it later in the frame.
 		void EndFrame();
+
+		// Forwards the viewport panel's measured size to the renderer. Called once per frame, after
+		// the UI was built.
+		void SubmitViewportSize();
 
 		// Looks a panel up by its name, for the rare case a project needs to reach one.
 		IEditorPanel* FindPanel(const char* Name) const;
@@ -48,8 +53,13 @@ namespace Lime
 		void DrawDockSpace();
 		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();
+		// Rebinds the scene texture after the viewport target was recreated.
+		void RefreshViewportTexture();
 
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
+		std::shared_ptr<FViewportPanel> ViewportPanel;
+		FRenderer* Renderer = nullptr;
+		ImTextureID ViewportTextureId = ImTextureID_Invalid;
 		std::string LayoutFilePath;
 		bool bInitialized = false;
 		// True when an ini file already existed, so the default layout must not overwrite it.

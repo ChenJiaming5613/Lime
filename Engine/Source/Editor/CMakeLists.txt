@@ -18,6 +18,8 @@ lime_add_module(
 		Panels/InspectorPanel.cpp
 		Panels/StatsPanel.h
 		Panels/StatsPanel.cpp
+		Panels/ViewportPanel.h
+		Panels/ViewportPanel.cpp
 	PUBLIC_DEPS
 		LimeRenderer
 		imgui

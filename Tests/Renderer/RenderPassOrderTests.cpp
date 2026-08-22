@@ -95,3 +95,17 @@ TEST_CASE("The registry rejects null factories", "[Renderer][PassRegistry]")
 	FRenderPassRegistry::Get().Register("Invalid", ERenderPassPriority::Scene, nullptr);
 	REQUIRE(FRenderPassRegistry::Get().GetRegistrations().size() == CountBefore);
 }
+
+TEST_CASE("The priority also decides the render stage", "[Renderer][PassRegistry]")
+{
+	// Scene passes draw into the viewport target in editor mode; UI passes always draw into the back
+	// buffer. The split point is the UI priority, so this mapping is part of the contract.
+	const auto IsUIStage = [](ERenderPassPriority Priority)
+	{ return static_cast<int32>(Priority) >= static_cast<int32>(ERenderPassPriority::UI); };
+
+	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::Background));
+	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::Scene));
+	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::PostProcess));
+	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::Overlay));
+	REQUIRE(IsUIStage(ERenderPassPriority::UI));
+}

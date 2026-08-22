@@ -125,6 +125,7 @@ namespace Lime
 			}
 		}
 
+		// Clears both ImGui owned and externally registered entries.
 		Textures.clear();
 		Pipeline = nullptr;
 		BindingLayout = nullptr;
@@ -136,6 +137,8 @@ namespace Lime
 		PixelShader = nullptr;
 		VertexShader = nullptr;
 		Device = nullptr;
+		NextTextureId = 1;
+		NextExternalTextureId = ExternalTextureIdBase;
 		VertexCapacity = 0;
 		IndexCapacity = 0;
 	}
@@ -227,6 +230,42 @@ namespace Lime
 		}
 
 		return true;
+	}
+
+	ImTextureID FImGuiRenderer::RegisterTexture(nvrhi::ITexture* Texture, ImTextureID ExistingId)
+	{
+		if (Device == nullptr || Texture == nullptr || BindingLayout == nullptr)
+		{
+			return ImTextureID_Invalid;
+		}
+
+		const nvrhi::BindingSetDesc BindingSetDesc = nvrhi::BindingSetDesc()
+		                                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, ConstantBuffer))
+		                                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture))
+		                                                 .addItem(nvrhi::BindingSetItem::Sampler(0, Sampler));
+
+		nvrhi::BindingSetHandle BindingSet = Device->createBindingSet(BindingSetDesc, BindingLayout);
+		if (BindingSet == nullptr)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createBindingSet failed for an external ImGui texture");
+			return ImTextureID_Invalid;
+		}
+
+		// Reusing the id keeps callers valid across a resize, where the texture object changes but the
+		// handle they already handed to ImGui should stay the same.
+		const ImTextureID TextureId = ExistingId != ImTextureID_Invalid ? ExistingId : NextExternalTextureId++;
+
+		// The texture is owned by the caller, so only the binding set is retained here.
+		Textures[TextureId] = FTextureEntry{ nullptr, std::move(BindingSet) };
+		return TextureId;
+	}
+
+	void FImGuiRenderer::UnregisterTexture(ImTextureID TextureId)
+	{
+		if (TextureId != ImTextureID_Invalid)
+		{
+			Textures.erase(TextureId);
+		}
 	}
 
 	void FImGuiRenderer::CreateTexture(nvrhi::ICommandList* CommandList, ImTextureData* TextureData)

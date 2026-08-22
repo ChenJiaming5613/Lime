@@ -17,6 +17,7 @@ namespace HelloTriangle
 
 		bool Initialize(Lime::FRenderer& Renderer) override;
 		void Shutdown() override;
+		void OnBeginFrame(Lime::FRenderer& Renderer, const Lime::FFrameContext& Context) override;
 		void Render(const Lime::FFrameContext& Context) override;
 		void OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer) override;
 
@@ -29,7 +30,6 @@ namespace HelloTriangle
 	private:
 		bool CreatePipeline(nvrhi::IFramebuffer* Framebuffer);
 
-		Lime::FRenderer* Renderer = nullptr;
 		nvrhi::IDevice* Device = nullptr;
 		nvrhi::ShaderHandle VertexShader;
 		nvrhi::ShaderHandle PixelShader;

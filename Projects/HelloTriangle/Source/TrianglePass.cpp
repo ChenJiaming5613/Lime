@@ -31,7 +31,6 @@ namespace HelloTriangle
 
 	bool FTrianglePass::Initialize(FRenderer& InRenderer)
 	{
-		Renderer = &InRenderer;
 		Device = InRenderer.GetDevice();
 		if (Device == nullptr)
 		{
@@ -171,7 +170,19 @@ namespace HelloTriangle
 		PixelShader = nullptr;
 		VertexShader = nullptr;
 		Device = nullptr;
-		Renderer = nullptr;
+	}
+
+	void FTrianglePass::OnBeginFrame(FRenderer& InRenderer, const FFrameContext& Context)
+	{
+		// Advancing the rotation here keeps Render free of state changes.
+		if (!Settings.bPaused)
+		{
+			RotationRadians = WrapAngle(RotationRadians + Settings.RotationSpeed * Context.DeltaSeconds);
+		}
+
+		// The clear colour lives in the settings so the inspector can drive it. It has to be applied
+		// before the renderer clears, which is why this is not done in Render.
+		InRenderer.SetClearColor(Settings.BackgroundColor);
 	}
 
 	void FTrianglePass::Render(const FFrameContext& Context)
@@ -184,18 +195,6 @@ namespace HelloTriangle
 		if (Context.CommandList == nullptr || Context.ViewportWidth == 0 || Context.ViewportHeight == 0)
 		{
 			return;
-		}
-
-		// The pass advances its own rotation, so no application update hook is needed.
-		if (!Settings.bPaused)
-		{
-			RotationRadians = WrapAngle(RotationRadians + Settings.RotationSpeed * Context.DeltaSeconds);
-		}
-
-		// The clear colour lives in the settings, so the inspector can drive it without extra wiring.
-		if (Renderer != nullptr)
-		{
-			Renderer->SetClearColor(Settings.BackgroundColor);
 		}
 
 		const FMatrix4x4 World = FMatrix4x4::RotationZ(RotationRadians);

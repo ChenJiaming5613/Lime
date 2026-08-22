@@ -26,6 +26,12 @@ namespace Lime
 		void Render(const FFrameContext& Context) override;
 		void OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer) override;
 
+		// Publishes an engine owned texture so it can be drawn with ImGui::Image. ImGui's own textures
+		// arrive through the ImTextureData protocol instead, so the two id ranges are kept apart.
+		// Returns ImTextureID_Invalid on failure. Re-registering the same id replaces the binding.
+		ImTextureID RegisterTexture(nvrhi::ITexture* Texture, ImTextureID ExistingId = ImTextureID_Invalid);
+		void UnregisterTexture(ImTextureID TextureId);
+
 	private:
 		struct FTextureEntry
 		{
@@ -55,7 +61,11 @@ namespace Lime
 		nvrhi::BufferHandle ConstantBuffer;
 
 		std::unordered_map<ImTextureID, FTextureEntry> Textures;
+		// ImGui managed textures count up from 1; engine owned ones count down from this base so the
+		// two allocators can never collide.
+		static constexpr ImTextureID ExternalTextureIdBase = 1 << 20;
 		ImTextureID NextTextureId = 1;
+		ImTextureID NextExternalTextureId = ExternalTextureIdBase;
 		uint32 VertexCapacity = 0;
 		uint32 IndexCapacity = 0;
 	};

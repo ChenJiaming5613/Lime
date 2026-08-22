@@ -8,6 +8,8 @@ lime_add_module(
 		RenderPassRegistry.cpp
 		Renderer.h
 		Renderer.cpp
+		ViewportTarget.h
+		ViewportTarget.cpp
 		ImGui/ImGuiRenderer.h
 		ImGui/ImGuiRenderer.cpp
 	PUBLIC_DEPS
