@@ -16,8 +16,8 @@ namespace Lime
 	class FImGuiRenderer final : public TRenderPass<FImGuiRenderer>
 	{
 	public:
-		// Always drawn last so the scene shows through the dock space's central node.
-		static constexpr ERenderPassPriority Priority = ERenderPassPriority::UI;
+		// Always drawn last, into the swap chain rather than the scene target.
+		static constexpr ERenderPassPriority Priority = ERenderPassPriority::EditorUI;
 
 		const char* GetName() const override { return "ImGui"; }
 

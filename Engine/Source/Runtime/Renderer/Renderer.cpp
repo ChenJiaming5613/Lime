@@ -62,7 +62,7 @@ namespace Lime
 		Device = nullptr;
 		DeviceManager = nullptr;
 		LastSceneFramebuffer = nullptr;
-		LastUIFramebuffer = nullptr;
+		LastEditorUIFramebuffer = nullptr;
 		bFrameOpen = false;
 	}
 
@@ -108,9 +108,9 @@ namespace Lime
 		bOffscreenEnabled = false;
 	}
 
-	bool FRenderer::IsUIPass(const IRenderPass& Pass)
+	bool FRenderer::IsEditorUIPass(const IRenderPass& Pass)
 	{
-		return static_cast<int32>(Pass.GetPriority()) >= static_cast<int32>(ERenderPassPriority::UI);
+		return static_cast<int32>(Pass.GetPriority()) >= static_cast<int32>(ERenderPassPriority::EditorUI);
 	}
 
 	bool FRenderer::AddPass(std::shared_ptr<IRenderPass> Pass)
@@ -128,7 +128,7 @@ namespace Lime
 
 		// A pass added after the first frame must not wait for a framebuffer change to build its
 		// pipeline, so it is given the framebuffer of the stage it belongs to.
-		nvrhi::IFramebuffer* StageFramebuffer = IsUIPass(*Pass) ? LastUIFramebuffer : LastSceneFramebuffer;
+		nvrhi::IFramebuffer* StageFramebuffer = IsEditorUIPass(*Pass) ? LastEditorUIFramebuffer : LastSceneFramebuffer;
 		if (StageFramebuffer != nullptr)
 		{
 			Pass->OnFramebufferChanged(StageFramebuffer);
@@ -154,7 +154,7 @@ namespace Lime
 	{
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
-			if (!IsUIPass(*Pass))
+			if (!IsEditorUIPass(*Pass))
 			{
 				Pass->OnFramebufferChanged(Framebuffer);
 			}
@@ -162,16 +162,16 @@ namespace Lime
 		LastSceneFramebuffer = Framebuffer;
 	}
 
-	void FRenderer::NotifyUIFramebuffer(nvrhi::IFramebuffer* Framebuffer)
+	void FRenderer::NotifyEditorUIFramebuffer(nvrhi::IFramebuffer* Framebuffer)
 	{
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
-			if (IsUIPass(*Pass))
+			if (IsEditorUIPass(*Pass))
 			{
 				Pass->OnFramebufferChanged(Framebuffer);
 			}
 		}
-		LastUIFramebuffer = Framebuffer;
+		LastEditorUIFramebuffer = Framebuffer;
 	}
 
 	bool FRenderer::BeginFrame(float DeltaSeconds, double TotalSeconds)
@@ -209,9 +209,9 @@ namespace Lime
 		{
 			NotifySceneFramebuffer(SceneFramebuffer);
 		}
-		if (BackBuffer != LastUIFramebuffer)
+		if (BackBuffer != LastEditorUIFramebuffer)
 		{
-			NotifyUIFramebuffer(BackBuffer);
+			NotifyEditorUIFramebuffer(BackBuffer);
 		}
 
 		SceneContext.DeltaSeconds = DeltaSeconds;
@@ -222,16 +222,16 @@ namespace Lime
 		SceneContext.ViewportWidth = bOffscreenEnabled ? ViewportTarget.GetWidth() : DeviceManager->GetBackBufferWidth();
 		SceneContext.ViewportHeight = bOffscreenEnabled ? ViewportTarget.GetHeight() : DeviceManager->GetBackBufferHeight();
 
-		UIContext = SceneContext;
-		UIContext.Framebuffer = BackBuffer;
-		UIContext.bIsOffscreen = false;
-		UIContext.ViewportWidth = DeviceManager->GetBackBufferWidth();
-		UIContext.ViewportHeight = DeviceManager->GetBackBufferHeight();
+		EditorUIContext = SceneContext;
+		EditorUIContext.Framebuffer = BackBuffer;
+		EditorUIContext.bIsOffscreen = false;
+		EditorUIContext.ViewportWidth = DeviceManager->GetBackBufferWidth();
+		EditorUIContext.ViewportHeight = DeviceManager->GetBackBufferHeight();
 
 		// Passes get to update renderer state, notably the clear colour, before anything is cleared.
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
-			Pass->OnBeginFrame(*this, IsUIPass(*Pass) ? UIContext : SceneContext);
+			Pass->OnBeginFrame(*this, IsEditorUIPass(*Pass) ? EditorUIContext : SceneContext);
 		}
 
 		bFrameOpen = true;
@@ -251,7 +251,7 @@ namespace Lime
 
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
-			if (!IsUIPass(*Pass))
+			if (!IsEditorUIPass(*Pass))
 			{
 				Pass->Render(SceneContext);
 			}
@@ -261,14 +261,14 @@ namespace Lime
 		Device->executeCommandList(CommandList);
 	}
 
-	void FRenderer::RenderUI()
+	void FRenderer::RenderEditorUI()
 	{
-		if (!bFrameOpen || UIContext.Framebuffer == nullptr)
+		if (!bFrameOpen || EditorUIContext.Framebuffer == nullptr)
 		{
 			return;
 		}
 
-		// A separate submission from the scene stage: the UI samples the viewport target, so the
+		// A separate submission from the scene stage: the editor samples the viewport target, so the
 		// scene writes have to complete first.
 		CommandList->open();
 
@@ -276,14 +276,14 @@ namespace Lime
 		// so it needs its own clear. Otherwise the scene stage already cleared it.
 		if (bOffscreenEnabled)
 		{
-			nvrhi::utils::ClearColorAttachment(CommandList, UIContext.Framebuffer, 0, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+			nvrhi::utils::ClearColorAttachment(CommandList, EditorUIContext.Framebuffer, 0, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
 		}
 
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
-			if (IsUIPass(*Pass))
+			if (IsEditorUIPass(*Pass))
 			{
-				Pass->Render(UIContext);
+				Pass->Render(EditorUIContext);
 			}
 		}
 
@@ -294,8 +294,8 @@ namespace Lime
 	void FRenderer::ReleaseFramebufferDependentResources()
 	{
 		// Pipelines are created against a framebuffer layout, so they pin the back buffer textures.
-		// Only the UI stage is affected when the scene renders offscreen.
-		NotifyUIFramebuffer(nullptr);
+		// Only the editor UI stage is affected when the scene renders offscreen.
+		NotifyEditorUIFramebuffer(nullptr);
 		if (!bOffscreenEnabled)
 		{
 			NotifySceneFramebuffer(nullptr);

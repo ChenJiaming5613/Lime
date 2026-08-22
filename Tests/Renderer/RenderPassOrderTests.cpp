@@ -39,22 +39,20 @@ TEST_CASE("Passes are ordered by priority, not by registration order", "[Rendere
 	// Registered in the wrong order on purpose: the editor registers its UI pass before project
 	// passes exist, which is exactly the case the priority is there to fix.
 	std::vector<FRenderPassRegistration> Registrations{
-		MakeRegistration("UI", ERenderPassPriority::UI),
-		MakeRegistration("Scene", ERenderPassPriority::Scene),
-		MakeRegistration("Background", ERenderPassPriority::Background),
-		MakeRegistration("Overlay", ERenderPassPriority::Overlay),
+		MakeRegistration("EditorUI", ERenderPassPriority::EditorUI),       MakeRegistration("Scene", ERenderPassPriority::Scene),
+		MakeRegistration("Background", ERenderPassPriority::Background),   MakeRegistration("Overlay", ERenderPassPriority::Overlay),
 		MakeRegistration("PostProcess", ERenderPassPriority::PostProcess),
 	};
 
 	SortRenderPassRegistrations(Registrations);
 
-	REQUIRE(NamesOf(Registrations) == std::vector<std::string>{ "Background", "Scene", "PostProcess", "Overlay", "UI" });
+	REQUIRE(NamesOf(Registrations) == std::vector<std::string>{ "Background", "Scene", "PostProcess", "Overlay", "EditorUI" });
 }
 
-TEST_CASE("The UI pass always ends up last", "[Renderer][PassRegistry]")
+TEST_CASE("The editor UI pass always ends up last", "[Renderer][PassRegistry]")
 {
 	std::vector<FRenderPassRegistration> Registrations{
-		MakeRegistration("ImGui", ERenderPassPriority::UI),
+		MakeRegistration("ImGui", ERenderPassPriority::EditorUI),
 		MakeRegistration("Triangle", ERenderPassPriority::Scene),
 	};
 
@@ -98,14 +96,15 @@ TEST_CASE("The registry rejects null factories", "[Renderer][PassRegistry]")
 
 TEST_CASE("The priority also decides the render stage", "[Renderer][PassRegistry]")
 {
-	// Scene passes draw into the viewport target in editor mode; UI passes always draw into the back
-	// buffer. The split point is the UI priority, so this mapping is part of the contract.
-	const auto IsUIStage = [](ERenderPassPriority Priority)
-	{ return static_cast<int32>(Priority) >= static_cast<int32>(ERenderPassPriority::UI); };
+	// Scene passes draw into the viewport target in editor mode; editor UI passes always draw into the
+	// back buffer. The split point is the EditorUI priority, so this mapping is part of the contract.
+	// Overlay staying on the scene side is what lets in-world UI be composited into the scene image.
+	const auto IsEditorUIStage = [](ERenderPassPriority Priority)
+	{ return static_cast<int32>(Priority) >= static_cast<int32>(ERenderPassPriority::EditorUI); };
 
-	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::Background));
-	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::Scene));
-	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::PostProcess));
-	REQUIRE_FALSE(IsUIStage(ERenderPassPriority::Overlay));
-	REQUIRE(IsUIStage(ERenderPassPriority::UI));
+	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::Background));
+	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::Scene));
+	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::PostProcess));
+	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::Overlay));
+	REQUIRE(IsEditorUIStage(ERenderPassPriority::EditorUI));
 }

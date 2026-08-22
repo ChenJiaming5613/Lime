@@ -1,9 +1,11 @@
 // Frame orchestration.
 //
 // The frame runs in two stages so the editor can show the scene inside a viewport panel:
-//   Scene stage: passes below ERenderPassPriority::UI draw into the viewport target when the editor
-//                is enabled, or straight into the back buffer otherwise.
-//   UI stage:    passes at ERenderPassPriority::UI or above always draw into the back buffer.
+//   Scene stage:     passes below ERenderPassPriority::EditorUI draw into the viewport target when
+//                    the editor is enabled, or straight into the back buffer otherwise. In-world UI
+//                    belongs here.
+//   EditorUI stage:  passes at ERenderPassPriority::EditorUI or above always draw into the back
+//                    buffer, so the editor chrome is never part of the scene image.
 // Passes themselves only read FFrameContext, so they are unaware of which mode is active.
 
 #pragma once
@@ -54,11 +56,11 @@ namespace Lime
 
 		// Applies a pending viewport resize and prepares per frame state. Call before the stages.
 		bool BeginFrame(float DeltaSeconds, double TotalSeconds);
-		// Clears the scene target and runs the passes below the UI priority.
+		// Clears the scene target and runs the passes below the EditorUI priority.
 		void RenderScene();
-		// Clears the back buffer and runs the UI passes. Separate command list submission, because the
-		// UI samples the scene target.
-		void RenderUI();
+		// Clears the back buffer and runs the editor UI passes. Separate command list submission,
+		// because the editor samples the scene target.
+		void RenderEditorUI();
 		void EndFrame();
 
 		// Drops framebuffer bound state in every pass so the swap chain can be recreated.
@@ -79,10 +81,10 @@ namespace Lime
 
 	private:
 		IRenderPass* FindPassByTypeId(FRenderPassTypeId TypeId) const;
-		// Scene passes are those below the UI priority; the split point is fixed by design.
-		static bool IsUIPass(const IRenderPass& Pass);
+		// Editor UI passes are those at or above the EditorUI priority; everything else is scene work.
+		static bool IsEditorUIPass(const IRenderPass& Pass);
 		void NotifySceneFramebuffer(nvrhi::IFramebuffer* Framebuffer);
-		void NotifyUIFramebuffer(nvrhi::IFramebuffer* Framebuffer);
+		void NotifyEditorUIFramebuffer(nvrhi::IFramebuffer* Framebuffer);
 
 		IDeviceManager* DeviceManager = nullptr;
 		nvrhi::IDevice* Device = nullptr;
@@ -95,11 +97,11 @@ namespace Lime
 		FViewportResizedDelegate ViewportResizedDelegate;
 
 		FFrameContext SceneContext;
-		FFrameContext UIContext;
+		FFrameContext EditorUIContext;
 		FVector4 ClearColor{ 0.06f, 0.07f, 0.09f, 1.0f };
-		// Tracked separately: scene and UI passes can target different framebuffers.
+		// Tracked separately: the two stages can target different framebuffers.
 		nvrhi::IFramebuffer* LastSceneFramebuffer = nullptr;
-		nvrhi::IFramebuffer* LastUIFramebuffer = nullptr;
+		nvrhi::IFramebuffer* LastEditorUIFramebuffer = nullptr;
 		bool bOffscreenEnabled = false;
 		bool bFrameOpen = false;
 	};

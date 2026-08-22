@@ -151,9 +151,9 @@ namespace Lime
 		if (Renderer.BeginFrame(DeltaSeconds, Timer.GetTotalSeconds()))
 		{
 			// Two stages: the scene goes to the viewport target in editor mode and straight to the
-			// back buffer otherwise, while UI passes always target the back buffer.
+			// back buffer otherwise, while editor UI passes always target the back buffer.
 			Renderer.RenderScene();
-			Renderer.RenderUI();
+			Renderer.RenderEditorUI();
 			Renderer.EndFrame();
 		}
 

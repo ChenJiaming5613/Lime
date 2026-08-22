@@ -21,8 +21,8 @@ namespace Lime
 					return "PostProcess";
 				case ERenderPassPriority::Overlay:
 					return "Overlay";
-				case ERenderPassPriority::UI:
-					return "UI";
+				case ERenderPassPriority::EditorUI:
+					return "EditorUI";
 			}
 			return "Custom";
 		}

@@ -12,15 +12,20 @@ namespace Lime
 
 	// Explicit ordering, so a pass ends up in the right place regardless of when it registers.
 	// Passes are sorted by this value and ties keep registration order.
+	//
+	// The value also decides the render stage: everything below EditorUI draws into the scene target,
+	// EditorUI and above draw into the swap chain. In-world UI belongs in the scene stage, which is
+	// why the editor stage is named EditorUI rather than UI.
 	enum class ERenderPassPriority : int32
 	{
 		Background = -1000,
 		// Default for project passes.
 		Scene = 0,
 		PostProcess = 1000,
+		// Scene space overlays such as gizmos or in-world UI; still part of the scene stage.
 		Overlay = 2000,
-		// The editor's ImGui pass, always drawn last.
-		UI = 3000
+		// The editor's ImGui pass, always drawn last and always into the swap chain.
+		EditorUI = 3000
 	};
 
 	// Vertex layout used by the simple pipelines; matches POSITION/COLOR semantics in HLSL.

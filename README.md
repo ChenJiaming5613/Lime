@@ -195,6 +195,19 @@ Coverage focuses on logic that can be verified without a GPU: the math library, 
 the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering and
 stage assignment, viewport resize decisions, JSON fallback behaviour, and the reflection layer.
 
+Rendering itself is verified by capturing the window, since the output is what matters:
+
+```powershell
+./Scripts/Capture.ps1                                  # Debug, D3D12, editor enabled
+./Scripts/Capture.ps1 -Backend vulkan
+./Scripts/Capture.ps1 -NoEditor                        # scene straight to the swap chain
+./Scripts/Capture.ps1 -Config Release -KeepLayout
+```
+
+Images and the captured log land in `Build/Screenshots`. The script resets the saved dock layout by
+default, so newly added panels are actually visible, and reports any warnings or errors the run
+logged.
+
 ## Architecture
 
 Strictly one-directional layering, one static library per layer:
@@ -220,16 +233,20 @@ platform input.
 
 ## Render stages
 
-A frame runs in two stages, split at `ERenderPassPriority::UI`:
+A frame runs in two stages, split at `ERenderPassPriority::EditorUI`:
 
 | Stage | Passes | Target with editor | Target without editor |
 | --- | --- | --- | --- |
-| Scene | priority < `UI` | `FViewportTarget` (offscreen) | back buffer |
-| UI | priority >= `UI` | back buffer | back buffer |
+| Scene | priority < `EditorUI` | `FViewportTarget` (offscreen) | back buffer |
+| EditorUI | priority >= `EditorUI` | back buffer | back buffer |
 
-They are submitted as two separate command lists, because the UI stage samples the texture the scene
-stage wrote. `--no-editor` never creates the offscreen target at all, so the runtime path is exactly
-what it was before the viewport existed.
+The stage is named `EditorUI` rather than `UI` because in-world UI belongs in the scene image: an
+in-game HUD or a world space widget should be composited into the viewport texture, so it renders at
+`Overlay` and stays on the scene side. Only the editor chrome has to bypass the scene target.
+
+The two stages are submitted as separate command lists, because the editor samples the texture the
+scene stage wrote. `--no-editor` never creates the offscreen target at all, so the runtime path is
+exactly what it was before the viewport existed.
 
 The viewport panel only learns its size while the UI is being built, which is after the scene has
 already been rendered. The requested size is therefore applied at the start of the next frame, so
@@ -269,7 +286,7 @@ Engine/
 Projects/       One directory per application, each with a ProjectSettings.json
 Tests/          Catch2 unit tests
 ThirdParty/     Submodules
-Scripts/        Submodule setup, formatting, static analysis
+Scripts/        Submodule setup, build, formatting, static analysis, screenshot capture
 ```
 
 Headers and sources live side by side; there is no separate `include/` tree.
