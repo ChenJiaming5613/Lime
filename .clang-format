@@ -1,0 +1,55 @@
+# LimeEngine code style, modeled on the Unreal Engine coding standard.
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+
+# Indentation: tabs, width 4, Allman braces.
+UseTab: ForIndentation
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+BreakBeforeBraces: Allman
+NamespaceIndentation: All
+IndentCaseLabels: true
+IndentPPDirectives: None
+
+ColumnLimit: 140
+
+# Keep declarations expanded, UE style.
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: true
+BinPackParameters: true
+PackConstructorInitializers: Never
+BreakConstructorInitializers: BeforeColon
+Cpp11BracedListStyle: false
+
+# Pointers and references bind to the type.
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+SpaceAfterTemplateKeyword: false
+SpacesBeforeTrailingComments: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+FixNamespaceComments: true
+
+# Include ordering: main header, engine headers, third party, standard library.
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"(Core|Platform|RHI|Renderer|Engine|Editor)/'
+    Priority: 2
+  - Regex: '^"'
+    Priority: 3
+  - Regex: '^<(nvrhi|GLFW|glfw|imgui|spdlog|tiny_gltf|catch2|Windows|windows|d3d12|dxgi|vulkan)'
+    Priority: 4
+  - Regex: '^<'
+    Priority: 5

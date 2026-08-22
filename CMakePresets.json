@@ -1,0 +1,88 @@
+{
+	"version": 3,
+	"cmakeMinimumRequired": {
+		"major": 3,
+		"minor": 24,
+		"patch": 0
+	},
+	"configurePresets": [
+		{
+			"name": "base",
+			"hidden": true,
+			"binaryDir": "${sourceDir}/Build/${presetName}",
+			"architecture": {
+				"value": "x64",
+				"strategy": "external"
+			},
+			"cacheVariables": {
+				"CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+			}
+		},
+		{
+			"name": "ninja",
+			"inherits": "base",
+			"displayName": "Ninja Multi-Config (MSVC)",
+			"description": "Primary preset. Emits compile_commands.json used by clang-tidy.",
+			"generator": "Ninja Multi-Config",
+			"cacheVariables": {
+				"CMAKE_CONFIGURATION_TYPES": "Debug;Release;RelWithDebInfo"
+			}
+		},
+		{
+			"name": "vs2022",
+			"inherits": "base",
+			"displayName": "Visual Studio 2022",
+			"description": "IDE preset for debugging inside Visual Studio.",
+			"generator": "Visual Studio 17 2022",
+			"architecture": {
+				"value": "x64",
+				"strategy": "set"
+			}
+		}
+	],
+	"buildPresets": [
+		{
+			"name": "ninja-debug",
+			"configurePreset": "ninja",
+			"configuration": "Debug"
+		},
+		{
+			"name": "ninja-release",
+			"configurePreset": "ninja",
+			"configuration": "Release"
+		},
+		{
+			"name": "ninja-relwithdebinfo",
+			"configurePreset": "ninja",
+			"configuration": "RelWithDebInfo"
+		},
+		{
+			"name": "vs2022-debug",
+			"configurePreset": "vs2022",
+			"configuration": "Debug"
+		},
+		{
+			"name": "vs2022-release",
+			"configurePreset": "vs2022",
+			"configuration": "Release"
+		}
+	],
+	"testPresets": [
+		{
+			"name": "ninja-debug",
+			"configurePreset": "ninja",
+			"configuration": "Debug",
+			"output": {
+				"outputOnFailure": true
+			}
+		},
+		{
+			"name": "ninja-release",
+			"configurePreset": "ninja",
+			"configuration": "Release",
+			"output": {
+				"outputOnFailure": true
+			}
+		}
+	]
+}

@@ -1,0 +1,28 @@
+# Build outputs
+/Build/
+/build/
+/out/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+CMakeUserPresets.json
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+
+# Downloaded tool binaries
+/ThirdParty/Binaries/
+
+# Runtime artifacts
+imgui.ini
+*.log
+/Logs/

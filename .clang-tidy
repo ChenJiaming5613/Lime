@@ -1,0 +1,90 @@
+# LimeEngine static analysis rules. Naming enforces the Unreal Engine convention.
+---
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  readability-identifier-naming,
+  readability-misleading-indentation,
+  readability-redundant-member-init,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -modernize-avoid-c-arrays,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -modernize-return-braced-init-list,
+  -performance-enum-size
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*[/\\](Engine|Projects|Tests)[/\\].*'
+FormatStyle: file
+
+CheckOptions:
+  # Types
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassPrefix
+    value: 'F'
+  - key: readability-identifier-naming.AbstractClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.AbstractClassPrefix
+    value: 'I'
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructPrefix
+    value: 'F'
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumPrefix
+    value: 'E'
+  - key: readability-identifier-naming.ScopedEnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
+  - key: readability-identifier-naming.UnionPrefix
+    value: 'F'
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.NamespaceCase
+    value: CamelCase
+
+  # Functions and methods
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+  - key: readability-identifier-naming.MethodCase
+    value: CamelCase
+
+  # Variables. The 'b' prefix used for booleans is explicitly tolerated.
+  - key: readability-identifier-naming.VariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.VariableIgnoredRegexp
+    value: '^b[A-Z0-9].*$'
+  - key: readability-identifier-naming.ParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ParameterIgnoredRegexp
+    value: '^b[A-Z0-9].*$'
+  - key: readability-identifier-naming.MemberCase
+    value: CamelCase
+  - key: readability-identifier-naming.MemberIgnoredRegexp
+    value: '^b[A-Z0-9].*$'
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantIgnoredRegexp
+    value: '^b[A-Z0-9].*$'
+  - key: readability-identifier-naming.StaticConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MacroDefinitionIgnoredRegexp
+    value: '^LIME_.*$'
