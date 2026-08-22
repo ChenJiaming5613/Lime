@@ -54,8 +54,16 @@ if (-not ('LimeCaptureNative' -as [type]))
 [LimeCaptureNative]::SetProcessDpiAwarenessContext([LimeCaptureNative]::PerMonitorAwareV2) | Out-Null
 
 $RootDir = Split-Path -Parent $PSScriptRoot
-$ExeDir = Join-Path $RootDir "Build/ninja/Bin/$Config"
+# Each project owns a directory under Bin, since the engine resolves Shaders, Content and Saved
+# relative to the executable. The flat path is accepted as a fallback for older build trees.
+$ExeDir = Join-Path $RootDir "Build/ninja/Bin/$Config/$Project"
 $ExePath = Join-Path $ExeDir "$Project.exe"
+
+if (-not (Test-Path $ExePath))
+{
+	$ExeDir = Join-Path $RootDir "Build/ninja/Bin/$Config"
+	$ExePath = Join-Path $ExeDir "$Project.exe"
+}
 
 if (-not (Test-Path $ExePath))
 {

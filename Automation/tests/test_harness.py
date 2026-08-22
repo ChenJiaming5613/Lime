@@ -12,6 +12,7 @@ import pytest
 from lime_automation import LimeClient, find_repo_root, resolve_executable
 from lime_automation.discovery import discover_engines
 from lime_automation.errors import LimeAutomationError
+from lime_automation.paths import project_output_dir
 from lime_automation.runner import discover_scripts, find_script, run_script, script_directory
 
 
@@ -27,6 +28,46 @@ def test_executable_resolves(config: str, preset: str, project: str) -> None:
 
     assert executable.exists()
     assert executable.stem == project
+
+
+def test_project_owns_its_output_directory(config: str, preset: str, project: str) -> None:
+    """Each project must have a private directory, or their settings files overwrite each other.
+
+    The engine resolves Shaders, Content, Saved and ProjectSettings.json relative to the executable,
+    so a shared directory makes one project read another's configuration and fail to find its shaders.
+    """
+    executable = resolve_executable(project=project, config=config, preset=preset)
+    expected = project_output_dir(project=project, config=config, preset=preset)
+
+    assert executable.parent == expected, f"{executable} is not inside {expected}"
+    assert executable.parent.name == project
+
+    # The runtime dependencies have to be inside that directory, not a level up.
+    assert (executable.parent / "ProjectSettings.json").is_file()
+    assert (executable.parent / "Shaders").is_dir()
+
+
+def test_project_settings_copy_matches_the_project(config: str, preset: str, project: str) -> None:
+    """The deployed settings file must describe this project and no other."""
+    import json
+
+    executable = resolve_executable(project=project, config=config, preset=preset)
+    settings = json.loads((executable.parent / "ProjectSettings.json").read_text(encoding="utf-8"))
+
+    assert settings["name"] == project, f"the deployed settings name '{settings['name']}' is not '{project}'"
+
+
+def test_project_shaders_are_under_the_project_directory(config: str, preset: str, project: str) -> None:
+    """Engine shaders are copied in and the project's own compiled in; both must be present."""
+    executable = resolve_executable(project=project, config=config, preset=preset)
+    shaders = executable.parent / "Shaders"
+
+    # At least one backend directory from the engine set.
+    assert any((shaders / platform).is_dir() for platform in ("DXIL", "SPIRV")), f"no engine shaders in {shaders}"
+
+    project_shaders = shaders / project
+    if project_shaders.is_dir():
+        assert any(project_shaders.iterdir()), f"{project_shaders} is empty"
 
 
 def test_project_scripts_are_discovered(project: str) -> None:
@@ -78,6 +119,22 @@ def test_discovered_endpoint_connects(engine: LimeClient, config: str, preset: s
 
     assert client.is_alive()
     assert client.engine_info()["project"] == endpoint.project
+
+
+def test_endpoint_file_lives_in_the_project_directory(
+    engine: LimeClient, config: str, preset: str, project: str
+) -> None:
+    """Writable state must stay inside the project's own directory.
+
+    Sharing Saved/ between projects would make them overwrite each other's layout, logs and endpoint
+    files, and would make an endpoint ambiguous about which project it belongs to.
+    """
+    endpoint = next(item for item in discover_engines(config=config, preset=preset) if item.url == engine.url)
+    expected = project_output_dir(project=project, config=config, preset=preset)
+
+    assert endpoint.source.is_relative_to(expected), f"{endpoint.source} is outside {expected}"
+    assert endpoint.source.parent == expected / "Saved" / "Automation"
+    assert endpoint.project == project
 
 
 def test_script_runs_against_an_engine(engine: LimeClient, project: str, tmp_path: Path) -> None:

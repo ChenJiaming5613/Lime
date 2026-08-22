@@ -49,13 +49,15 @@ def build_output_dir(
     root: Path | None = None,
     build_dir: Path | None = None,
 ) -> Path:
-    """Directory holding the binaries for one preset and configuration.
+    """Root of the binary output tree for one preset and configuration.
 
     A caller may pass build_dir to name the CMake binary directory outright, which is what the ctest
     integration does: deriving it from a preset name would break for any non-default layout.
 
     Single config generators put binaries directly under Bin, multi config ones under Bin/<Config>.
     Both layouts are accepted so the caller does not need to know which generator was used.
+
+    Each project then lives in its own subdirectory of this one; see project_output_dir.
     """
     if build_dir is None:
         environment_override = os.environ.get("LIME_BUILD_DIR")
@@ -74,6 +76,21 @@ def build_output_dir(
     return base
 
 
+def project_output_dir(
+    project: str = DEFAULT_PROJECT,
+    config: str = DEFAULT_CONFIG,
+    preset: str = DEFAULT_PRESET,
+    root: Path | None = None,
+    build_dir: Path | None = None,
+) -> Path:
+    """A project's private directory, which is also its working directory at run time.
+
+    Each project owns one so that Shaders, Content, Saved and ProjectSettings.json cannot collide
+    between projects; the engine resolves all of them relative to the executable.
+    """
+    return build_output_dir(config=config, preset=preset, root=root, build_dir=build_dir) / project
+
+
 def resolve_executable(
     project: str = DEFAULT_PROJECT,
     config: str = DEFAULT_CONFIG,
@@ -82,12 +99,19 @@ def resolve_executable(
     build_dir: Path | None = None,
 ) -> Path:
     """Absolute path of a project executable. Raises when it has not been built."""
-    directory = build_output_dir(config=config, preset=preset, root=root, build_dir=build_dir)
     suffix = ".exe" if os.name == "nt" else ""
+    directory = project_output_dir(project=project, config=config, preset=preset, root=root, build_dir=build_dir)
     executable = directory / f"{project}{suffix}"
-    if not executable.exists():
-        raise LaunchError(f"{executable} not found; build it first with ./Scripts/Build.ps1 -Config {config}")
-    return executable
+    if executable.exists():
+        return executable
+
+    # Falls back to the flat layout so a tree built before projects were given private directories
+    # still resolves, rather than failing with a confusing "not found".
+    legacy = build_output_dir(config=config, preset=preset, root=root, build_dir=build_dir) / f"{project}{suffix}"
+    if legacy.exists():
+        return legacy
+
+    raise LaunchError(f"{executable} not found; build it first with ./Scripts/Build.ps1 -Config {config}")
 
 
 def saved_dir(executable: Path) -> Path:

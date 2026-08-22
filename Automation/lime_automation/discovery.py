@@ -59,15 +59,25 @@ def discover_engines(
 ) -> list[EngineEndpoint]:
     """Lists running engines, newest first.
 
+    Every project directory is searched, so an engine is found regardless of which one it belongs to.
+
     With verify=True each candidate is probed, which filters out files left behind by a crash. That
     costs one request per entry but avoids handing back an endpoint nothing is listening on.
     """
-    directory = build_output_dir(config=config, preset=preset, root=root) / "Saved" / "Automation"
-    if not directory.is_dir():
+    base = build_output_dir(config=config, preset=preset, root=root)
+    if not base.is_dir():
         return []
 
+    # Each project owns Bin/<Config>/<Name>/Saved/Automation. The direct child is also checked so a
+    # tree built before projects were given private directories still resolves.
+    endpoint_files: list[Path] = []
+    for directory in (base, *(item for item in base.iterdir() if item.is_dir())):
+        automation = directory / "Saved" / "Automation"
+        if automation.is_dir():
+            endpoint_files.extend(automation.glob("*.json"))
+
     candidates: list[EngineEndpoint] = []
-    for path in sorted(directory.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+    for path in sorted(endpoint_files, key=lambda item: item.stat().st_mtime, reverse=True):
         endpoint = _read_endpoint(path)
         if endpoint is None:
             continue

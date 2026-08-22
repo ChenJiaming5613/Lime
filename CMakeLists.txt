@@ -43,7 +43,11 @@ set(LIME_VK_SHIFT_SAMPLER 128 CACHE STRING "Vulkan binding offset for HLSL s reg
 set(LIME_VK_SHIFT_CBV 256 CACHE STRING "Vulkan binding offset for HLSL b registers")
 set(LIME_VK_SHIFT_UAV 384 CACHE STRING "Vulkan binding offset for HLSL u registers")
 
-# All binaries land next to each other so shaders and content resolve relative to the executable.
+# Every executable gets its own directory under Bin, so two projects never share a working directory.
+# This matters because the engine resolves Shaders, Content, Saved and ProjectSettings.json relative
+# to the executable: a shared directory would let one project's settings file overwrite another's.
+# lime_add_project overrides RUNTIME_OUTPUT_DIRECTORY per target; this is the default for everything
+# else, such as the test executable.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Lib/$<CONFIG>")
@@ -58,9 +62,11 @@ set(LIME_ENGINE_INCLUDE_DIRS
 	"${LIME_ENGINE_DIR}/Source/Runtime"
 )
 
-# Compiled shader blobs and copied content are emitted beside the executable.
-set(LIME_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>/Shaders")
-set(LIME_CONTENT_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>/Content")
+# Engine shaders and content are built once into a shared staging area, then copied into each
+# project's own directory at build time. Compiling them per project would multiply the build cost for
+# identical output.
+set(LIME_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Staging/$<CONFIG>/Shaders")
+set(LIME_CONTENT_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Staging/$<CONFIG>/Content")
 
 list(APPEND CMAKE_MODULE_PATH "${LIME_ROOT_DIR}/CMake")
 include(LimeCompilerOptions)

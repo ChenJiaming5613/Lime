@@ -4,6 +4,10 @@
 # single call with no arguments. Build time and run time therefore read the same file and the project
 # name cannot drift between them.
 #
+# Each project gets its own output directory, Bin/<Config>/<Name>. The engine resolves Shaders,
+# Content, Saved and ProjectSettings.json relative to the executable, so a shared directory would let
+# one project's settings file overwrite another's and send it looking for the wrong shaders.
+#
 # Project sources are compiled straight into the executable rather than into an intermediate static
 # library. This is required, not stylistic: render passes and editor panels register themselves
 # through static initializers, and a static library would let the linker drop the object files whose
@@ -35,6 +39,10 @@ function(lime_add_project)
 		set(LIME_PROJ_SHADER_DIR "${ProjectDir}/Shaders")
 	endif()
 
+	# Everything this project produces at build time lands here, and this is also its working
+	# directory at run time.
+	set(ProjectOutputDir "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>/${LIME_PROJ_NAME}")
+
 	# Globbing keeps a project's CMakeLists free of file lists. CONFIGURE_DEPENDS makes CMake rerun
 	# when files are added or removed.
 	file(GLOB_RECURSE ProjectSources CONFIGURE_DEPENDS
@@ -58,21 +66,24 @@ function(lime_add_project)
 		LIME_PROJECT_SOURCE_DIR="${ProjectDir}"
 	)
 
+	# Overrides the global default from the root CMakeLists, giving this project a private directory.
 	set_target_properties(${LIME_PROJ_NAME} PROPERTIES
 		FOLDER "Projects"
-		VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:${LIME_PROJ_NAME}>"
+		RUNTIME_OUTPUT_DIRECTORY "${ProjectOutputDir}"
+		VS_DEBUGGER_WORKING_DIRECTORY "${ProjectOutputDir}"
 	)
 	source_group(TREE "${ProjectDir}" FILES ${ProjectSources})
 
-	# Project shaders build into Shaders/<ProjectName>, which the engine adds as a search root ahead
-	# of its own, so a project can override a built-in shader.
+	# Project shaders build straight into Shaders/<ProjectName> inside this project's directory. The
+	# engine registers that path as a search root ahead of its own, so a project can override a
+	# built-in shader by using the same relative path.
 	file(GLOB ProjectShaderConfigs "${LIME_PROJ_SHADER_DIR}/*.cfg")
 	if(ProjectShaderConfigs)
 		list(GET ProjectShaderConfigs 0 ProjectShaderConfig)
 		lime_compile_shaders(
 			TARGET ${LIME_PROJ_NAME}Shaders
 			CONFIG "${ProjectShaderConfig}"
-			OUTPUT_DIR "${LIME_SHADER_OUTPUT_DIR}/${LIME_PROJ_NAME}"
+			OUTPUT_DIR "${ProjectOutputDir}/Shaders/${LIME_PROJ_NAME}"
 			INCLUDE_DIRS "${LIME_ENGINE_DIR}/Shaders/Include" "${LIME_PROJ_SHADER_DIR}"
 			FOLDER "Projects"
 		)
@@ -81,27 +92,36 @@ function(lime_add_project)
 
 	add_dependencies(${LIME_PROJ_NAME} LimeShaders)
 
+	# Engine shaders and content are built once into a shared staging area and copied in here, so the
+	# cost of compiling them is paid once no matter how many projects exist.
+	add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${LIME_SHADER_OUTPUT_DIR}" "${ProjectOutputDir}/Shaders"
+		COMMENT "Copying engine shaders"
+		VERBATIM
+	)
+
+	add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${LIME_ENGINE_DIR}/Content" "${ProjectOutputDir}/Content"
+		COMMENT "Copying engine content"
+		VERBATIM
+	)
+
 	# Settings and content are copied next to the executable so it runs without the source tree.
 	if(EXISTS "${SettingsFile}")
 		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				"${SettingsFile}" "$<TARGET_FILE_DIR:${LIME_PROJ_NAME}>/ProjectSettings.json"
+				"${SettingsFile}" "${ProjectOutputDir}/ProjectSettings.json"
 			COMMENT "Copying ProjectSettings.json"
 			VERBATIM
 		)
 	endif()
 
-	add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_directory
-			"${LIME_ENGINE_DIR}/Content" "$<TARGET_FILE_DIR:${LIME_PROJ_NAME}>/Content"
-		COMMENT "Copying engine content"
-		VERBATIM
-	)
-
 	if(EXISTS "${ProjectDir}/Content")
 		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_directory
-				"${ProjectDir}/Content" "$<TARGET_FILE_DIR:${LIME_PROJ_NAME}>/Content/${LIME_PROJ_NAME}"
+				"${ProjectDir}/Content" "${ProjectOutputDir}/Content/${LIME_PROJ_NAME}"
 			COMMENT "Copying project content"
 			VERBATIM
 		)
