@@ -1,8 +1,9 @@
-// Read only frame state handed to editor panels so they never reach into engine internals.
+// Frame state handed to editor panels so they never reach into engine internals.
 
 #pragma once
 
 #include "Core/CoreTypes.h"
+#include "Renderer/Renderer.h"
 
 #include <string>
 
@@ -19,5 +20,14 @@ namespace Lime
 		const char* BackendName = "Unknown";
 		std::string AdapterName;
 		FLogRingBuffer* LogBuffer = nullptr;
+		// Lets a panel look up a pass by type; see FRenderer::FindPass.
+		FRenderer* Renderer = nullptr;
+
+		// Convenience wrapper so panels do not need to null check the renderer.
+		template<typename PassType>
+		PassType* FindPass() const
+		{
+			return Renderer != nullptr ? Renderer->FindPass<PassType>() : nullptr;
+		}
 	};
 } // namespace Lime

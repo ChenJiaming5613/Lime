@@ -113,6 +113,23 @@ if(MSVC)
 endif()
 
 # ---------------------------------------------------------------------------------------
+# EnTT. Header only; provides the runtime reflection (meta) system used to drive the
+# inspector UI and settings serialization, and the ECS for later use.
+# Pinned to v3.16.0: the meta API changed between releases (entt::meta<T>() in 3.13 and
+# earlier versus entt::meta_factory<T>{} from 3.15 on), so the version is not free to move.
+# ---------------------------------------------------------------------------------------
+add_library(entt INTERFACE)
+target_include_directories(entt SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/EnTT/src)
+
+# ---------------------------------------------------------------------------------------
+# nlohmann/json. Header only, used for ProjectSettings.json. Deliberately a separate
+# submodule rather than reusing the copy vendored inside tinygltf, which is an internal
+# detail of that library and lags behind.
+# ---------------------------------------------------------------------------------------
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Json/include)
+
+# ---------------------------------------------------------------------------------------
 # Catch2.
 # ---------------------------------------------------------------------------------------
 if(LIME_BUILD_TESTS)

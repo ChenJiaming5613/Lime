@@ -24,8 +24,19 @@ namespace Lime
 		bool Initialize(IDeviceManager& InDeviceManager);
 		void Shutdown();
 
-		// Passes are rendered in registration order and owned by the renderer.
-		void AddPass(std::shared_ptr<IRenderPass> Pass);
+		// Initializes the pass and inserts it by priority. Returns false when initialization failed,
+		// in which case the pass is not retained.
+		bool AddPass(std::shared_ptr<IRenderPass> Pass);
+
+		// Typed lookup, so a panel can reach a pass without a construction time dependency.
+		// Returns nullptr when the pass is not registered.
+		template<typename PassType>
+		PassType* FindPass() const
+		{
+			return static_cast<PassType*>(FindPassByTypeId(PassType::StaticTypeId()));
+		}
+
+		const std::vector<std::shared_ptr<IRenderPass>>& GetPasses() const { return Passes; }
 
 		// Opens the reused command list and clears the back buffer.
 		bool BeginFrame(float DeltaSeconds, double TotalSeconds);
@@ -46,6 +57,8 @@ namespace Lime
 		const FVector4& GetClearColor() const { return ClearColor; }
 
 	private:
+		IRenderPass* FindPassByTypeId(FRenderPassTypeId TypeId) const;
+
 		IDeviceManager* DeviceManager = nullptr;
 		nvrhi::IDevice* Device = nullptr;
 		// Reused across frames; NVRHI object creation is not cheap enough to do per frame.

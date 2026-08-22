@@ -1,10 +1,14 @@
 // Owns the ImGui context, the dock layout and the panel list.
+//
+// Engine panels are created here; project panels come from FEditorPanelRegistry. The default dock
+// layout is derived from each panel's declared slot, so a new project panel needs no engine change.
 
 #pragma once
 
 #include "Editor/EditorContext.h"
-#include "Editor/Panels/ConsolePanel.h"
-#include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/EditorPanel.h"
+
+#include <imgui.h>
 
 #include <memory>
 #include <string>
@@ -26,7 +30,7 @@ namespace Lime
 
 		// Creates the ImGui context and installs the GLFW platform backend. The renderer backend is
 		// registered separately as a render pass.
-		bool Initialize(FWindow& Window, FRenderer& Renderer);
+		bool Initialize(FWindow& Window);
 		void Shutdown();
 
 		void BeginFrame();
@@ -35,17 +39,17 @@ namespace Lime
 		// Finalizes the draw data; the ImGui render pass consumes it later in the frame.
 		void EndFrame();
 
-		FConsolePanel& GetConsolePanel() { return *ConsolePanel; }
-		FInspectorPanel& GetInspectorPanel() { return *InspectorPanel; }
+		// Looks a panel up by its name, for the rare case a project needs to reach one.
+		IEditorPanel* FindPanel(const char* Name) const;
 
 	private:
 		void ApplyDarkTheme();
+		void CreatePanels();
 		void DrawDockSpace();
+		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();
 
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
-		std::shared_ptr<FConsolePanel> ConsolePanel;
-		std::shared_ptr<FInspectorPanel> InspectorPanel;
 		std::string LayoutFilePath;
 		bool bInitialized = false;
 		// True when an ini file already existed, so the default layout must not overwrite it.

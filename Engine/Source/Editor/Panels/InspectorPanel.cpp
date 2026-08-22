@@ -1,35 +1,52 @@
 #include "Editor/Panels/InspectorPanel.h"
 
+#include "Editor/PropertyDrawer.h"
+#include "Renderer/Renderer.h"
+
 #include <imgui.h>
 
 namespace Lime
 {
 	void FInspectorPanel::OnDrawUI(const FEditorContext& Context)
 	{
-		if (!bVisible)
-		{
-			return;
-		}
-
-		if (!ImGui::Begin(GetName(), &bVisible))
+		if (!ImGui::Begin(GetName(), GetVisiblePtr()))
 		{
 			ImGui::End();
 			return;
 		}
 
-		if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
+		if (Context.Renderer == nullptr)
 		{
-			ImGui::Text("Backend    %s", Context.BackendName);
-			ImGui::TextWrapped("Adapter    %s", Context.AdapterName.c_str());
-			ImGui::Text("Resolution %u x %u", Context.ViewportWidth, Context.ViewportHeight);
-			ImGui::Text("Frame rate %.1f FPS", Context.FramesPerSecond);
-			ImGui::Text("Frame time %.3f ms", Context.DeltaSeconds * 1000.0f);
+			ImGui::TextDisabled("No renderer");
+			ImGui::End();
+			return;
 		}
 
-		if (DrawDelegate)
+		int32 DrawnCount = 0;
+		for (const std::shared_ptr<IRenderPass>& Pass : Context.Renderer->GetPasses())
 		{
+			const FReflectedRef Settings = Pass->GetReflectedSettings();
+			if (!Settings.IsValid())
+			{
+				// Passes without reflected settings simply do not appear.
+				continue;
+			}
+
+			++DrawnCount;
+			// Unique ID per pass so two passes with the same header label stay independent.
+			ImGui::PushID(Pass.get());
+			if (ImGui::CollapsingHeader(Pass->GetName(), ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				FPropertyDrawer::Draw(Settings);
+			}
+			ImGui::PopID();
+		}
+
+		if (DrawnCount == 0)
+		{
+			ImGui::TextWrapped("No render pass exposes reflected settings.");
 			ImGui::Spacing();
-			DrawDelegate();
+			ImGui::TextDisabled("Add LIME_REFLECT to a settings struct and return it from\nGetReflectedSettings to populate this panel.");
 		}
 
 		ImGui::End();

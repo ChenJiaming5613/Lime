@@ -1,4 +1,5 @@
-# LimeEditor: editor layer, dock layout and panels. Optional via LIME_BUILD_EDITOR.
+# LimeEditor: editor layer, dock layout, panel registry and built-in panels.
+# Optional via LIME_BUILD_EDITOR.
 
 lime_add_module(
 	NAME LimeEditor
@@ -6,11 +7,17 @@ lime_add_module(
 		EditorContext.h
 		EditorLayer.h
 		EditorLayer.cpp
+		EditorPanelRegistry.h
+		EditorPanelRegistry.cpp
+		PropertyDrawer.h
+		PropertyDrawer.cpp
 		Panels/ConsolePanel.h
 		Panels/ConsolePanel.cpp
 		Panels/EditorPanel.h
 		Panels/InspectorPanel.h
 		Panels/InspectorPanel.cpp
+		Panels/StatsPanel.h
+		Panels/StatsPanel.cpp
 	PUBLIC_DEPS
 		LimeRenderer
 		imgui

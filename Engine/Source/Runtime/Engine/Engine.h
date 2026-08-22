@@ -3,7 +3,7 @@
 #pragma once
 
 #include "Engine/ApplicationInterface.h"
-#include "Engine/EngineConfig.h"
+#include "Engine/ProjectSettings.h"
 #include "Platform/PlatformTime.h"
 #include "Platform/Window.h"
 #include "RHI/DeviceManager.h"
@@ -27,26 +27,27 @@ namespace Lime
 		LIME_NON_MOVABLE(FEngine);
 
 		// Initializes everything, runs the loop and shuts down. Returns a process exit code.
-		int32 Run(const FEngineConfig& InConfig, ILimeApplication& Application);
+		int32 Run(const FProjectSettings& InSettings);
 		void RequestExit() { bExitRequested = true; }
 
 		FWindow& GetWindow() { return Window; }
 		FRenderer& GetRenderer() { return Renderer; }
 		IDeviceManager& GetDeviceManager() { return *DeviceManager; }
-		const FEngineConfig& GetConfig() const { return Config; }
+		const FProjectSettings& GetSettings() const { return Settings; }
 		const FTimer& GetTimer() const { return Timer; }
 
 #if LIME_WITH_EDITOR
-		// Null when the editor is disabled at runtime through --no-editor.
+		// Null when the editor is disabled through settings or --no-editor.
 		FEditorLayer* GetEditor() { return bEditorEnabled ? &Editor : nullptr; }
 #endif
 
 	private:
-		bool Initialize(ILimeApplication& Application);
-		void Shutdown(ILimeApplication& Application);
-		void Tick(ILimeApplication& Application);
+		bool Initialize();
+		void Shutdown();
+		void Tick();
 
-		FEngineConfig Config;
+		FProjectSettings Settings;
+		std::unique_ptr<ILimeApplication> Application;
 		FWindow Window;
 		std::unique_ptr<IDeviceManager> DeviceManager;
 		FRenderer Renderer;

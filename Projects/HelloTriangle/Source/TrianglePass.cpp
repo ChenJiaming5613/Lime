@@ -1,18 +1,21 @@
-#include "Renderer/Passes/TrianglePass.h"
+#include "TrianglePass.h"
 
 #include "Core/Logging/LogManager.h"
 #include "Core/Math/Matrix.h"
+#include "Renderer/RenderPassRegistry.h"
 #include "Renderer/Renderer.h"
 
 #include <nvrhi/utils.h>
 
 #include <array>
 
-namespace Lime
+namespace HelloTriangle
 {
+	using namespace Lime;
+
 	namespace
 	{
-		// Must match FTriangleConstants in Triangle.hlsl. Row major, matching -Zpr.
+		// Must match FTriangleConstants in Triangle.hlsl.
 		struct FTriangleConstants
 		{
 			FMatrix4x4 WorldViewProjection;
@@ -26,15 +29,17 @@ namespace Lime
 		} };
 	} // namespace
 
-	bool FTrianglePass::Initialize(FRenderer& Renderer)
+	bool FTrianglePass::Initialize(FRenderer& InRenderer)
 	{
-		Device = Renderer.GetDevice();
+		Renderer = &InRenderer;
+		Device = InRenderer.GetDevice();
 		if (Device == nullptr)
 		{
 			return false;
 		}
 
-		FShaderLibrary& Shaders = Renderer.GetShaderLibrary();
+		// Resolved from the project shader root, which the engine registers automatically.
+		FShaderLibrary& Shaders = InRenderer.GetShaderLibrary();
 		VertexShader = Shaders.GetShader("Triangle/Triangle.hlsl", "MainVS", nvrhi::ShaderType::Vertex);
 		PixelShader = Shaders.GetShader("Triangle/Triangle.hlsl", "MainPS", nvrhi::ShaderType::Pixel);
 		if (VertexShader == nullptr || PixelShader == nullptr)
@@ -59,7 +64,7 @@ namespace Lime
 		InputLayout = Device->createInputLayout(Attributes.data(), static_cast<uint32_t>(Attributes.size()), VertexShader);
 		if (InputLayout == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createInputLayout failed for the triangle pass");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_APP, "createInputLayout failed for the triangle pass");
 			return false;
 		}
 
@@ -73,7 +78,7 @@ namespace Lime
 		VertexBuffer = Device->createBuffer(VertexBufferDesc);
 		if (VertexBuffer == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createBuffer failed for the triangle vertex buffer");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_APP, "createBuffer failed for the triangle vertex buffer");
 			return false;
 		}
 
@@ -82,18 +87,18 @@ namespace Lime
 		    Device->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(sizeof(FTriangleConstants), "TriangleConstants", 16));
 		if (ConstantBuffer == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createBuffer failed for the triangle constant buffer");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_APP, "createBuffer failed for the triangle constant buffer");
 			return false;
 		}
 
-		// Built manually rather than through nvrhi::utils so the Vulkan binding offsets are applied.
+		// Built through MakeBindingLayoutDesc so the Vulkan binding offsets are applied.
 		const nvrhi::BindingLayoutDesc LayoutDesc =
 		    MakeBindingLayoutDesc(nvrhi::ShaderType::All).addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0));
 
 		BindingLayout = Device->createBindingLayout(LayoutDesc);
 		if (BindingLayout == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createBindingLayout failed for the triangle pass");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_APP, "createBindingLayout failed for the triangle pass");
 			return false;
 		}
 
@@ -103,7 +108,7 @@ namespace Lime
 		BindingSet = Device->createBindingSet(BindingSetDesc, BindingLayout);
 		if (BindingSet == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createBindingSet failed for the triangle pass");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_APP, "createBindingSet failed for the triangle pass");
 			return false;
 		}
 
@@ -142,7 +147,7 @@ namespace Lime
 		Pipeline = Device->createGraphicsPipeline(PipelineDesc, Framebuffer->getFramebufferInfo());
 		if (Pipeline == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createGraphicsPipeline failed for the triangle pass");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_APP, "createGraphicsPipeline failed for the triangle pass");
 			return false;
 		}
 
@@ -166,16 +171,7 @@ namespace Lime
 		PixelShader = nullptr;
 		VertexShader = nullptr;
 		Device = nullptr;
-	}
-
-	void FTrianglePass::Update(float DeltaSeconds)
-	{
-		if (Settings.bPaused)
-		{
-			return;
-		}
-
-		RotationRadians = WrapAngle(RotationRadians + Settings.RotationSpeed * DeltaSeconds);
+		Renderer = nullptr;
 	}
 
 	void FTrianglePass::Render(const FFrameContext& Context)
@@ -188,6 +184,18 @@ namespace Lime
 		if (Context.CommandList == nullptr || Context.ViewportWidth == 0 || Context.ViewportHeight == 0)
 		{
 			return;
+		}
+
+		// The pass advances its own rotation, so no application update hook is needed.
+		if (!Settings.bPaused)
+		{
+			RotationRadians = WrapAngle(RotationRadians + Settings.RotationSpeed * Context.DeltaSeconds);
+		}
+
+		// The clear colour lives in the settings, so the inspector can drive it without extra wiring.
+		if (Renderer != nullptr)
+		{
+			Renderer->SetClearColor(Settings.BackgroundColor);
 		}
 
 		const FMatrix4x4 World = FMatrix4x4::RotationZ(RotationRadians);
@@ -213,4 +221,6 @@ namespace Lime
 		Context.CommandList->setGraphicsState(State);
 		Context.CommandList->draw(nvrhi::DrawArguments().setVertexCount(static_cast<uint32_t>(TriangleVertices.size())));
 	}
-} // namespace Lime
+} // namespace HelloTriangle
+
+LIME_REGISTER_RENDER_PASS(HelloTriangle::FTrianglePass);

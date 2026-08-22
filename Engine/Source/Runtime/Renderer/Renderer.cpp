@@ -61,20 +61,40 @@ namespace Lime
 		bFrameOpen = false;
 	}
 
-	void FRenderer::AddPass(std::shared_ptr<IRenderPass> Pass)
+	bool FRenderer::AddPass(std::shared_ptr<IRenderPass> Pass)
 	{
 		if (Pass == nullptr)
 		{
-			return;
+			return false;
 		}
 
 		if (!Pass->Initialize(*this))
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render pass failed to initialize and was not registered");
-			return;
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render pass '{}' failed to initialize and was not registered", Pass->GetName());
+			return false;
+		}
+
+		// A pass created before the first frame still needs the current framebuffer, and one added
+		// mid-run must not wait for a swap chain change to build its pipeline.
+		if (LastFramebuffer != nullptr)
+		{
+			Pass->OnFramebufferChanged(LastFramebuffer);
 		}
 
 		Passes.push_back(std::move(Pass));
+		return true;
+	}
+
+	IRenderPass* FRenderer::FindPassByTypeId(FRenderPassTypeId TypeId) const
+	{
+		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
+		{
+			if (Pass->GetTypeId() == TypeId)
+			{
+				return Pass.get();
+			}
+		}
+		return nullptr;
 	}
 
 	bool FRenderer::BeginFrame(float DeltaSeconds, double TotalSeconds)

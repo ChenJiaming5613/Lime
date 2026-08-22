@@ -13,9 +13,14 @@
 
 namespace Lime
 {
-	class FImGuiRenderer final : public IRenderPass
+	class FImGuiRenderer final : public TRenderPass<FImGuiRenderer>
 	{
 	public:
+		// Always drawn last so the scene shows through the dock space's central node.
+		static constexpr ERenderPassPriority Priority = ERenderPassPriority::UI;
+
+		const char* GetName() const override { return "ImGui"; }
+
 		bool Initialize(FRenderer& Renderer) override;
 		void Shutdown() override;
 		void Render(const FFrameContext& Context) override;

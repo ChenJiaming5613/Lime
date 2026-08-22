@@ -1,0 +1,19 @@
+{
+	"version": 1,
+	"name": "HelloTriangle",
+	"window": {
+		"title": "LimeEngine - HelloTriangle",
+		"width": 1600,
+		"height": 900
+	},
+	"rhi": {
+		"backend": "d3d12",
+		"vsync": true,
+		"backBufferCount": 3,
+		"validation": "debugOnly"
+	},
+	"editor": {
+		"enabled": true,
+		"persistPassSettings": false
+	}
+}

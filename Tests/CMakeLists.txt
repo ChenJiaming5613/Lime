@@ -10,6 +10,10 @@ set(TestDeps LimeCompilerOptions LimeCore)
 if(TARGET LimeRHI)
 	list(APPEND TestDeps LimeRHI)
 endif()
+# Needed for the pass ordering tests; the registry itself has no GPU dependency.
+if(TARGET LimeRenderer)
+	list(APPEND TestDeps LimeRenderer)
+endif()
 
 add_executable(LimeTests ${TestSources})
 target_link_libraries(LimeTests PRIVATE ${TestDeps} Catch2::Catch2WithMain)

@@ -43,19 +43,141 @@ For Visual Studio debugging use the `vs2022` preset instead.
 
 ## Running HelloTriangle
 
+Configuration comes from `Projects/HelloTriangle/ProjectSettings.json`. The command line overrides
+it, so switching backends never means editing the file.
+
 ```powershell
-HelloTriangle.exe                    # default backend (D3D12)
-HelloTriangle.exe --rhi=vulkan       # Vulkan backend
+HelloTriangle.exe                    # backend from ProjectSettings.json
+HelloTriangle.exe --rhi=vulkan
 HelloTriangle.exe --rhi=d3d12
 HelloTriangle.exe --no-editor        # runtime only, no editor UI
 HelloTriangle.exe --width=1280 --height=720
 HelloTriangle.exe --no-vsync
-HelloTriangle.exe --no-validation    # skip the debug runtime and the nvrhi validation layer
+HelloTriangle.exe --validation=off   # also: debugOnly (default), on
+HelloTriangle.exe --project=<path to a ProjectSettings.json>
 ```
 
-A rotating triangle is drawn with the editor docked on top: `Console` at the bottom, `Inspector`
-on the right, and a transparent central node so the scene stays visible. The layout is saved to
-`Saved/EditorLayout.ini` next to the executable; delete it to restore the default arrangement.
+A rotating triangle is drawn with the editor docked on top: `Console` at the bottom, `Stats` and
+`Inspector` on the right, the project's own `Triangle` panel on the left, and a transparent central
+node so the scene stays visible. The layout is saved to `Saved/EditorLayout.ini` next to the
+executable; delete it or use `Window > Reset layout` to restore the default arrangement.
+
+## Writing a project
+
+A project owns render passes, editor panels and shaders. It never defines `main`, never lists files
+in CMake and never calls into the engine to register anything.
+
+`CMakeLists.txt` is one line:
+
+```cmake
+lime_add_project()
+```
+
+`ProjectSettings.json` supplies the name, window and RHI configuration:
+
+```json
+{
+  "version": 1,
+  "name": "HelloTriangle",
+  "window": { "title": "LimeEngine - HelloTriangle", "width": 1600, "height": 900 },
+  "rhi": { "backend": "d3d12", "vsync": true, "backBufferCount": 3, "validation": "debugOnly" },
+  "editor": { "enabled": true, "persistPassSettings": false }
+}
+```
+
+CMake reads the same file at configure time, so the project name cannot drift between the build and
+the runtime.
+
+### A render pass
+
+Declare the tunables once and the editor generates the controls from them:
+
+```cpp
+struct FTriangleSettings
+{
+    bool bPaused = false;
+    float RotationSpeed = 1.0f;
+};
+
+LIME_REFLECT(HelloTriangle::FTriangleSettings)
+{
+    LIME_PROPERTY(bPaused,       Lime::FProp("Pause rotation"));
+    LIME_PROPERTY(RotationSpeed, Lime::FProp("Speed").Range(-6.0f, 6.0f));
+}
+
+class FTrianglePass final : public Lime::TRenderPass<FTrianglePass>
+{
+public:
+    static constexpr Lime::ERenderPassPriority Priority = Lime::ERenderPassPriority::Scene;
+
+    const char* GetName() const override { return "Triangle"; }
+    bool Initialize(Lime::FRenderer& Renderer) override;
+    void Shutdown() override;
+    void Render(const Lime::FFrameContext& Context) override;
+
+    // Opting in makes the settings appear in the generic Inspector panel.
+    Lime::FReflectedRef GetReflectedSettings() override { return Lime::MakeReflectedRef(Settings); }
+
+private:
+    FTriangleSettings Settings;
+};
+```
+
+```cpp
+// Last line of TrianglePass.cpp
+LIME_REGISTER_RENDER_PASS(HelloTriangle::FTrianglePass);
+```
+
+Passes are instantiated by the engine once the device exists and drawn in `Priority` order, so the
+editor's UI pass is always last regardless of registration order.
+
+### An editor panel
+
+Only needed for UI that reflection cannot express; simple tunables already show up in `Inspector`.
+
+```cpp
+class FTrianglePanel final : public Lime::IEditorPanel
+{
+public:
+    const char* GetName() const override { return "Triangle"; }
+    Lime::EEditorDockSlot GetDefaultDockSlot() const override { return Lime::EEditorDockSlot::Left; }
+    void OnDrawUI(const Lime::FEditorContext& Context) override;
+};
+```
+
+```cpp
+// Last line of TrianglePanel.cpp
+LIME_REGISTER_EDITOR_PANEL(HelloTriangle::FTrianglePanel);
+```
+
+A panel reaches a pass by type, so neither has to know when the other is created:
+
+```cpp
+FTrianglePass* Pass = Context.FindPass<FTrianglePass>();
+if (Pass == nullptr) { /* degrade gracefully */ }
+```
+
+The declared dock slot drives the default layout and the `Window` menu entry, so a new panel needs
+no engine change. A project panel whose name matches a built-in one replaces it.
+
+### Optional lifetime hooks
+
+Rarely needed; passes normally update themselves.
+
+```cpp
+class FMyApp final : public Lime::ILimeApplication
+{
+    bool OnStartup(Lime::FEngine& Engine) override;
+    void OnUpdate(float DeltaSeconds) override;
+    void OnShutdown() override;
+};
+
+LIME_IMPLEMENT_APPLICATION(FMyApp)
+```
+
+Self registration depends on static initializers running, which is why `lime_add_project` compiles
+project sources straight into the executable. Moving them into a static library would let the linker
+discard the object files whose only content is a registration.
 
 ## Tests
 
@@ -63,38 +185,60 @@ on the right, and a transparent central node so the scene stays visible. The lay
 ctest --test-dir Build/ninja -C Debug --output-on-failure
 ```
 
-Coverage focuses on logic that can be verified without a GPU: the math library, the log ring
-buffer, and the shader name mapping that has to stay in sync with what ShaderMake writes to disk.
+Coverage focuses on logic that can be verified without a GPU: the math library, the log ring buffer,
+the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering, JSON
+fallback behaviour, and the reflection layer.
 
 ## Architecture
 
 Strictly one-directional layering, one static library per layer:
 
 ```
-LimeCore      Types, logging, assertions, math. No graphics dependencies.
+LimeCore      Types, logging, assertions, math, JSON, reflection. No graphics dependencies.
 LimePlatform  Window, input, timing, path resolution (GLFW).
 LimeRHI       IDeviceManager plus the D3D12 and Vulkan implementations, shader loading (NVRHI).
-LimeRenderer  Frame orchestration, render passes, the NVRHI based ImGui backend.
-LimeEditor    Editor layer, dock space, panels. Optional.
-LimeRuntime   FEngine and ILimeApplication, the only interface a project implements.
+LimeRenderer  Frame orchestration, the render pass registry, the NVRHI based ImGui backend.
+LimeEditor    Editor layer, dock space, panel registry, built-in panels. Optional.
+LimeRuntime   FEngine and project settings.
+LimeLaunch    main(). An OBJECT library so registrars are never discarded.
 ```
+
+Projects depend only on the engine; the engine never references a project. Passes and panels travel
+in the other direction through the two registries, which the engine drains at a defined point during
+startup.
 
 NVRHI does not provide device or swap chain management, so `IDeviceManager` is implemented per
 backend. The ImGui renderer is written against NVRHI rather than using `imgui_impl_dx12` /
 `imgui_impl_vulkan`, so both backends share one drawing path; only `imgui_impl_glfw` is reused for
 platform input.
 
+## Reflection
+
+EnTT's meta system backs both the inspector UI and settings serialization, so a settings struct is
+described exactly once. `LIME_REFLECT` / `LIME_PROPERTY` wrap the EnTT calls, which keeps project code
+independent of the EnTT version.
+
+Two constraints are baked into the wrapper:
+
+- Fields are registered with `entt::as_ref_t`. The default as-value policy returns a copy, so widgets
+  and the JSON loader would write into a temporary; nothing would fail to compile.
+- `custom<FPropertyMeta>()` carries the display name, range and widget hint. It overwrites rather
+  than accumulates, so the metadata is built in one shot.
+
+EnTT is pinned to v3.16.0 because the meta entry point changed between releases (`entt::meta<T>()`
+before 3.15, `entt::meta_factory<T>{}` from 3.15 on).
+
 ## Repository layout
 
 ```
-CMake/          Build modules (compiler options, target helpers, shader compilation)
+CMake/          Build modules (compiler options, target helpers, shaders, projects)
 Engine/
   Shaders/      Built-in HLSL sources plus the ShaderMake config
   Content/      Built-in assets such as textures
   Source/
-    Runtime/    Core, Platform, RHI, Renderer, Engine
-    Editor/     Editor layer and panels
-Projects/       Sample and product applications
+    Runtime/    Core, Platform, RHI, Renderer, Engine, Launch
+    Editor/     Editor layer, registry and built-in panels
+Projects/       One directory per application, each with a ProjectSettings.json
 Tests/          Catch2 unit tests
 ThirdParty/     Submodules
 Scripts/        Submodule setup, formatting, static analysis
@@ -104,7 +248,7 @@ Headers and sources live side by side; there is no separate `include/` tree.
 
 ## Shaders
 
-`Engine/Shaders/LimeShaders.cfg` is a ShaderMake config. One line per shader permutation set:
+Shader trees are described by ShaderMake configs, one line per shader permutation set:
 
 ```
 Triangle/Triangle.hlsl -T vs -E MainVS
@@ -112,9 +256,13 @@ Triangle/Triangle.hlsl -T ps -E MainPS
 Blur/Blur.hlsl         -T cs -E MainCS -D RADIUS={1,2,4}
 ```
 
-Every entry is compiled twice, once into `Shaders/DXIL` and once into `Shaders/SPIRV` next to the
-executable. ShaderMake handles permutation expansion, include dependency tracking and incremental
-builds.
+Every entry is compiled twice, once into `DXIL/` and once into `SPIRV/`. ShaderMake handles
+permutation expansion, include dependency tracking and incremental builds.
+
+Engine shaders land in `Shaders/` next to the executable; a project's land in
+`Shaders/<ProjectName>/`. The engine registers the project root with higher precedence, so a project
+can override a built-in shader by using the same relative path. Project shaders can still
+`#include "Common.hlsli"` from the engine include directory.
 
 Output names follow `<relative path>[_<Entry> when the entry is not "main"]`. A shader that declares
 defines is packed into a blob and looked up at runtime through `ShaderMake::FindPermutationInBlob`;

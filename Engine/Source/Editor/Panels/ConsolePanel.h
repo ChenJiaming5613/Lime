@@ -15,6 +15,8 @@ namespace Lime
 	{
 	public:
 		const char* GetName() const override { return "Console"; }
+		EEditorDockSlot GetDefaultDockSlot() const override { return EEditorDockSlot::Bottom; }
+
 		void OnDrawUI(const FEditorContext& Context) override;
 
 	private:

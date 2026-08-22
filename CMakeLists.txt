@@ -63,6 +63,7 @@ list(APPEND CMAKE_MODULE_PATH "${LIME_ROOT_DIR}/CMake")
 include(LimeCompilerOptions)
 include(LimeTargetHelpers)
 include(LimeShaderCompile)
+include(LimeProject)
 
 if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION)
 	message(STATUS "Windows SDK: ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")

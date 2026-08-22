@@ -1,15 +1,19 @@
 #include "Editor/EditorLayer.h"
 
 #include "Core/Logging/LogManager.h"
+#include "Editor/EditorPanelRegistry.h"
+#include "Editor/Panels/ConsolePanel.h"
+#include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/StatsPanel.h"
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
 #include "Renderer/ImGui/ImGuiRenderer.h"
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderPassRegistry.h"
 
-#include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <filesystem>
 
 namespace Lime
@@ -19,7 +23,7 @@ namespace Lime
 		Shutdown();
 	}
 
-	bool FEditorLayer::Initialize(FWindow& Window, FRenderer& Renderer)
+	bool FEditorLayer::Initialize(FWindow& Window)
 	{
 		if (bInitialized)
 		{
@@ -50,17 +54,53 @@ namespace Lime
 			return false;
 		}
 
-		auto ImGuiPass = std::make_shared<FImGuiRenderer>();
-		Renderer.AddPass(ImGuiPass);
+		CreatePanels();
 
-		ConsolePanel = std::make_shared<FConsolePanel>();
-		InspectorPanel = std::make_shared<FInspectorPanel>();
-		Panels.push_back(ConsolePanel);
-		Panels.push_back(InspectorPanel);
+		// Registered rather than added directly so it is ordered by priority together with the
+		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
+		// the linker would be free to discard a translation unit that only registers.
+		FRenderPassRegistry::Get().Register("ImGui", FImGuiRenderer::Priority, [] { return std::make_shared<FImGuiRenderer>(); });
 
 		bInitialized = true;
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Editor initialized with {} panel(s)", Panels.size());
 		return true;
+	}
+
+	void FEditorLayer::CreatePanels()
+	{
+		// Built-in panels first, then whatever the project registered.
+		Panels.push_back(std::make_shared<FConsolePanel>());
+		Panels.push_back(std::make_shared<FStatsPanel>());
+		Panels.push_back(std::make_shared<FInspectorPanel>());
+
+		for (std::shared_ptr<IEditorPanel>& Panel : FEditorPanelRegistry::Get().InstantiateAll())
+		{
+			// A project panel may deliberately replace a built-in one by using the same name.
+			const auto Existing = std::find_if(Panels.begin(), Panels.end(), [&Panel](const std::shared_ptr<IEditorPanel>& Candidate)
+			                                   { return std::string_view(Candidate->GetName()) == std::string_view(Panel->GetName()); });
+
+			if (Existing != Panels.end())
+			{
+				LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Project panel '{}' replaces the built-in one", Panel->GetName());
+				*Existing = std::move(Panel);
+			}
+			else
+			{
+				Panels.push_back(std::move(Panel));
+			}
+		}
+	}
+
+	IEditorPanel* FEditorLayer::FindPanel(const char* Name) const
+	{
+		if (Name == nullptr)
+		{
+			return nullptr;
+		}
+
+		const auto Found = std::find_if(Panels.begin(), Panels.end(), [Name](const std::shared_ptr<IEditorPanel>& Panel)
+		                                { return std::string_view(Panel->GetName()) == std::string_view(Name); });
+		return Found != Panels.end() ? Found->get() : nullptr;
 	}
 
 	void FEditorLayer::Shutdown()
@@ -71,8 +111,6 @@ namespace Lime
 		}
 
 		Panels.clear();
-		ConsolePanel.reset();
-		InspectorPanel.reset();
 
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
@@ -128,6 +166,90 @@ namespace Lime
 		ImGui::NewFrame();
 	}
 
+	void FEditorLayer::BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize)
+	{
+		ImGui::DockBuilderRemoveNode(DockSpaceId);
+		ImGui::DockBuilderAddNode(DockSpaceId,
+		                          static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_PassthruCentralNode) | ImGuiDockNodeFlags_DockSpace);
+		ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSize);
+
+		// Group the panels per slot first, so only the sides that are used get split and so panels
+		// sharing a side can be stacked vertically instead of collapsing into tabs.
+		std::vector<IEditorPanel*> PerSlot[4];
+		for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
+		{
+			PerSlot[static_cast<SizeType>(Panel->GetDefaultDockSlot())].push_back(Panel.get());
+		}
+
+		const auto& LeftPanels = PerSlot[static_cast<SizeType>(EEditorDockSlot::Left)];
+		const auto& RightPanels = PerSlot[static_cast<SizeType>(EEditorDockSlot::Right)];
+		const auto& BottomPanels = PerSlot[static_cast<SizeType>(EEditorDockSlot::Bottom)];
+		const auto& CenterPanels = PerSlot[static_cast<SizeType>(EEditorDockSlot::Center)];
+
+		ImGuiID CentralId = DockSpaceId;
+		ImGuiID BottomId = 0;
+		ImGuiID LeftId = 0;
+		ImGuiID RightId = 0;
+
+		if (!BottomPanels.empty())
+		{
+			BottomId = ImGui::DockBuilderSplitNode(CentralId, ImGuiDir_Down, 0.26f, nullptr, &CentralId);
+		}
+		if (!LeftPanels.empty())
+		{
+			LeftId = ImGui::DockBuilderSplitNode(CentralId, ImGuiDir_Left, 0.17f, nullptr, &CentralId);
+		}
+		if (!RightPanels.empty())
+		{
+			RightId = ImGui::DockBuilderSplitNode(CentralId, ImGuiDir_Right, 0.22f, nullptr, &CentralId);
+		}
+
+		// Splits a column into one row per panel, so all of them stay visible at once.
+		const auto DockColumn = [](ImGuiID ColumnId, const std::vector<IEditorPanel*>& ColumnPanels)
+		{
+			ImGuiID Remaining = ColumnId;
+			for (SizeType Index = 0; Index < ColumnPanels.size(); ++Index)
+			{
+				const bool bLast = Index + 1 == ColumnPanels.size();
+				if (bLast)
+				{
+					ImGui::DockBuilderDockWindow(ColumnPanels[Index]->GetName(), Remaining);
+					break;
+				}
+
+				// Divide the space that is still free evenly among the panels left to place.
+				const float Ratio = 1.0f / static_cast<float>(ColumnPanels.size() - Index);
+				const ImGuiID SliceId = ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Up, Ratio, nullptr, &Remaining);
+				ImGui::DockBuilderDockWindow(ColumnPanels[Index]->GetName(), SliceId);
+			}
+		};
+
+		if (LeftId != 0)
+		{
+			DockColumn(LeftId, LeftPanels);
+		}
+		if (RightId != 0)
+		{
+			DockColumn(RightId, RightPanels);
+		}
+		if (BottomId != 0)
+		{
+			// Bottom panels share one node as tabs; stacking them would leave each too short.
+			for (IEditorPanel* Panel : BottomPanels)
+			{
+				ImGui::DockBuilderDockWindow(Panel->GetName(), BottomId);
+			}
+		}
+		for (IEditorPanel* Panel : CenterPanels)
+		{
+			ImGui::DockBuilderDockWindow(Panel->GetName(), CentralId);
+		}
+
+		ImGui::DockBuilderFinish(DockSpaceId);
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Default dock layout built at {:.0f}x{:.0f} for {} panel(s)", DockSize.x, DockSize.y,
+		              Panels.size());
+	}
+
 	void FEditorLayer::DrawDockSpace()
 	{
 		const ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -156,25 +278,9 @@ namespace Lime
 		if (!bLayoutBuilt)
 		{
 			bLayoutBuilt = true;
-
 			if (!bHasSavedLayout)
 			{
-				const ImVec2 DockSize = ImGui::GetContentRegionAvail();
-
-				ImGui::DockBuilderRemoveNode(DockSpaceId);
-				ImGui::DockBuilderAddNode(DockSpaceId, static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_PassthruCentralNode) |
-				                                           ImGuiDockNodeFlags_DockSpace);
-				ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSize);
-
-				ImGuiID CentralId = DockSpaceId;
-				const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CentralId, ImGuiDir_Down, 0.28f, nullptr, &CentralId);
-				const ImGuiID RightId = ImGui::DockBuilderSplitNode(CentralId, ImGuiDir_Right, 0.24f, nullptr, &CentralId);
-
-				ImGui::DockBuilderDockWindow("Console", BottomId);
-				ImGui::DockBuilderDockWindow("Inspector", RightId);
-				ImGui::DockBuilderFinish(DockSpaceId);
-
-				LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Default dock layout built at {:.0f}x{:.0f}", DockSize.x, DockSize.y);
+				BuildDefaultLayout(DockSpaceId, ImGui::GetContentRegionAvail());
 			}
 		}
 
@@ -202,11 +308,17 @@ namespace Lime
 
 		if (ImGui::BeginMenu("Window"))
 		{
+			// Panels appear automatically, so a project panel needs no engine change to be reachable.
 			for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
 			{
 				ImGui::MenuItem(Panel->GetName(), nullptr, Panel->GetVisiblePtr());
 			}
 			ImGui::Separator();
+			if (ImGui::MenuItem("Reset layout"))
+			{
+				bLayoutBuilt = false;
+				bHasSavedLayout = false;
+			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &bShowDemoWindow);
 			ImGui::EndMenu();
 		}

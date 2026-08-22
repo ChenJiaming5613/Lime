@@ -1,37 +1,35 @@
-// Draws a single rotating triangle. Serves as the cross backend smoke test.
+// Draws a single rotating triangle. Registers itself, so nothing else has to reference it.
 
 #pragma once
 
 #include "Renderer/RenderTypes.h"
 
-namespace Lime
-{
-	struct FTriangleSettings
-	{
-		float RotationSpeed = 1.0f;
-		FVector4 Tint{ 1.0f, 1.0f, 1.0f, 1.0f };
-		float FovDegrees = 60.0f;
-		bool bPaused = false;
-	};
+#include "TriangleSettings.h"
 
-	class FTrianglePass final : public IRenderPass
+namespace HelloTriangle
+{
+	class FTrianglePass final : public Lime::TRenderPass<FTrianglePass>
 	{
 	public:
-		bool Initialize(FRenderer& Renderer) override;
+		static constexpr Lime::ERenderPassPriority Priority = Lime::ERenderPassPriority::Scene;
+
+		const char* GetName() const override { return "Triangle"; }
+
+		bool Initialize(Lime::FRenderer& Renderer) override;
 		void Shutdown() override;
-		void Render(const FFrameContext& Context) override;
+		void Render(const Lime::FFrameContext& Context) override;
 		void OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer) override;
 
-		// Advances the rotation; the application decides how the angle evolves.
-		void Update(float DeltaSeconds);
+		// Makes the settings visible to the editor's generic inspector.
+		Lime::FReflectedRef GetReflectedSettings() override { return Lime::MakeReflectedRef(Settings); }
 
 		FTriangleSettings& GetSettings() { return Settings; }
-		const FTriangleSettings& GetSettings() const { return Settings; }
 		float GetRotationRadians() const { return RotationRadians; }
 
 	private:
 		bool CreatePipeline(nvrhi::IFramebuffer* Framebuffer);
 
+		Lime::FRenderer* Renderer = nullptr;
 		nvrhi::IDevice* Device = nullptr;
 		nvrhi::ShaderHandle VertexShader;
 		nvrhi::ShaderHandle PixelShader;
@@ -45,4 +43,4 @@ namespace Lime
 		FTriangleSettings Settings;
 		float RotationRadians = 0.0f;
 	};
-} // namespace Lime
+} // namespace HelloTriangle

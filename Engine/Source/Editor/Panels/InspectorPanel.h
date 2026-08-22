@@ -1,25 +1,19 @@
-// Shows read only frame statistics plus whatever the application injects.
+// Lists the reflected settings of every registered render pass and generates controls for them.
+// A project gets an inspector for free by declaring LIME_REFLECT on its settings struct; no panel
+// code is required.
 
 #pragma once
 
 #include "Editor/Panels/EditorPanel.h"
-
-#include <functional>
 
 namespace Lime
 {
 	class FInspectorPanel final : public IEditorPanel
 	{
 	public:
-		using FDrawDelegate = std::function<void()>;
-
 		const char* GetName() const override { return "Inspector"; }
+		EEditorDockSlot GetDefaultDockSlot() const override { return EEditorDockSlot::Right; }
+
 		void OnDrawUI(const FEditorContext& Context) override;
-
-		// Lets the project draw its own controls without the editor knowing its types.
-		void SetDrawDelegate(FDrawDelegate Delegate) { DrawDelegate = std::move(Delegate); }
-
-	private:
-		FDrawDelegate DrawDelegate;
 	};
 } // namespace Lime

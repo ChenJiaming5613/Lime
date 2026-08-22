@@ -26,3 +26,11 @@
 [submodule "ThirdParty/DirectXHeaders"]
 	path = ThirdParty/DirectXHeaders
 	url = https://github.com/microsoft/DirectX-Headers.git
+[submodule "ThirdParty/EnTT"]
+	path = ThirdParty/EnTT
+	url = https://github.com/skypjack/entt.git
+	branch = v3.16.0
+[submodule "ThirdParty/Json"]
+	path = ThirdParty/Json
+	url = https://github.com/nlohmann/json.git
+	branch = v3.12.0

@@ -32,6 +32,10 @@ namespace Lime
 
 #define LIME_UNUSED(Expression) (void)(Expression)
 
+// Two levels of indirection so arguments are expanded before being pasted.
+#define LIME_CONCAT_IMPL(Left, Right) Left##Right
+#define LIME_CONCAT(Left, Right) LIME_CONCAT_IMPL(Left, Right)
+
 // Disables copy and move for types that own platform or GPU resources.
 #define LIME_NON_COPYABLE(TypeName)                                                                                                        \
 	TypeName(const TypeName&) = delete;                                                                                                    \

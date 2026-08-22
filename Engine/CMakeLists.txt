@@ -9,19 +9,13 @@ lime_compile_shaders(
 
 add_subdirectory(Source/Runtime/Core)
 add_subdirectory(Source/Runtime/Platform)
+add_subdirectory(Source/Runtime/RHI)
+add_subdirectory(Source/Runtime/Renderer)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Runtime/RHI/CMakeLists.txt")
-	add_subdirectory(Source/Runtime/RHI)
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Runtime/Renderer/CMakeLists.txt")
-	add_subdirectory(Source/Runtime/Renderer)
-endif()
-
-if(LIME_BUILD_EDITOR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Editor/CMakeLists.txt")
+if(LIME_BUILD_EDITOR)
 	add_subdirectory(Source/Editor)
 endif()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Runtime/Engine/CMakeLists.txt")
-	add_subdirectory(Source/Runtime/Engine)
-endif()
+add_subdirectory(Source/Runtime/Engine)
+# Depends on LimeRuntime, so it comes last.
+add_subdirectory(Source/Runtime/Launch)

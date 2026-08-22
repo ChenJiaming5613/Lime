@@ -8,7 +8,7 @@
 
 namespace Lime
 {
-	bool FShaderLibrary::Initialize(nvrhi::IDevice* InDevice, ERHIBackend InBackend, std::filesystem::path InRootDirectory)
+	bool FShaderLibrary::Initialize(nvrhi::IDevice* InDevice, ERHIBackend InBackend, std::filesystem::path EngineRootDirectory)
 	{
 		if (InDevice == nullptr)
 		{
@@ -18,24 +18,38 @@ namespace Lime
 
 		Device = InDevice;
 		Backend = InBackend;
-		RootDirectory = std::move(InRootDirectory);
+		SearchRoots.clear();
 		Cache.clear();
 
-		const std::filesystem::path PlatformDirectory = RootDirectory / GetShaderPlatformDirectory(Backend);
-		if (!std::filesystem::exists(PlatformDirectory))
+		if (!AddSearchRoot(std::move(EngineRootDirectory)))
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "Shader directory not found: {}. Build the LimeShaders target first.",
-			               FPlatformPaths::ToUtf8(PlatformDirectory));
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "No engine shaders for {}. Build the LimeShaders target first.", ToString(Backend));
 			return false;
 		}
 
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_RHI, "Shader library ready: {} ({})", FPlatformPaths::ToUtf8(PlatformDirectory), ToString(Backend));
+		return true;
+	}
+
+	bool FShaderLibrary::AddSearchRoot(std::filesystem::path Root)
+	{
+		const std::filesystem::path PlatformDirectory = Root / GetShaderPlatformDirectory(Backend);
+		if (!std::filesystem::exists(PlatformDirectory))
+		{
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_RHI, "Skipping shader root without {} output: {}", GetShaderPlatformDirectory(Backend),
+			                 FPlatformPaths::ToUtf8(Root));
+			return false;
+		}
+
+		// Inserted at the front so later roots win, letting a project override a built-in shader.
+		SearchRoots.insert(SearchRoots.begin(), std::move(Root));
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_RHI, "Shader root added: {} ({})", FPlatformPaths::ToUtf8(PlatformDirectory), ToString(Backend));
 		return true;
 	}
 
 	void FShaderLibrary::Shutdown()
 	{
 		Cache.clear();
+		SearchRoots.clear();
 		Device = nullptr;
 	}
 
@@ -109,15 +123,44 @@ namespace Lime
 		return Shader;
 	}
 
+	std::filesystem::path FShaderLibrary::ResolveShaderPath(const FShaderKey& Key) const
+	{
+		const std::filesystem::path RelativePath = MakeShaderRelativePath(Key, Backend);
+		for (const std::filesystem::path& Root : SearchRoots)
+		{
+			const std::filesystem::path Candidate = Root / RelativePath;
+			if (std::filesystem::exists(Candidate))
+			{
+				return Candidate;
+			}
+		}
+		return {};
+	}
+
 	bool FShaderLibrary::LoadBytecode(const FShaderKey& Key, std::vector<uint8>& OutBytecode) const
 	{
-		const std::filesystem::path FullPath = RootDirectory / MakeShaderRelativePath(Key, Backend);
+		const std::filesystem::path FullPath = ResolveShaderPath(Key);
+		if (FullPath.empty())
+		{
+			// Listing the roots that were searched makes a missing build step obvious.
+			std::string SearchedRoots;
+			for (const std::filesystem::path& Root : SearchRoots)
+			{
+				if (!SearchedRoots.empty())
+				{
+					SearchedRoots += ", ";
+				}
+				SearchedRoots += FPlatformPaths::ToUtf8(Root);
+			}
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "Shader '{}' not found for backend {} under: {}",
+			               FPlatformPaths::ToUtf8(MakeShaderRelativePath(Key, Backend)), ToString(Backend), SearchedRoots);
+			return false;
+		}
 
 		std::ifstream Stream(FullPath, std::ios::binary | std::ios::ate);
 		if (!Stream)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "Shader file not found: {} (backend {})", FPlatformPaths::ToUtf8(FullPath),
-			               ToString(Backend));
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "Cannot open shader file: {}", FPlatformPaths::ToUtf8(FullPath));
 			return false;
 		}
 

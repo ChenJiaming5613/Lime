@@ -43,9 +43,10 @@ function(lime_validate_shader_compiler)
 endfunction()
 
 # lime_compile_shaders(TARGET <name> CONFIG <cfg file> OUTPUT_DIR <dir>
-#                      [SOURCE_DIR <dir>] [INCLUDE_DIRS <dirs...>] [SHADER_MODEL <X_Y>])
+#                      [SOURCE_DIR <dir>] [INCLUDE_DIRS <dirs...>] [SHADER_MODEL <X_Y>]
+#                      [FOLDER <ide folder>])
 function(lime_compile_shaders)
-	set(OneValueArgs TARGET CONFIG OUTPUT_DIR SOURCE_DIR SHADER_MODEL)
+	set(OneValueArgs TARGET CONFIG OUTPUT_DIR SOURCE_DIR SHADER_MODEL FOLDER)
 	set(MultiValueArgs INCLUDE_DIRS)
 	cmake_parse_arguments(LIME_SHADERS "" "${OneValueArgs}" "${MultiValueArgs}" ${ARGN})
 
@@ -60,6 +61,9 @@ function(lime_compile_shaders)
 	endif()
 	if(NOT LIME_SHADERS_SOURCE_DIR)
 		get_filename_component(LIME_SHADERS_SOURCE_DIR "${LIME_SHADERS_CONFIG}" DIRECTORY)
+	endif()
+	if(NOT LIME_SHADERS_FOLDER)
+		set(LIME_SHADERS_FOLDER "Engine")
 	endif()
 
 	set(DxcPath "${SHADERMAKE_DXC_PATH}")
@@ -125,6 +129,6 @@ function(lime_compile_shaders)
 		VERBATIM
 	)
 
-	set_target_properties(${LIME_SHADERS_TARGET} PROPERTIES FOLDER "Engine")
+	set_target_properties(${LIME_SHADERS_TARGET} PROPERTIES FOLDER "${LIME_SHADERS_FOLDER}")
 	source_group(TREE "${LIME_SHADERS_SOURCE_DIR}" FILES ${LIME_SHADERS_CONFIG} ${ShaderSources})
 endfunction()

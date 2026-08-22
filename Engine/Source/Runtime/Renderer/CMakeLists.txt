@@ -1,15 +1,15 @@
-# LimeRenderer: frame orchestration, render passes and the NVRHI based ImGui backend.
+# LimeRenderer: frame orchestration, the pass registry and the NVRHI based ImGui backend.
 
 lime_add_module(
 	NAME LimeRenderer
 	SOURCES
 		RenderTypes.h
+		RenderPassRegistry.h
+		RenderPassRegistry.cpp
 		Renderer.h
 		Renderer.cpp
 		ImGui/ImGuiRenderer.h
 		ImGui/ImGuiRenderer.cpp
-		Passes/TrianglePass.h
-		Passes/TrianglePass.cpp
 	PUBLIC_DEPS
 		LimeRHI
 		imgui

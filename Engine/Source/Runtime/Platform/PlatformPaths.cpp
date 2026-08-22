@@ -73,6 +73,20 @@ namespace Lime
 		return Directory;
 	}
 
+	const std::filesystem::path& FPlatformPaths::GetProjectSourceDirectory()
+	{
+		// LIME_PROJECT_SOURCE_DIR is injected per project by lime_add_project.
+		static const std::filesystem::path Directory = []
+		{
+#if defined(LIME_PROJECT_SOURCE_DIR)
+			return std::filesystem::path(LIME_PROJECT_SOURCE_DIR);
+#else
+			return std::filesystem::path();
+#endif
+		}();
+		return Directory;
+	}
+
 	std::string FPlatformPaths::ToUtf8(const std::filesystem::path& Path)
 	{
 		const std::u8string Utf8 = Path.u8string();
