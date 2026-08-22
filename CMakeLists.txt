@@ -25,6 +25,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 option(LIME_BUILD_EDITOR "Build the editor module" ON)
 option(LIME_BUILD_TESTS "Build unit tests" ON)
+# Debug only by default: the automation server exposes full engine state over a local socket, which
+# is a development facility rather than something to ship.
+option(LIME_BUILD_AUTOMATION "Build the automation server used by external test scripts" ON)
 option(LIME_ENABLE_RHI_D3D12 "Enable the Direct3D 12 backend" ON)
 option(LIME_ENABLE_RHI_VULKAN "Enable the Vulkan backend" ON)
 
@@ -78,4 +81,4 @@ if(LIME_BUILD_TESTS)
 	add_subdirectory(Tests)
 endif()
 
-message(STATUS "LimeEngine ${PROJECT_VERSION} | Editor: ${LIME_BUILD_EDITOR} | Tests: ${LIME_BUILD_TESTS} | D3D12: ${LIME_ENABLE_RHI_D3D12} | Vulkan: ${LIME_ENABLE_RHI_VULKAN}")
+message(STATUS "LimeEngine ${PROJECT_VERSION} | Editor: ${LIME_BUILD_EDITOR} | Tests: ${LIME_BUILD_TESTS} | Automation: ${LIME_BUILD_AUTOMATION} | D3D12: ${LIME_ENABLE_RHI_D3D12} | Vulkan: ${LIME_ENABLE_RHI_VULKAN}")

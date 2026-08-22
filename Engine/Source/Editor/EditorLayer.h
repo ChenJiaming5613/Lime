@@ -48,6 +48,14 @@ namespace Lime
 
 		// Looks a panel up by its name, for the rare case a project needs to reach one.
 		IEditorPanel* FindPanel(const char* Name) const;
+		const std::vector<std::shared_ptr<IEditorPanel>>& GetPanels() const { return Panels; }
+
+		// Discards the saved arrangement and rebuilds the default layout on the next frame.
+		void RequestLayoutReset()
+		{
+			bLayoutBuilt = false;
+			bHasSavedLayout = false;
+		}
 
 	private:
 		void ApplyDarkTheme();

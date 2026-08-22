@@ -98,9 +98,56 @@ namespace Lime
 			return false;
 		}
 
+#if LIME_WITH_AUTOMATION
+		// Last, so the first command already sees a fully constructed engine. A failure here is not
+		// fatal: the engine simply runs without remote control.
+		if (Settings.bEnableAutomation && !StartAutomation())
+		{
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "Continuing without the automation server");
+		}
+#endif
+
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_CORE, "Startup complete on {}", DeviceManager->GetAdapterName());
 		return true;
 	}
+
+#if LIME_WITH_AUTOMATION
+	bool FEngine::StartAutomation()
+	{
+		Screenshots.Initialize(*DeviceManager, Renderer);
+
+		FAutomationContext Context;
+		Context.Renderer = &Renderer;
+		Context.DeviceManager = DeviceManager.get();
+		Context.LogBuffer = &FLogManager::Get().GetRingBuffer();
+		Context.Screenshots = &Screenshots;
+		Context.ProjectName = Settings.ProjectName;
+#if LIME_WITH_EDITOR
+		Context.Editor = GetEditor();
+#endif
+
+		// Delegates rather than direct access, so LimeAutomation stays below LimeRuntime and does not
+		// need to know about FEngine or FProjectSettings.
+		Context.RequestExit = [this] { RequestExit(); };
+		Context.QuerySettings = [this] { return Settings.ToJson(); };
+		Context.ApplySettings = [this](const FJson& Json, std::string& OutError)
+		{
+			if (!Settings.ApplyJson(Json, OutError))
+			{
+				return false;
+			}
+			// The title is the one setting that can be applied to a live window; everything else is
+			// fixed at device or window creation and only affects the next launch.
+			Window.SetTitle(Settings.WindowTitle);
+			return true;
+		};
+		Context.SaveSettings = [this] { return Settings.SaveToFile(); };
+
+		FAutomationServerDesc Desc;
+		Desc.Port = static_cast<uint16>(Settings.AutomationPort);
+		return Automation.Initialize(Desc, std::move(Context));
+	}
+#endif
 
 	void FEngine::Tick()
 	{
@@ -117,8 +164,23 @@ namespace Lime
 		const float DeltaSeconds = Timer.Tick();
 		Application->OnUpdate(DeltaSeconds);
 
+#if LIME_WITH_AUTOMATION
+		// Before the UI is built, so a command that changes a panel or a pass setting is reflected in
+		// the frame this same tick produces. That is what makes "set then capture" observable.
+		if (Automation.IsRunning())
+		{
+			Automation.UpdateContext(DeltaSeconds, Timer.GetFramesPerSecond(), Timer.GetTotalSeconds(), Timer.GetFrameCount());
+			Automation.Tick();
+		}
+#endif
+
 		if (Window.IsMinimized())
 		{
+#if LIME_WITH_AUTOMATION
+			// No frame is coming, so a deferred capture would otherwise wait until the window is
+			// restored. Failing it keeps the client from blocking on a frame that never renders.
+			Automation.FlushDeferred();
+#endif
 			return;
 		}
 
@@ -145,6 +207,11 @@ namespace Lime
 
 		if (!DeviceManager->BeginFrame())
 		{
+#if LIME_WITH_AUTOMATION
+			// The frame was skipped, so a pending capture has nothing to read and must not keep its
+			// caller waiting for the next one.
+			Automation.FlushDeferred();
+#endif
 			return;
 		}
 
@@ -166,11 +233,24 @@ namespace Lime
 		}
 #endif
 
+#if LIME_WITH_AUTOMATION
+		// After submission but before Present: the back buffer still holds this frame, so a capture
+		// returns what was just drawn rather than the previous image.
+		Automation.FlushDeferred();
+#endif
+
 		DeviceManager->Present();
 	}
 
 	void FEngine::Shutdown()
 	{
+#if LIME_WITH_AUTOMATION
+		// First: its handlers hold raw pointers into everything below, and a connection thread could
+		// otherwise still be dispatching while those are being destroyed.
+		Automation.Shutdown();
+		Screenshots.Shutdown();
+#endif
+
 		if (Application != nullptr)
 		{
 			Application->OnShutdown();

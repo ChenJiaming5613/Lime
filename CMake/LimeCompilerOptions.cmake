@@ -20,6 +20,12 @@ else()
 	target_compile_definitions(LimeCompilerOptions INTERFACE LIME_WITH_EDITOR=0)
 endif()
 
+if(LIME_BUILD_AUTOMATION)
+	target_compile_definitions(LimeCompilerOptions INTERFACE LIME_WITH_AUTOMATION=1)
+else()
+	target_compile_definitions(LimeCompilerOptions INTERFACE LIME_WITH_AUTOMATION=0)
+endif()
+
 if(LIME_ENABLE_RHI_D3D12)
 	target_compile_definitions(LimeCompilerOptions INTERFACE LIME_RHI_D3D12=1)
 else()

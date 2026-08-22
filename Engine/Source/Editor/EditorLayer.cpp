@@ -401,8 +401,7 @@ namespace Lime
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset layout"))
 			{
-				bLayoutBuilt = false;
-				bHasSavedLayout = false;
+				RequestLayoutReset();
 			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &bShowDemoWindow);
 			ImGui::EndMenu();

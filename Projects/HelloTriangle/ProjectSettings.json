@@ -15,5 +15,9 @@
 	"editor": {
 		"enabled": true,
 		"persistPassSettings": false
+	},
+	"automation": {
+		"enabled": true,
+		"port": 8787
 	}
 }

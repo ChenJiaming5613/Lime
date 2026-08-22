@@ -422,7 +422,17 @@ namespace Lime
 		CreateInfo.imageColorSpace = ChosenFormat.colorSpace;
 		CreateInfo.imageExtent = Extent;
 		CreateInfo.imageArrayLayers = 1;
+		// eTransferSrc is what lets a screenshot copy out of the back buffer. It is requested only
+		// when the surface supports it, since it is not guaranteed by the specification.
 		CreateInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+		if ((Capabilities.supportedUsageFlags & vk::ImageUsageFlagBits::eTransferSrc) == vk::ImageUsageFlagBits::eTransferSrc)
+		{
+			CreateInfo.imageUsage |= vk::ImageUsageFlagBits::eTransferSrc;
+		}
+		else
+		{
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_RHI, "Surface does not support TRANSFER_SRC; back buffer capture is unavailable");
+		}
 		CreateInfo.preTransform = Capabilities.currentTransform;
 		CreateInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
 		CreateInfo.presentMode = ChosenPresentMode;

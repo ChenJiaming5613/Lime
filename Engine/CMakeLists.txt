@@ -16,6 +16,11 @@ if(LIME_BUILD_EDITOR)
 	add_subdirectory(Source/Editor)
 endif()
 
+# Depends on the editor when it is enabled, so it comes after it.
+if(LIME_BUILD_AUTOMATION)
+	add_subdirectory(Source/Runtime/Automation)
+endif()
+
 add_subdirectory(Source/Runtime/Engine)
 # Depends on LimeRuntime, so it comes last.
 add_subdirectory(Source/Runtime/Launch)

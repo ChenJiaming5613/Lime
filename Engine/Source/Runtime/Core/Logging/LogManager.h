@@ -61,6 +61,7 @@ namespace Lime
 #define LIME_LOG_CATEGORY_RHI "RHI"
 #define LIME_LOG_CATEGORY_RENDERER "Renderer"
 #define LIME_LOG_CATEGORY_EDITOR "Editor"
+#define LIME_LOG_CATEGORY_AUTOMATION "Automation"
 #define LIME_LOG_CATEGORY_APP "App"
 
 // Formatting only happens when the level passes, so disabled logs cost a single comparison.

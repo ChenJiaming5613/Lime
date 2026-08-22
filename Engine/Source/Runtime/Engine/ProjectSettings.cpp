@@ -4,6 +4,8 @@
 #include "Core/Logging/LogManager.h"
 #include "Platform/PlatformPaths.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include <charconv>
 #include <string_view>
 
@@ -13,12 +15,28 @@ namespace Lime
 	{
 		constexpr const char* SettingsFileName = "ProjectSettings.json";
 		constexpr const char* LogContext = "ProjectSettings.json";
+		// Matches FViewportTarget::MaxSize; a window larger than that could not be rendered into.
+		constexpr uint32 MaxWindowDimension = 16384;
 
 		bool TryParseUInt(std::string_view Text, uint32& OutValue)
 		{
 			uint32 Parsed = 0;
 			const auto Result = std::from_chars(Text.data(), Text.data() + Text.size(), Parsed);
 			if (Result.ec != std::errc{} || Parsed == 0)
+			{
+				return false;
+			}
+			OutValue = Parsed;
+			return true;
+		}
+
+		// Separate from TryParseUInt, which rejects zero: port 0 is a valid request for an OS assigned
+		// port rather than a missing value.
+		bool TryParsePort(std::string_view Text, uint32& OutValue)
+		{
+			uint32 Parsed = 0;
+			const auto Result = std::from_chars(Text.data(), Text.data() + Text.size(), Parsed);
+			if (Result.ec != std::errc{} || Parsed > 65535)
 			{
 				return false;
 			}
@@ -114,6 +132,8 @@ namespace Lime
 		bOk &= FJsonUtils::Set(Root, "rhi.validation", Lime::ToString(Validation));
 		bOk &= FJsonUtils::Set(Root, "editor.enabled", bEnableEditor);
 		bOk &= FJsonUtils::Set(Root, "editor.persistPassSettings", bPersistPassSettings);
+		bOk &= FJsonUtils::Set(Root, "automation.enabled", bEnableAutomation);
+		bOk &= FJsonUtils::Set(Root, "automation.port", AutomationPort);
 
 		if (!bOk)
 		{
@@ -150,7 +170,8 @@ namespace Lime
 		return ProjectName == Other.ProjectName && WindowTitle == Other.WindowTitle && WindowWidth == Other.WindowWidth &&
 		       WindowHeight == Other.WindowHeight && Backend == Other.Backend && BackBufferCount == Other.BackBufferCount &&
 		       bVSync == Other.bVSync && Validation == Other.Validation && bEnableEditor == Other.bEnableEditor &&
-		       bPersistPassSettings == Other.bPersistPassSettings;
+		       bPersistPassSettings == Other.bPersistPassSettings && bEnableAutomation == Other.bEnableAutomation &&
+		       AutomationPort == Other.AutomationPort;
 	}
 
 	std::filesystem::path FProjectSettings::ResolveSettingsPath()
@@ -191,7 +212,7 @@ namespace Lime
 			LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "{}: unsupported version {}; parsing as version 1", LogContext, Version);
 		}
 
-		FJsonUtils::WarnUnknownKeys(Root, { "version", "name", "window", "rhi", "editor" }, {}, LogContext);
+		FJsonUtils::WarnUnknownKeys(Root, { "version", "name", "window", "rhi", "editor", "automation" }, {}, LogContext);
 
 		ProjectName = FJsonUtils::ReadOr<std::string>(Root, "name", ProjectName, LogContext);
 		// The window title defaults to the project name so the field can be omitted.
@@ -251,6 +272,174 @@ namespace Lime
 			bPersistPassSettings = FJsonUtils::ReadOr<bool>(Root, "editor.persistPassSettings", bPersistPassSettings, LogContext);
 		}
 
+		if (const FJson* Automation = FJsonUtils::Find(Root, "automation"))
+		{
+			FJsonUtils::WarnUnknownKeys(*Automation, { "enabled", "port" }, "automation", LogContext);
+#if LIME_WITH_AUTOMATION
+			bEnableAutomation = FJsonUtils::ReadOr<bool>(Root, "automation.enabled", bEnableAutomation, LogContext);
+#endif
+			const uint32 Port = FJsonUtils::ReadOr<uint32>(Root, "automation.port", AutomationPort, LogContext);
+			// 0 is valid and means "let the OS choose"; the real value is written to AutomationPort.txt.
+			if (Port > 65535)
+			{
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "{}: automation.port {} is out of range; using {}", LogContext, Port,
+				                 AutomationPort);
+			}
+			else
+			{
+				AutomationPort = Port;
+			}
+		}
+
+		return true;
+	}
+
+	FJson FProjectSettings::ToJson() const
+	{
+		// Same key layout LoadFromFile expects, so a client can send back what it received.
+		FJson Root = FJson::object();
+		Root["version"] = 1;
+		Root["name"] = ProjectName;
+
+		FJson& Window = Root["window"] = FJson::object();
+		Window["title"] = WindowTitle;
+		Window["width"] = WindowWidth;
+		Window["height"] = WindowHeight;
+
+		FJson& Rhi = Root["rhi"] = FJson::object();
+		Rhi["backend"] = ToConfigToken(Backend);
+		Rhi["vsync"] = bVSync;
+		Rhi["backBufferCount"] = BackBufferCount;
+		Rhi["validation"] = Lime::ToString(Validation);
+
+		FJson& Editor = Root["editor"] = FJson::object();
+		Editor["enabled"] = bEnableEditor;
+		Editor["persistPassSettings"] = bPersistPassSettings;
+
+		FJson& Automation = Root["automation"] = FJson::object();
+		Automation["enabled"] = bEnableAutomation;
+		Automation["port"] = AutomationPort;
+
+		return Root;
+	}
+
+	bool FProjectSettings::ApplyJson(const FJson& Json, std::string& OutError)
+	{
+		if (!Json.is_object())
+		{
+			OutError = "Settings must be an object";
+			return false;
+		}
+
+		// Validated against a copy first, so a rejected key leaves the live settings untouched.
+		FProjectSettings Candidate = *this;
+
+		const auto ReadBool = [&Json, &OutError](const char* Path, bool& OutValue)
+		{
+			const FJson* Node = FJsonUtils::Find(Json, Path);
+			if (Node == nullptr)
+			{
+				return true;
+			}
+			if (!Node->is_boolean())
+			{
+				OutError = fmt::format("'{}' must be a boolean", Path);
+				return false;
+			}
+			OutValue = Node->get<bool>();
+			return true;
+		};
+
+		const auto ReadUInt = [&Json, &OutError](const char* Path, uint32 Minimum, uint32 Maximum, uint32& OutValue)
+		{
+			const FJson* Node = FJsonUtils::Find(Json, Path);
+			if (Node == nullptr)
+			{
+				return true;
+			}
+			// is_number_integer rather than is_number_unsigned: a positive value assigned from a signed
+			// integer is stored as signed, so the stricter check would reject valid input.
+			if (!Node->is_number_integer())
+			{
+				OutError = fmt::format("'{}' must be an integer", Path);
+				return false;
+			}
+
+			const int64 Parsed = Node->get<int64>();
+			if (Parsed < static_cast<int64>(Minimum) || Parsed > static_cast<int64>(Maximum))
+			{
+				OutError = fmt::format("'{}' must be between {} and {}", Path, Minimum, Maximum);
+				return false;
+			}
+			OutValue = static_cast<uint32>(Parsed);
+			return true;
+		};
+
+		const auto ReadString = [&Json, &OutError](const char* Path, std::string& OutValue)
+		{
+			const FJson* Node = FJsonUtils::Find(Json, Path);
+			if (Node == nullptr)
+			{
+				return true;
+			}
+			if (!Node->is_string())
+			{
+				OutError = fmt::format("'{}' must be a string", Path);
+				return false;
+			}
+			OutValue = Node->get<std::string>();
+			return true;
+		};
+
+		if (!ReadString("window.title", Candidate.WindowTitle) || !ReadUInt("window.width", 1, MaxWindowDimension, Candidate.WindowWidth) ||
+		    !ReadUInt("window.height", 1, MaxWindowDimension, Candidate.WindowHeight) ||
+		    !ReadUInt("rhi.backBufferCount", 2, 8, Candidate.BackBufferCount) || !ReadBool("rhi.vsync", Candidate.bVSync) ||
+		    !ReadBool("editor.enabled", Candidate.bEnableEditor) ||
+		    !ReadBool("editor.persistPassSettings", Candidate.bPersistPassSettings) ||
+		    !ReadBool("automation.enabled", Candidate.bEnableAutomation) ||
+		    !ReadUInt("automation.port", 0, 65535, Candidate.AutomationPort))
+		{
+			return false;
+		}
+
+		if (const FJson* BackendNode = FJsonUtils::Find(Json, "rhi.backend"))
+		{
+			if (!BackendNode->is_string())
+			{
+				OutError = "'rhi.backend' must be a string";
+				return false;
+			}
+
+			const std::string BackendText = BackendNode->get<std::string>();
+			ERHIBackend Parsed = Candidate.Backend;
+			if (!TryParseBackend(BackendText, Parsed))
+			{
+				OutError = fmt::format("Unknown backend '{}'", BackendText);
+				return false;
+			}
+			if (!IsBackendEnabled(Parsed))
+			{
+				OutError = fmt::format("Backend {} is not compiled in", Lime::ToString(Parsed));
+				return false;
+			}
+			Candidate.Backend = Parsed;
+		}
+
+		if (const FJson* ValidationNode = FJsonUtils::Find(Json, "rhi.validation"))
+		{
+			if (!ValidationNode->is_string())
+			{
+				OutError = "'rhi.validation' must be a string";
+				return false;
+			}
+			if (!TryParseValidation(ValidationNode->get<std::string>(), Candidate.Validation))
+			{
+				OutError = fmt::format("Unknown validation mode '{}'", ValidationNode->get<std::string>());
+				return false;
+			}
+		}
+
+		*this = std::move(Candidate);
 		return true;
 	}
 
@@ -305,6 +494,28 @@ namespace Lime
 			{
 				Validation = EValidationMode::Off;
 			}
+			else if (Argument == "--automation")
+			{
+				bEnableAutomation = true;
+			}
+			else if (Argument == "--no-automation")
+			{
+				bEnableAutomation = false;
+			}
+			else if (MatchOption(Argument, "--automation-port", Value))
+			{
+				uint32 Port = AutomationPort;
+				if (TryParsePort(Value, Port))
+				{
+					AutomationPort = Port;
+					// Naming a port is an unambiguous request to have the server running.
+					bEnableAutomation = true;
+				}
+				else
+				{
+					LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "Invalid automation port '{}'; keeping {}", Value, AutomationPort);
+				}
+			}
 			else if (MatchOption(Argument, "--project", Value))
 			{
 				// Consumed before this point; listed here so it is not reported as unknown.
@@ -332,8 +543,8 @@ namespace Lime
 
 	void FProjectSettings::LogSummary() const
 	{
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_CORE, "Project '{}' | {} | {}x{} | vsync {} | validation {} | editor {}", ProjectName,
-		              Lime::ToString(Backend), WindowWidth, WindowHeight, bVSync ? "on" : "off", IsValidationEnabled() ? "on" : "off",
-		              bEnableEditor ? "on" : "off");
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_CORE, "Project '{}' | {} | {}x{} | vsync {} | validation {} | editor {} | automation {}",
+		              ProjectName, Lime::ToString(Backend), WindowWidth, WindowHeight, bVSync ? "on" : "off",
+		              IsValidationEnabled() ? "on" : "off", bEnableEditor ? "on" : "off", bEnableAutomation ? "on" : "off");
 	}
 } // namespace Lime

@@ -15,6 +15,11 @@
 #include "Editor/EditorLayer.h"
 #endif
 
+#if LIME_WITH_AUTOMATION
+#include "Automation/AutomationServer.h"
+#include "Automation/ScreenshotService.h"
+#endif
+
 namespace Lime
 {
 	class FEngine
@@ -46,6 +51,11 @@ namespace Lime
 		void Shutdown();
 		void Tick();
 
+#if LIME_WITH_AUTOMATION
+		// Builds the command context, including the delegates that reach back into the engine.
+		bool StartAutomation();
+#endif
+
 		FProjectSettings Settings;
 		std::unique_ptr<ILimeApplication> Application;
 		FWindow Window;
@@ -54,6 +64,10 @@ namespace Lime
 		FTimer Timer;
 #if LIME_WITH_EDITOR
 		FEditorLayer Editor;
+#endif
+#if LIME_WITH_AUTOMATION
+		FScreenshotService Screenshots;
+		FAutomationServer Automation;
 #endif
 		bool bEditorEnabled = false;
 		bool bExitRequested = false;

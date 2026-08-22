@@ -55,6 +55,7 @@ HelloTriangle.exe --width=1280 --height=720
 HelloTriangle.exe --no-vsync
 HelloTriangle.exe --validation=off   # also: debugOnly (default), on
 HelloTriangle.exe --project=<path to a ProjectSettings.json>
+HelloTriangle.exe --automation-port=0   # automation on, OS assigned port; also --no-automation
 ```
 
 A rotating triangle is drawn with the editor docked on top: the scene lives in the `Viewport` panel,
@@ -84,7 +85,8 @@ lime_add_project()
   "name": "HelloTriangle",
   "window": { "title": "LimeEngine - HelloTriangle", "width": 1600, "height": 900 },
   "rhi": { "backend": "d3d12", "vsync": true, "backBufferCount": 3, "validation": "debugOnly" },
-  "editor": { "enabled": true, "persistPassSettings": false }
+  "editor": { "enabled": true, "persistPassSettings": false },
+  "automation": { "enabled": true, "port": 8787 }
 }
 ```
 
@@ -205,7 +207,7 @@ ctest --test-dir Build/ninja -C Debug --output-on-failure
 Coverage focuses on logic that can be verified without a GPU: the math library, the log ring buffer,
 the shader name mapping that has to match what ShaderMake writes to disk, render pass ordering and
 stage assignment, viewport resize decisions, JSON reading, writing and key order preservation, the
-project settings value round trip, and the reflection layer.
+project settings value round trip, the reflection layer, and the automation reflection bridge.
 
 Rendering itself is verified by capturing the window, since the output is what matters:
 
@@ -219,6 +221,74 @@ Rendering itself is verified by capturing the window, since the output is what m
 Images and the captured log land in `Build/Screenshots`. The script resets the saved dock layout by
 default, so newly added panels are actually visible, and reports any warnings or errors the run
 logged.
+
+## Automation
+
+A running engine exposes its state on a loopback socket, which lets an external script drive it and
+inspect the result. Debug builds enable it by default; `LIME_BUILD_AUTOMATION=OFF` removes the module
+outright.
+
+```powershell
+python Scripts/automation_smoke.py                     # D3D12
+python Scripts/automation_smoke.py --backend vulkan
+python Scripts/automation_smoke.py --backend d3d12 --backend vulkan
+```
+
+`Scripts/lime_automation.py` is the client library. `LimeSession` launches the executable, waits for
+it to answer and shuts it down again:
+
+```python
+from lime_automation import LimeSession
+
+with LimeSession(backend="vulkan", width=1280, height=720) as engine:
+    print(engine.engine_info()["adapter"])
+
+    # Reflected pass settings are readable and writable by name.
+    engine.set_pass_values("Triangle", {"bPaused": True, "Tint": [0.2, 1.0, 0.35, 1.0]})
+    engine.show_panel("Console", visible=False)
+
+    engine.wait_frames(2)
+    engine.screenshot("triangle.png")               # whole window
+    engine.screenshot("scene.png", source="viewport")  # scene without editor chrome
+```
+
+The protocol is newline delimited JSON, one request object per line, so any language can speak it:
+
+```
+-> {"id": 1, "command": "pass.set", "params": {"pass": "Triangle", "values": {"RotationSpeed": 0.0}}}
+<- {"id": 1, "ok": true, "result": {...}}
+```
+
+| Command | Purpose |
+| --- | --- |
+| `help`, `ping` | Command list; readiness probe returning the current frame |
+| `engine.info`, `engine.stats`, `engine.quit` | Backend and adapter, frame timing, graceful exit |
+| `log.tail`, `log.clear` | Read the in-memory log, filtered by level and category |
+| `pass.list`, `pass.describe`, `pass.get`, `pass.set` | Enumerate passes and read or write their reflected settings |
+| `panel.list`, `panel.show`, `panel.resetLayout` | Panel visibility and dock layout |
+| `settings.get`, `settings.set`, `settings.save` | Project settings, including writing `ProjectSettings.json` |
+| `screenshot.capture` | PNG of the back buffer or the viewport target |
+
+Two properties make this usable as a test harness. Commands run on the main thread between frames, so
+a handler sees consistent state and a change is visible in the frame that same tick produces.
+Screenshots read back the GPU texture instead of grabbing the screen, so they are unaffected by
+window occlusion, z-order and display scaling, and work while the window is in the background.
+
+Reflection is what keeps this generic: a pass that declares `LIME_REFLECT` becomes scriptable with no
+automation code of its own, and `pass.describe` reports each field's type, range and tooltip so a
+script can discover valid values rather than hardcode them. Writes to unknown, read-only or mistyped
+fields are rejected with a message naming the field.
+
+Passing `port=0` lets the OS assign a port, which is how several sessions run at once; the chosen
+value is written to `AutomationPort.txt` next to the executable. The listener binds `127.0.0.1` only,
+since the commands expose full engine state.
+
+Adding a command takes one registration, and a project can add its own the same way:
+
+```cpp
+LIME_REGISTER_AUTOMATION_COMMAND("scene.reset", "Returns the scene to its initial state",
+                                 [](FAutomationInvocation& Invocation) { /* ... */ });
+```
 
 ## Architecture
 
@@ -293,12 +363,12 @@ Engine/
   Shaders/      Built-in HLSL sources plus the ShaderMake config
   Content/      Built-in assets such as textures
   Source/
-    Runtime/    Core, Platform, RHI, Renderer, Engine, Launch
+    Runtime/    Core, Platform, RHI, Renderer, Automation, Engine, Launch
     Editor/     Editor layer, registry and built-in panels
 Projects/       One directory per application, each with a ProjectSettings.json
 Tests/          Catch2 unit tests
 ThirdParty/     Submodules
-Scripts/        Submodule setup, build, formatting, static analysis, screenshot capture
+Scripts/        Submodule setup, build, formatting, static analysis, capture, Python automation
 ```
 
 Headers and sources live side by side; there is no separate `include/` tree.
@@ -353,6 +423,7 @@ and `.clang-tidy`.
 | --- | --- | --- |
 | `LIME_BUILD_EDITOR` | `ON` | Build the editor module |
 | `LIME_BUILD_TESTS` | `ON` | Build Catch2 tests |
+| `LIME_BUILD_AUTOMATION` | `ON` | Build the automation server used by external scripts |
 | `LIME_ENABLE_RHI_D3D12` | `ON` | Enable the Direct3D 12 backend |
 | `LIME_ENABLE_RHI_VULKAN` | `ON` | Enable the Vulkan backend |
 

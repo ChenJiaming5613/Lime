@@ -30,14 +30,18 @@ namespace Lime
 			LoadFields(Reflect<Type>(), &Instance, InJson);
 		}
 
+		// Single value conversion, exposed so callers that walk fields themselves reuse the same type
+		// support instead of duplicating it. Return false when the runtime type is not supported.
+		static bool SaveValue(entt::meta_any& Value, FJson& OutJson);
+		static bool LoadValue(entt::meta_any& Value, const FJson& InJson);
+
+		// Name of the supported type behind a value, for diagnostics. "unsupported" when unknown.
+		static const char* GetValueTypeName(const entt::meta_any& Value);
+
 	private:
 		// Instance is passed as an opaque pointer and rebound through meta_type::from_void, which is
 		// the only way to obtain a writable meta_handle without knowing the static type here.
 		static void SaveFields(const entt::meta_type& MetaType, void* Instance, FJson& OutJson);
 		static void LoadFields(const entt::meta_type& MetaType, void* Instance, const FJson& InJson);
-
-		// Return false when the runtime type is not one of the supported field types.
-		static bool SaveValue(entt::meta_any& Value, FJson& OutJson);
-		static bool LoadValue(entt::meta_any& Value, const FJson& InJson);
 	};
 } // namespace Lime

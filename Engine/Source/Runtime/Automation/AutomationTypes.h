@@ -1,0 +1,101 @@
+// Types shared by the automation server and its command handlers.
+//
+// Commands are executed on the main thread between frames, so a handler may touch engine state
+// directly without synchronization. The network threads only parse requests and write replies.
+
+#pragma once
+
+#include "Core/Json/JsonUtils.h"
+
+#include <functional>
+#include <string>
+
+namespace Lime
+{
+	class FEditorLayer;
+	class FLogRingBuffer;
+	class FRenderer;
+	class IDeviceManager;
+	class FScreenshotService;
+
+	// Everything a command is allowed to reach. Built once by FEngine; the numeric fields are
+	// refreshed every frame. Delegates cover state that lives in layers above this module, which
+	// keeps LimeAutomation below LimeRuntime in the dependency graph.
+	struct FAutomationContext
+	{
+		FRenderer* Renderer = nullptr;
+		IDeviceManager* DeviceManager = nullptr;
+		FLogRingBuffer* LogBuffer = nullptr;
+		FScreenshotService* Screenshots = nullptr;
+		// Null when the editor is disabled or not compiled in.
+		FEditorLayer* Editor = nullptr;
+
+		std::string ProjectName;
+		float DeltaSeconds = 0.0f;
+		float FramesPerSecond = 0.0f;
+		double TotalSeconds = 0.0;
+		uint64 FrameCount = 0;
+
+		// Asks the engine to leave the main loop.
+		std::function<void()> RequestExit;
+		// Current project settings as JSON, matching the ProjectSettings.json schema.
+		std::function<FJson()> QuerySettings;
+		// Applies a partial settings object and returns the keys that were accepted.
+		std::function<bool(const FJson&, std::string&)> ApplySettings;
+		// Writes the authored ProjectSettings.json.
+		std::function<bool()> SaveSettings;
+	};
+
+	// A single command in flight. The handler fills Result or Error; returning without touching
+	// either yields an empty success.
+	class FAutomationInvocation
+	{
+	public:
+		// Runs at the end of the frame, once rendering for it has been submitted.
+		using FCompletion = std::function<void(FAutomationContext&, FJson& Result, std::string& Error)>;
+
+		FAutomationInvocation(const FJson& InParams, FAutomationContext& InContext)
+		    : Params(InParams),
+		      Context(InContext)
+		{
+		}
+
+		const FJson& GetParams() const { return Params; }
+		FAutomationContext& GetContext() const { return Context; }
+
+		FJson& GetResult() { return Result; }
+		const FJson& GetResult() const { return Result; }
+
+		void Fail(std::string Message) { Error = std::move(Message); }
+		bool HasFailed() const { return !Error.empty(); }
+		const std::string& GetError() const { return Error; }
+
+		// Defers the reply until the frame has been rendered, which is what a screenshot needs.
+		void Defer(FCompletion InCompletion)
+		{
+			Completion = std::move(InCompletion);
+			bDeferred = true;
+		}
+		bool IsDeferred() const { return bDeferred; }
+		FCompletion TakeCompletion() { return std::move(Completion); }
+
+		// Typed parameter access. Each reports a readable error through OutError when the key is
+		// present but of the wrong type; a missing key falls back to the default.
+		bool TryGetString(const char* Key, std::string& OutValue, std::string& OutError) const;
+		bool TryGetBool(const char* Key, bool& OutValue, std::string& OutError) const;
+		bool TryGetUInt(const char* Key, uint32& OutValue, std::string& OutError) const;
+
+		// Same, but missing keys are an error. Returns false and calls Fail on any problem.
+		bool RequireString(const char* Key, std::string& OutValue);
+
+	private:
+		const FJson& Params;
+		FAutomationContext& Context;
+		FJson Result = FJson::object();
+		std::string Error;
+		FCompletion Completion;
+		bool bDeferred = false;
+	};
+
+	using FAutomationHandler = std::function<void(FAutomationInvocation&)>;
+} // namespace Lime

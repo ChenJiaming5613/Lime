@@ -4,6 +4,9 @@ set(RuntimeDeps LimeRenderer tinygltf)
 if(LIME_BUILD_EDITOR)
 	list(APPEND RuntimeDeps LimeEditor)
 endif()
+if(LIME_BUILD_AUTOMATION)
+	list(APPEND RuntimeDeps LimeAutomation)
+endif()
 
 lime_add_module(
 	NAME LimeRuntime

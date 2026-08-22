@@ -27,6 +27,13 @@ compile_commands.json
 imgui.ini
 *.log
 /Logs/
-/Build/Screenshots/
+# Written next to the executable, which already lives under an ignored Build tree; listed so a
+# relocated output directory does not start tracking them either.
+Saved/
+AutomationPort.txt
+
+# Python automation scripts
+__pycache__/
+*.pyc
 
 .codebuddy/

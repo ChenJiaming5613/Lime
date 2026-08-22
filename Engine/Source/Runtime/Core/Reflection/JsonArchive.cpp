@@ -205,4 +205,44 @@ namespace Lime
 
 		return LoadVector<FVector2, 2>(Value, InJson) || LoadVector<FVector3, 3>(Value, InJson) || LoadVector<FVector4, 4>(Value, InJson);
 	}
+
+	const char* FJsonArchive::GetValueTypeName(const entt::meta_any& Value)
+	{
+		// try_cast needs a non-const any, and this only inspects the type.
+		entt::meta_any& Mutable = const_cast<entt::meta_any&>(Value);
+
+		if (Mutable.try_cast<bool>() != nullptr)
+		{
+			return "bool";
+		}
+		if (Mutable.try_cast<float>() != nullptr)
+		{
+			return "float";
+		}
+		if (Mutable.try_cast<int32>() != nullptr)
+		{
+			return "int32";
+		}
+		if (Mutable.try_cast<uint32>() != nullptr)
+		{
+			return "uint32";
+		}
+		if (Mutable.try_cast<std::string>() != nullptr)
+		{
+			return "string";
+		}
+		if (Mutable.try_cast<FVector2>() != nullptr)
+		{
+			return "vector2";
+		}
+		if (Mutable.try_cast<FVector3>() != nullptr)
+		{
+			return "vector3";
+		}
+		if (Mutable.try_cast<FVector4>() != nullptr)
+		{
+			return "vector4";
+		}
+		return "unsupported";
+	}
 } // namespace Lime

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "Core/Json/JsonUtils.h"
 #include "RHI/RHITypes.h"
 
 #include <filesystem>
@@ -39,6 +40,11 @@ namespace Lime
 		// stale saved values silently override changes made to the defaults in code.
 		bool bPersistPassSettings = false;
 
+		// Local automation server. Enabled by default in debug builds only: it exposes engine state
+		// over a loopback socket, which belongs in development rather than in a shipped build.
+		bool bEnableAutomation = LIME_DEBUG != 0;
+		uint32 AutomationPort = 8787;
+
 		// <exe>/ProjectSettings.json, falling back to the source tree during development.
 		static std::filesystem::path ResolveSettingsPath();
 		// The file inside the project source tree, which is the one worth editing: the copy beside the
@@ -56,8 +62,16 @@ namespace Lime
 		bool SaveToFile() const;
 
 		// Supported switches: --rhi=<d3d12|vulkan>, --width=N, --height=N, --no-editor, --no-vsync,
-		// --validation=<off|debugOnly|on>, --project=<path to json>.
+		// --validation=<off|debugOnly|on>, --project=<path to json>, --automation, --no-automation,
+		// --automation-port=N.
 		void ApplyCommandLine(int ArgumentCount, const char* const* Arguments);
+
+		// Serializes into the same schema LoadFromFile reads, so a client sees exactly the keys it can
+		// write back.
+		FJson ToJson() const;
+		// Applies a partial object of the same shape. Reports the first offending key through OutError
+		// and leaves every field untouched in that case, so a bad request cannot half apply.
+		bool ApplyJson(const FJson& Json, std::string& OutError);
 
 		bool IsValidationEnabled() const;
 		void LogSummary() const;
