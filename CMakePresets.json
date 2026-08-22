@@ -22,9 +22,11 @@
 			"name": "ninja",
 			"inherits": "base",
 			"displayName": "Ninja Multi-Config (MSVC)",
-			"description": "Primary preset. Emits compile_commands.json used by clang-tidy.",
+			"description": "Primary preset. Requires a Visual Studio developer environment; use Scripts/Configure.ps1 or an x64 Native Tools prompt.",
 			"generator": "Ninja Multi-Config",
 			"cacheVariables": {
+				"CMAKE_C_COMPILER": "cl",
+				"CMAKE_CXX_COMPILER": "cl",
 				"CMAKE_CONFIGURATION_TYPES": "Debug;Release;RelWithDebInfo"
 			}
 		},

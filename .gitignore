@@ -5,9 +5,10 @@
 [Bb]in/
 [Oo]bj/
 
-# Visual Studio / VS Code
+# Visual Studio / VS Code / JetBrains
 .vs/
 .vscode/
+.idea/
 *.user
 *.suo
 *.sln

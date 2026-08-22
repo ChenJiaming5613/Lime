@@ -1,0 +1,20 @@
+# Catch2 based unit tests.
+
+file(GLOB_RECURSE TestSources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+
+if(NOT TestSources)
+	return()
+endif()
+
+set(TestDeps LimeCompilerOptions LimeCore)
+if(TARGET LimeRHI)
+	list(APPEND TestDeps LimeRHI)
+endif()
+
+add_executable(LimeTests ${TestSources})
+target_link_libraries(LimeTests PRIVATE ${TestDeps} Catch2::Catch2WithMain)
+set_target_properties(LimeTests PROPERTIES FOLDER "Tests")
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TestSources})
+
+include(Catch)
+catch_discover_tests(LimeTests)

@@ -17,6 +17,19 @@ macro(lime_configure_shadermake_options)
 	set(SHADERMAKE_FIND_FXC OFF CACHE BOOL "" FORCE)
 	set(SHADERMAKE_FIND_SLANG OFF CACHE BOOL "" FORCE)
 	set(SHADERMAKE_TOOL OFF CACHE BOOL "" FORCE)
+
+	# ShaderMake only looks at %VULKAN_SDK%. Prepopulate the cache entry when that variable is
+	# missing from the current environment but an SDK is installed in the default location.
+	if(NOT SHADERMAKE_DXC_VK_PATH AND NOT DEFINED ENV{VULKAN_SDK} AND WIN32)
+		file(GLOB LimeVulkanSdkCandidates "C:/VulkanSDK/*/Bin/dxc.exe")
+		if(LimeVulkanSdkCandidates)
+			list(SORT LimeVulkanSdkCandidates)
+			list(GET LimeVulkanSdkCandidates -1 LimeVulkanSdkDxc)
+			set(SHADERMAKE_DXC_VK_PATH "${LimeVulkanSdkDxc}" CACHE FILEPATH "" FORCE)
+			message(STATUS "VULKAN_SDK is not set; using ${LimeVulkanSdkDxc}")
+		endif()
+		unset(LimeVulkanSdkCandidates)
+	endif()
 endmacro()
 
 # Validates that a DXC capable of both DXIL and SPIR-V code generation was located.
@@ -59,15 +72,16 @@ function(lime_compile_shaders)
 		list(APPEND IncludeArgs -I "${IncludeDir}")
 	endforeach()
 
-	# Shared arguments. --matrixRowMajor (-Zpr) matches the row major FMatrix4x4 storage,
-	# --binaryBlob packs permutations of one shader into a single file.
+	# Shared arguments. --binaryBlob packs the permutations of one shader into a single file.
+	# Matrix packing is NOT set globally: DXC's SPIR-V backend ignores -Zpr, and combining the two
+	# would invert the meaning of the row_major qualifier. The shaders declare row_major explicitly
+	# so both backends agree with the row major FMatrix4x4 on the CPU side.
 	set(CommonArgs
 		--config "${LIME_SHADERS_CONFIG}"
 		--sourceDir "${LIME_SHADERS_SOURCE_DIR}"
 		--compiler "${DxcPath}"
 		--shaderModel ${LIME_SHADERS_SHADER_MODEL}
 		--binaryBlob
-		--matrixRowMajor
 		--WX
 		--compactProgress
 		$<IF:$<CONFIG:Debug>,--embedPDB,-O3>

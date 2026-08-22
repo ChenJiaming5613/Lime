@@ -1,0 +1,28 @@
+[submodule "ThirdParty/NVRHI"]
+	path = ThirdParty/NVRHI
+	url = https://github.com/NVIDIA-RTX/NVRHI.git
+[submodule "ThirdParty/ShaderMake"]
+	path = ThirdParty/ShaderMake
+	url = https://github.com/NVIDIA-RTX/ShaderMake.git
+[submodule "ThirdParty/GLFW"]
+	path = ThirdParty/GLFW
+	url = https://github.com/glfw/glfw.git
+[submodule "ThirdParty/ImGui"]
+	path = ThirdParty/ImGui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
+[submodule "ThirdParty/TinyGLTF"]
+	path = ThirdParty/TinyGLTF
+	url = https://github.com/syoyo/tinygltf.git
+[submodule "ThirdParty/SpdLog"]
+	path = ThirdParty/SpdLog
+	url = https://github.com/gabime/spdlog.git
+[submodule "ThirdParty/Catch2"]
+	path = ThirdParty/Catch2
+	url = https://github.com/catchorg/Catch2.git
+[submodule "ThirdParty/VulkanHeaders"]
+	path = ThirdParty/VulkanHeaders
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "ThirdParty/DirectXHeaders"]
+	path = ThirdParty/DirectXHeaders
+	url = https://github.com/microsoft/DirectX-Headers.git
