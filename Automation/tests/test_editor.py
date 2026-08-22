@@ -57,25 +57,65 @@ def test_settings_backend_matches_the_device(engine: LimeClient) -> None:
     assert settings["rhi"]["backend"].lower() == info["backend"].lower()
 
 
-def test_window_title_applies_live(engine: LimeClient) -> None:
-    original = engine.get_settings()["window"]["title"]
+def test_editing_settings_leaves_the_session_untouched(engine: LimeClient) -> None:
+    """Settings are consumed at startup, so an edit must not change the running configuration.
+
+    This is the property that makes settings.get trustworthy: it always describes what the engine is
+    actually using, never a value that was requested but could not take effect.
+    """
+    live_before = engine.get_settings()
+    original_title = engine.get_pending_settings()["window"]["title"]
+
     try:
-        updated = engine.set_settings({"window": {"title": "Automation Test"}})
-        assert updated["window"]["title"] == "Automation Test"
+        pending = engine.set_settings({"window": {"title": "Automation Test", "width": 4242}})
+
+        # The draft records the edit.
+        assert pending["window"]["title"] == "Automation Test"
+        assert pending["window"]["width"] == 4242
+
+        # The session does not.
+        assert engine.get_settings() == live_before
+        assert engine.has_unsaved_settings()
     finally:
-        engine.set_settings({"window": {"title": original}})
+        engine.set_settings({
+            "window": {"title": original_title, "width": live_before["window"]["width"]},
+        })
+
+
+def test_pending_settings_start_clean(engine: LimeClient) -> None:
+    """Before anything is edited the draft must equal what is running.
+
+    Otherwise saving without editing would silently rewrite the file with different values.
+    """
+    reply = engine.call("settings.get")
+
+    assert reply["pending"] == reply["settings"]
+    assert reply["dirty"] is False
+
+
+def test_setting_reports_that_a_restart_is_needed(engine: LimeClient) -> None:
+    """The reply has to say so, or a client cannot tell the edit is not live."""
+    original = engine.get_pending_settings()["rhi"]["vsync"]
+    try:
+        reply = engine.call("settings.set", settings={"rhi": {"vsync": not original}})
+        assert reply["restartRequired"] is True
+    finally:
+        engine.set_settings({"rhi": {"vsync": original}})
 
 
 def test_invalid_setting_is_rejected_atomically(engine: LimeClient) -> None:
-    """A rejected request must not apply the valid keys alongside the invalid one."""
-    before = engine.get_settings()
+    """A rejected request must not apply the valid keys alongside the invalid one.
+
+    The draft is what gets inspected here: checking the live values would pass trivially, since they
+    never change either way.
+    """
+    before = engine.get_pending_settings()
 
     with pytest.raises(CommandError):
         engine.set_settings({"window": {"width": 1024}, "rhi": {"backBufferCount": 99}})
 
-    after = engine.get_settings()
-    assert after["rhi"]["backBufferCount"] == before["rhi"]["backBufferCount"]
-    assert after["window"]["width"] == before["window"]["width"]
+    after = engine.get_pending_settings()
+    assert after == before, "a rejected request modified the draft"
 
 
 def test_logs_are_readable_and_filterable(engine: LimeClient) -> None:

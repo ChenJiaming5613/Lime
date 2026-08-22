@@ -116,6 +116,10 @@ namespace Lime
 	{
 		Screenshots.Initialize(*DeviceManager, Renderer);
 
+		// Starts as a copy of what is running, so a client that saves without editing anything writes
+		// the current configuration back rather than the code defaults.
+		PendingSettings = Settings;
+
 		FAutomationContext Context;
 		Context.Renderer = &Renderer;
 		Context.DeviceManager = DeviceManager.get();
@@ -129,19 +133,14 @@ namespace Lime
 		// Delegates rather than direct access, so LimeAutomation stays below LimeRuntime and does not
 		// need to know about FEngine or FProjectSettings.
 		Context.RequestExit = [this] { RequestExit(); };
+		// Reports the configuration this session is running with, which never changes after startup.
 		Context.QuerySettings = [this] { return Settings.ToJson(); };
-		Context.ApplySettings = [this](const FJson& Json, std::string& OutError)
-		{
-			if (!Settings.ApplyJson(Json, OutError))
-			{
-				return false;
-			}
-			// The title is the one setting that can be applied to a live window; everything else is
-			// fixed at device or window creation and only affects the next launch.
-			Window.SetTitle(Settings.WindowTitle);
-			return true;
-		};
-		Context.SaveSettings = [this] { return Settings.SaveToFile(); };
+		// Edits the pending file rather than the live configuration: every setting is consumed once at
+		// startup, so there is nothing to apply mid-session. Kept separate from Settings so a query
+		// still describes what is actually running.
+		Context.ApplySettings = [this](const FJson& Json, std::string& OutError) { return PendingSettings.ApplyJson(Json, OutError); };
+		Context.QueryPendingSettings = [this] { return PendingSettings.ToJson(); };
+		Context.SaveSettings = [this] { return PendingSettings.SaveToFile(); };
 
 		FAutomationServerDesc Desc;
 		Desc.Port = static_cast<uint16>(Settings.AutomationPort);

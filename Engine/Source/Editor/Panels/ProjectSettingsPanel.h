@@ -1,11 +1,12 @@
 // Editor for ProjectSettings.json.
 //
-// The panel edits the configuration that will be used on the next launch, not the live runtime state.
-// Most of these values are fixed once the device and window exist: the backend, the buffer count and
-// the validation mode are chosen at device creation, and turning the editor off would remove the very
-// panel needed to turn it back on. Fields in that situation are marked "restart".
+// The panel is a JSON editor and nothing more: it edits the configuration that will be used on the
+// next launch and never touches the live runtime. Every value here is fixed once the window and device
+// exist, so applying any of them mid-session would either be ignored or require tearing down and
+// recreating the swap chain.
 //
-// The only exception is the window title, which is free to apply immediately.
+// Consequently the panel needs no access to the window or the renderer, and the running configuration
+// stays immutable for the lifetime of the process.
 
 #pragma once
 
@@ -13,12 +14,9 @@
 #include "Engine/ProjectSettings.h"
 
 #include <array>
-#include <string>
 
 namespace Lime
 {
-	class FWindow;
-
 	class FProjectSettingsPanel final : public IEditorPanel
 	{
 	public:
@@ -27,8 +25,7 @@ namespace Lime
 		// Opened from the Window menu when needed, rather than taking up dock space every session.
 		bool IsVisibleByDefault() const override { return false; }
 
-		// Window is optional; when present the title is applied as soon as it is edited.
-		void Initialize(const FProjectSettings& CurrentSettings, FWindow* InWindow);
+		void Initialize(const FProjectSettings& CurrentSettings);
 
 		void OnDrawUI(const FEditorContext& Context) override;
 
@@ -40,15 +37,12 @@ namespace Lime
 		void DrawRHISection();
 		void DrawEditorSection();
 		void DrawToolbar();
-		// Appends the marker that tells the user a field only takes effect after a restart.
-		static void DrawRestartMarker();
 
-		// Values being edited, and the last known on-disk state used to detect changes.
+		// Values being edited, and the last known on-disk state used to detect changes. The running
+		// configuration is not tracked: it cannot change, so Saved is also what the session started
+		// with until the user edits something.
 		FProjectSettings Edited;
 		FProjectSettings Saved;
-		// Snapshot taken at startup, so the panel can report which values the session is really using.
-		FProjectSettings Launched;
-		FWindow* Window = nullptr;
 		// Fixed buffer: ImGui writes into it directly, which is not valid on a std::string past its size.
 		std::array<char, 256> TitleBuffer{};
 		bool bInitialized = false;

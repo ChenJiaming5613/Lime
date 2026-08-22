@@ -38,11 +38,15 @@ namespace Lime
 
 		// Asks the engine to leave the main loop.
 		std::function<void()> RequestExit;
-		// Current project settings as JSON, matching the ProjectSettings.json schema.
+		// The configuration this session is running with, matching the ProjectSettings.json schema.
+		// Immutable: settings are consumed at startup and cannot be changed afterwards.
 		std::function<FJson()> QuerySettings;
-		// Applies a partial settings object and returns the keys that were accepted.
+		// Edits the draft that will be written to disk. No setting takes effect before a restart, so
+		// this deliberately does not touch the running configuration.
 		std::function<bool(const FJson&, std::string&)> ApplySettings;
-		// Writes the authored ProjectSettings.json.
+		// The draft as it currently stands, which differs from QuerySettings once something is edited.
+		std::function<FJson()> QueryPendingSettings;
+		// Writes the draft to the authored ProjectSettings.json.
 		std::function<bool()> SaveSettings;
 	};
 

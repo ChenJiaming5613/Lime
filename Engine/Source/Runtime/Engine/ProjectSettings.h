@@ -2,6 +2,11 @@
 //
 // Precedence: code defaults < ProjectSettings.json < command line. The command line always wins so
 // that switching backends for a quick test never requires editing the file.
+//
+// Every setting is consumed once, during FEngine::Initialize, when the window and device are created.
+// None of them is applied to a running session: changing one means editing the file and restarting.
+// That keeps the running configuration immutable, so anything reading it cannot observe a value the
+// engine is not actually using.
 
 #pragma once
 

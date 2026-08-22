@@ -233,15 +233,32 @@ class LimeClient:
         self.call("panel.resetLayout")
 
     # -- settings ----------------------------------------------------------------------------
+    #
+    # Settings are consumed once at startup, so nothing here changes the running session. Editing goes
+    # to a draft that settings.save writes to disk; the change takes effect on the next launch.
 
     def get_settings(self) -> dict[str, Any]:
+        """The configuration this session is actually running with, command line overrides included."""
         return self.call("settings.get")["settings"]
 
+    def get_pending_settings(self) -> dict[str, Any]:
+        """The draft as edited so far, which equals the running values until something is changed."""
+        return self.call("settings.get")["pending"]
+
+    def has_unsaved_settings(self) -> bool:
+        """True when the draft differs from what the session is running with."""
+        return bool(self.call("settings.get").get("dirty", False))
+
     def set_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
-        return self.call("settings.set", settings=settings)["settings"]
+        """Edits the draft and returns it.
+
+        Accepts a partial object. Validation is atomic: one invalid value rejects the whole request, so
+        a failure never leaves the draft half updated. Nothing is applied to the running session.
+        """
+        return self.call("settings.set", settings=settings)["pending"]
 
     def save_settings(self) -> None:
-        """Writes ProjectSettings.json in the project source tree."""
+        """Writes the draft to ProjectSettings.json in the project source tree."""
         self.call("settings.save")
 
     # -- scripts -----------------------------------------------------------------------------

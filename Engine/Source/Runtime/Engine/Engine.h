@@ -56,7 +56,15 @@ namespace Lime
 		bool StartAutomation();
 #endif
 
+		// The configuration this session is running with. Consumed during Initialize and never read
+		// again, so it stays immutable for the lifetime of the process.
 		FProjectSettings Settings;
+#if LIME_WITH_AUTOMATION
+		// Draft edited by settings.set and written by settings.save. Separate from Settings because no
+		// setting can be applied to a running session: mixing the two would make settings.get report
+		// values the engine is not actually using.
+		FProjectSettings PendingSettings;
+#endif
 		std::unique_ptr<ILimeApplication> Application;
 		FWindow Window;
 		std::unique_ptr<IDeviceManager> DeviceManager;

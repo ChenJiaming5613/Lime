@@ -479,7 +479,7 @@ LIME_REGISTER_RENDER_PASS(MyGame::FQuadPass);
 
 ```powershell
 ./Scripts/Build.ps1
-./Build/ninja/Bin/Debug/MyGame.exe
+./Build/ninja/Bin/Debug/MyGame/MyGame.exe
 ```
 
 Inspector 面板里应该出现 `Quad` 分组，包含 Visible / Scale / Speed / Color 四个控件 —— 这些都由那段 `LIME_REFLECT` 生成。
@@ -514,7 +514,7 @@ Inspector 面板里应该出现 `Quad` 分组，包含 Visible / Scale / Speed /
 没重写 `OnFramebufferChanged`，pipeline 仍绑在旧 framebuffer 上。
 
 **`GetShader` 返回 nullptr**
-`.cfg` 里没有对应的行，或入口名不匹配。检查 `Build/ninja/Bin/Debug/Shaders/MyGame/` 下有没有产物。
+`.cfg` 里没有对应的行，或入口名不匹配。检查 `Build/ninja/Bin/Debug/MyGame/Shaders/MyGame/` 下有没有产物。
 
 **改了 `SetClearColor` 但没效果**
 放在 `Render` 里了，要放 `OnBeginFrame` —— 清除发生在 `Render` 之前。

@@ -59,7 +59,7 @@ namespace Lime
 
 	private:
 		void ApplyDarkTheme();
-		void CreatePanels(FWindow& Window, const FProjectSettings& Settings);
+		void CreatePanels(const FProjectSettings& Settings);
 		void DrawDockSpace();
 		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();

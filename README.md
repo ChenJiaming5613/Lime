@@ -3,6 +3,9 @@
 A layered Windows x64 rendering engine skeleton built on NVRHI, with both Direct3D 12 and Vulkan
 backends behind a single HLSL shader source tree.
 
+Chinese task-oriented tutorials live in [Docs/zh](Docs/zh/README.md): creating a project, writing
+render passes and editor panels, and using the automation facility. This file is the full reference.
+
 ## Requirements
 
 | Tool | Version | Notes |
@@ -29,7 +32,7 @@ cd LimeEngine
 
 ./Scripts/Build.ps1                       # configure + build Debug
 ./Scripts/Build.ps1 -Config Release
-./Build/ninja/Bin/Debug/HelloTriangle.exe
+./Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe
 ```
 
 Inside an x64 Native Tools prompt the presets can be used directly:
@@ -65,6 +68,34 @@ on the left. The layout is saved to `Saved/EditorLayout.ini` next to the executa
 
 With `--no-editor` the scene renders straight into the swap chain and no offscreen target is created,
 so the runtime path stays free of editor cost.
+
+## Build output layout
+
+Every project gets a private directory, which is also its working directory at run time:
+
+```
+Build/<preset>/
+  Bin/<Config>/
+    HelloTriangle/          Everything this project needs to run
+      HelloTriangle.exe
+      ProjectSettings.json
+      Shaders/              Engine shaders, copied from Staging
+      Shaders/HelloTriangle/  Project shaders, compiled here directly
+      Content/
+      Saved/                Logs, layout, screenshots, automation endpoints
+    LimeTests.exe           Tools stay at the root
+    ShaderMake.exe
+  Staging/<Config>/Shaders/ Engine shaders, built once and shared
+  Lib/<Config>/             Static libraries
+```
+
+The engine resolves `Shaders`, `Content`, `Saved` and `ProjectSettings.json` relative to the
+executable, so the separation is what keeps two projects from interfering: sharing one directory would
+let the later build overwrite the earlier project's settings file, which then sends it looking for
+shaders under the wrong name and its passes fail to initialize.
+
+Engine shaders are compiled once into `Staging` and copied in, so adding a project does not multiply
+the shader build cost.
 
 ## Writing a project
 
@@ -108,11 +139,14 @@ in the project source tree, and refreshes the copy beside the executable so a re
 up without rebuilding. Saving is a load-modify-save, so comments, key order and any keys the engine
 does not recognise are preserved.
 
-Most of these values are read once at startup, so the panel edits the configuration for the *next*
-launch and marks those fields `(restart)`. The backend, buffer count and validation mode are fixed
-when the device is created, and turning the editor off would remove the UI needed to turn it back on.
-The window title is the exception and applies immediately. `name` is intentionally not editable,
-because CMake derives the target and the shader output directory from it.
+**Nothing here is applied to a running session.** Every setting is consumed once during startup, when
+the window and device are created, so the panel is a JSON editor for the *next* launch and states that
+once at the top rather than marking individual fields. Keeping the running configuration immutable is
+what lets anything reading it — the panel, `settings.get`, the Stats panel — report what the engine is
+actually using rather than a value that was requested but could not take effect.
+
+`name` is intentionally not editable, because CMake derives the target and the shader output directory
+from it.
 
 ### A render pass
 
@@ -332,7 +366,7 @@ discard the results around it.
 | `log.tail`, `log.clear` | Read the in-memory log, filtered by level and category |
 | `pass.list`, `pass.describe`, `pass.get`, `pass.set` | Enumerate passes and read or write their reflected settings |
 | `panel.list`, `panel.show`, `panel.resetLayout` | Panel visibility and dock layout |
-| `settings.get`, `settings.set`, `settings.save` | Project settings, including writing `ProjectSettings.json` |
+| `settings.get`, `settings.set`, `settings.save` | Read the running configuration, edit the pending file, write it back |
 | `screenshot.capture` | Writes a PNG on the engine's own machine |
 | `script.list` | Automation scripts the running project ships |
 
@@ -355,9 +389,10 @@ Networking comes from cpp-httplib, so the module contains no platform specific s
 
 `port=0`, the default for `LimeSession`, asks the OS for a free port, which is what lets several
 engines run at once. Each publishes `Saved/Automation/<pid>.json` plus a shared
-`AutomationEndpoint.json` next to the executable, so `find_engine()` can attach to a session started by
-hand. `discover_engines()` probes each candidate, so a file left behind by a crash is filtered out.
-The listener binds `127.0.0.1` only, since the commands expose full engine state.
+`AutomationEndpoint.json` inside its own project directory, so `find_engine()` can attach to a session
+started by hand; `discover_engines()` walks every project directory and probes each candidate, so a
+file left behind by a crash is filtered out. The listener binds `127.0.0.1` only, since the commands
+expose full engine state.
 
 Adding a command takes one registration, and a project can add its own the same way:
 
@@ -443,6 +478,7 @@ Engine/
     Editor/     Editor layer, registry and built-in panels
 Projects/       One directory per application, each with a ProjectSettings.json
 Automation/     Python client library and the pytest suite
+Docs/zh/        Chinese tutorials
 Tests/          Catch2 unit tests
 ThirdParty/     Submodules
 Scripts/        Submodule setup, build, formatting, static analysis, capture, automation
@@ -463,10 +499,11 @@ Blur/Blur.hlsl         -T cs -E MainCS -D RADIUS={1,2,4}
 Every entry is compiled twice, once into `DXIL/` and once into `SPIRV/`. ShaderMake handles
 permutation expansion, include dependency tracking and incremental builds.
 
-Engine shaders land in `Shaders/` next to the executable; a project's land in
-`Shaders/<ProjectName>/`. The engine registers the project root with higher precedence, so a project
-can override a built-in shader by using the same relative path. Project shaders can still
-`#include "Common.hlsli"` from the engine include directory.
+Engine shaders are compiled once into `Build/<preset>/Staging/<Config>/Shaders` and copied into each
+project's directory as `Shaders/`; a project's own land directly in `Shaders/<ProjectName>/`. The engine
+registers the project root with higher precedence, so a project can override a built-in shader by using
+the same relative path. Project shaders can still `#include "Common.hlsli"` from the engine include
+directory.
 
 Output names follow `<relative path>[_<Entry> when the entry is not "main"]`. A shader that declares
 defines is packed into a blob and looked up at runtime through `ShaderMake::FindPermutationInBlob`;

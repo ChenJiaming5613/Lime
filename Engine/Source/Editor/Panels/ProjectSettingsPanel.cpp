@@ -1,7 +1,6 @@
 #include "Editor/Panels/ProjectSettingsPanel.h"
 
 #include "Core/Logging/LogManager.h"
-#include "Platform/Window.h"
 
 #include <imgui.h>
 
@@ -22,20 +21,12 @@ namespace Lime
 		}
 	} // namespace
 
-	void FProjectSettingsPanel::Initialize(const FProjectSettings& CurrentSettings, FWindow* InWindow)
+	void FProjectSettingsPanel::Initialize(const FProjectSettings& CurrentSettings)
 	{
 		Edited = CurrentSettings;
 		Saved = CurrentSettings;
-		Launched = CurrentSettings;
-		Window = InWindow;
 		CopyToBuffer(TitleBuffer, CurrentSettings.WindowTitle);
 		bInitialized = true;
-	}
-
-	void FProjectSettingsPanel::DrawRestartMarker()
-	{
-		ImGui::SameLine();
-		ImGui::TextDisabled("(restart)");
 	}
 
 	void FProjectSettingsPanel::DrawWindowSection()
@@ -48,27 +39,13 @@ namespace Lime
 		if (ImGui::InputText("Title", TitleBuffer.data(), TitleBuffer.size()))
 		{
 			Edited.WindowTitle = TitleBuffer.data();
-			// Cheap and reversible, so this one is applied straight away.
-			if (Window != nullptr)
-			{
-				Window->SetTitle(Edited.WindowTitle);
-			}
 		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("(live)");
 
 		int32 Size[2] = { static_cast<int32>(Edited.WindowWidth), static_cast<int32>(Edited.WindowHeight) };
 		if (ImGui::DragInt2("Size", Size, 4.0f, 320, 7680))
 		{
 			Edited.WindowWidth = static_cast<uint32>(std::max(Size[0], 320));
 			Edited.WindowHeight = static_cast<uint32>(std::max(Size[1], 240));
-		}
-		DrawRestartMarker();
-
-		if (Window != nullptr && ImGui::SmallButton("Use current window size"))
-		{
-			Edited.WindowWidth = Window->GetWidth();
-			Edited.WindowHeight = Window->GetHeight();
 		}
 	}
 
@@ -82,7 +59,8 @@ namespace Lime
 		int32 BackendIndex = static_cast<int32>(Edited.Backend);
 		if (ImGui::Combo("Backend", &BackendIndex, BackendLabels.data(), static_cast<int32>(BackendLabels.size())))
 		{
-			const ERHIBackend Chosen = static_cast<ERHIBackend>(BackendIndex);
+			const auto Chosen = static_cast<ERHIBackend>(BackendIndex);
+			// Selecting a backend that was not compiled in would produce a file that cannot start.
 			if (IsBackendEnabled(Chosen))
 			{
 				Edited.Backend = Chosen;
@@ -92,30 +70,20 @@ namespace Lime
 				LIME_LOG_WARNING(LIME_LOG_CATEGORY_EDITOR, "Backend {} is not compiled in", ToString(Chosen));
 			}
 		}
-		DrawRestartMarker();
 
-		if (ImGui::Checkbox("VSync", &Edited.bVSync))
-		{
-			// Not applied live: on Vulkan this is the swap chain present mode, so it would mean tearing
-			// the swap chain down mid-frame for a setting that is rarely toggled.
-		}
-		DrawRestartMarker();
+		ImGui::Checkbox("VSync", &Edited.bVSync);
 
 		int32 BufferCount = static_cast<int32>(Edited.BackBufferCount);
 		if (ImGui::SliderInt("Back buffers", &BufferCount, 2, 4))
 		{
 			Edited.BackBufferCount = static_cast<uint32>(BufferCount);
 		}
-		DrawRestartMarker();
 
 		int32 ValidationIndex = static_cast<int32>(Edited.Validation);
 		if (ImGui::Combo("Validation", &ValidationIndex, ValidationLabels.data(), static_cast<int32>(ValidationLabels.size())))
 		{
 			Edited.Validation = static_cast<EValidationMode>(ValidationIndex);
 		}
-		DrawRestartMarker();
-
-		ImGui::TextDisabled("Running with %s, validation %s", ToString(Launched.Backend), Launched.IsValidationEnabled() ? "on" : "off");
 	}
 
 	void FProjectSettingsPanel::DrawEditorSection()
@@ -126,7 +94,6 @@ namespace Lime
 		}
 
 		ImGui::Checkbox("Enabled", &Edited.bEnableEditor);
-		DrawRestartMarker();
 		if (!Edited.bEnableEditor)
 		{
 			// Saving this would leave no UI to switch it back on, so it is worth calling out.
@@ -135,7 +102,6 @@ namespace Lime
 		}
 
 		ImGui::Checkbox("Persist pass settings", &Edited.bPersistPassSettings);
-		DrawRestartMarker();
 	}
 
 	void FProjectSettingsPanel::DrawToolbar()
@@ -155,10 +121,6 @@ namespace Lime
 		{
 			Edited = Saved;
 			CopyToBuffer(TitleBuffer, Edited.WindowTitle);
-			if (Window != nullptr)
-			{
-				Window->SetTitle(Edited.WindowTitle);
-			}
 		}
 		ImGui::EndDisabled();
 
@@ -196,6 +158,10 @@ namespace Lime
 			ImGui::TextWrapped("No project source directory is known, so settings cannot be saved from here.");
 			ImGui::Separator();
 		}
+
+		// Stated once at the top rather than repeated per field: it applies to all of them.
+		ImGui::TextDisabled("Applies on next launch");
+		ImGui::Separator();
 
 		DrawToolbar();
 		ImGui::Separator();

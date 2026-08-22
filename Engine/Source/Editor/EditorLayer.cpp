@@ -59,7 +59,7 @@ namespace Lime
 			return false;
 		}
 
-		CreatePanels(Window, Settings);
+		CreatePanels(Settings);
 
 		// Registered rather than added directly so it is ordered by priority together with the
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
@@ -125,7 +125,7 @@ namespace Lime
 		Renderer->GetViewportTarget().RequestResize(ViewportPanel->GetDesiredWidth(), ViewportPanel->GetDesiredHeight());
 	}
 
-	void FEditorLayer::CreatePanels(FWindow& Window, const FProjectSettings& Settings)
+	void FEditorLayer::CreatePanels(const FProjectSettings& Settings)
 	{
 		// Built-in panels first, then whatever the project registered.
 		ViewportPanel = std::make_shared<FViewportPanel>();
@@ -135,7 +135,7 @@ namespace Lime
 		Panels.push_back(std::make_shared<FInspectorPanel>());
 
 		auto SettingsPanel = std::make_shared<FProjectSettingsPanel>();
-		SettingsPanel->Initialize(Settings, &Window);
+		SettingsPanel->Initialize(Settings);
 		Panels.push_back(std::move(SettingsPanel));
 
 		for (std::shared_ptr<IEditorPanel>& Panel : FEditorPanelRegistry::Get().InstantiateAll())
