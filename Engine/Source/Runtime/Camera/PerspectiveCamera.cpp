@@ -100,17 +100,18 @@ namespace Lime
 		SetRotation(std::atan2(Forward.X, Forward.Z), -std::asin(Clamp(Forward.Y, -1.0f, 1.0f)));
 	}
 
-	void FPerspectiveCamera::FrameSphere(const FVector3& Center, float Radius, const FVector3& Direction)
+	void FPerspectiveCamera::FrameSphere(const FVector3& Center, float Radius, const FVector3& ViewDirection)
 	{
-		const FVector3 Unit = Direction.GetNormalized();
-		const FVector3 Offset = Unit == FVector3::Zero() ? FVector3::UnitZ() : Unit;
+		const FVector3 Unit = ViewDirection.GetNormalized();
+		const FVector3 Forward = Unit == FVector3::Zero() ? FVector3::UnitZ() : Unit;
 
 		// Distance at which a sphere of this radius exactly fills the vertical field of view, with a margin
 		// so the model does not touch the edges of the frame.
 		const float SafeRadius = Radius > SmallNumber ? Radius : 1.0f;
 		const float Distance = SafeRadius / std::tan(FovYRadians * 0.5f) * 1.5f;
 
-		Position = Center - Offset * Distance;
+		// Behind the centre relative to the view direction, so looking along Forward arrives at the centre.
+		Position = Center - Forward * Distance;
 		LookAt(Center);
 
 		// The far plane has to reach past the model, or a large one would be clipped away. Near is scaled

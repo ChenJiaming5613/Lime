@@ -63,7 +63,11 @@ namespace Lime
 
 		// Places the camera so a sphere of the given radius fits in view, then aims at its centre. Radius
 		// and field of view together decide the distance, so this works for any model size.
-		void FrameSphere(const FVector3& Center, float Radius, const FVector3& Direction);
+		//
+		// ViewDirection is the direction the camera will look along, so the camera ends up on the opposite
+		// side of the centre. Naming it after the view rather than after the offset avoids the sign
+		// confusion: to look down at a model, pass a direction with a negative Y.
+		void FrameSphere(const FVector3& Center, float Radius, const FVector3& ViewDirection);
 
 		static constexpr float MinFieldOfView = DegreesToRadians(1.0f);
 		static constexpr float MaxFieldOfView = DegreesToRadians(179.0f);

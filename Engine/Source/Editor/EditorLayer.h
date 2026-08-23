@@ -6,8 +6,10 @@
 #pragma once
 
 #include "Editor/EditorContext.h"
+#include "Editor/EditorSelection.h"
 #include "Editor/EditorSettings.h"
 #include "Editor/Panels/EditorPanel.h"
+#include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
 
 #if LIME_WITH_IMGUI_TEST_ENGINE
@@ -78,6 +80,11 @@ namespace Lime
 		// afterwards, so it always describes what is actually on screen.
 		const FEditorSettings& GetSettings() const { return Settings; }
 
+		// Shared by the hierarchy panel and the inspector, and reachable by automation so a test can select
+		// an entity without simulating a click.
+		FEditorSelection& GetSelection() { return Selection; }
+		const FEditorSelection& GetSelection() const { return Selection; }
+
 		// Discards the saved arrangement and rebuilds the default layout on the next frame.
 		void RequestLayoutReset()
 		{
@@ -96,6 +103,8 @@ namespace Lime
 
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
 		std::shared_ptr<FViewportPanel> ViewportPanel;
+		// Owned here so it survives the per frame rebuild of FEditorContext; panels receive a pointer.
+		FEditorSelection Selection;
 		FRenderer* Renderer = nullptr;
 		// Appearance from EditorSettings.json, applied once during Initialize.
 		FEditorSettings Settings;

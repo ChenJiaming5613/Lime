@@ -6,6 +6,7 @@
 #pragma once
 
 #include "Core/Json/JsonUtils.h"
+#include "Core/Math/Vector.h"
 
 #include <functional>
 #include <string>
@@ -48,6 +49,11 @@ namespace Lime
 		std::function<FJson()> QueryPendingSettings;
 		// Writes the draft to the authored ProjectSettings.json.
 		std::function<bool()> SaveSettings;
+
+		// Places the camera. A delegate rather than a camera pointer because positioning is specific to a
+		// concrete camera type, and routing it through the engine keeps this module free of that dependency.
+		// Angles are in degrees, matching what scene.camera.get reports.
+		std::function<void(const FVector3& Position, float YawDegrees, float PitchDegrees)> SetCameraPose;
 	};
 
 	// A single command in flight. The handler fills Result or Error; returning without touching

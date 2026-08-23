@@ -159,6 +159,7 @@ namespace Lime
 		// Built-in panels first, then whatever the project registered.
 		ViewportPanel = std::make_shared<FViewportPanel>();
 		Panels.push_back(ViewportPanel);
+		Panels.push_back(std::make_shared<FSceneHierarchyPanel>());
 		Panels.push_back(std::make_shared<FConsolePanel>());
 		Panels.push_back(std::make_shared<FStatsPanel>());
 		Panels.push_back(std::make_shared<FInspectorPanel>());
@@ -526,11 +527,20 @@ namespace Lime
 
 		DrawDockSpace();
 
+		// A local copy so the engine does not have to know about the selection when building the context,
+		// and so panels always receive a valid pointer.
+		FEditorContext PanelContext = Context;
+		PanelContext.Selection = &Selection;
+
+		// Dropped here, once, rather than checked inside each panel: a scene reload leaves a handle that a
+		// later entity can reuse, and validating in one place means no panel can read the wrong entity.
+		Selection.Validate(PanelContext.GetScene());
+
 		for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
 		{
 			if (Panel->IsVisible())
 			{
-				Panel->OnDrawUI(Context);
+				Panel->OnDrawUI(PanelContext);
 			}
 		}
 

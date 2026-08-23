@@ -7,6 +7,8 @@ set(EditorSources
 	EditorLayer.cpp
 	EditorPanelRegistry.h
 	EditorPanelRegistry.cpp
+	EditorSelection.h
+	EditorSelection.cpp
 	EditorSettings.h
 	EditorSettings.cpp
 	PropertyDrawer.h
@@ -20,12 +22,15 @@ set(EditorSources
 	Panels/InspectorPanel.cpp
 	Panels/ProjectSettingsPanel.h
 	Panels/ProjectSettingsPanel.cpp
+	Panels/SceneHierarchyPanel.h
+	Panels/SceneHierarchyPanel.cpp
 	Panels/StatsPanel.h
 	Panels/StatsPanel.cpp
 	Panels/ViewportPanel.h
 	Panels/ViewportPanel.cpp
 )
 
+# LimeRenderer brings LimeScene with it, which the hierarchy panel reads.
 set(EditorPublicDeps LimeRenderer imgui)
 
 # UI automation. Kept out of the source list entirely when disabled, so the module carries no trace

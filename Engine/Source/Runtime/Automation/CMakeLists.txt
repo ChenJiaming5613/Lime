@@ -29,6 +29,7 @@ lime_add_module(
 		Commands/CoreCommands.cpp
 		Commands/EditorCommands.cpp
 		Commands/RenderPassCommands.cpp
+		Commands/SceneCommands.cpp
 		Commands/ScriptCommands.cpp
 		Commands/SettingsCommands.cpp
 		Commands/UITestCommands.cpp

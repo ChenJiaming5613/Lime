@@ -241,6 +241,7 @@ TEST_CASE("Aiming the perspective camera", "[Camera][Perspective]")
 
 	SECTION("FrameSphere puts the whole sphere in front of the camera")
 	{
+		// The direction is where the camera looks, so it ends up on the opposite side of the centre.
 		FPerspectiveCamera Camera;
 		Camera.FrameSphere({ 1.0f, 2.0f, 3.0f }, 4.0f, FVector3::UnitZ());
 
@@ -251,6 +252,14 @@ TEST_CASE("Aiming the perspective camera", "[Camera][Perspective]")
 		REQUIRE(ToCenter.Length() > 4.0f);
 		REQUIRE(Dot(Camera.GetForward(), ToCenter.GetNormalized()) == Approx(1.0f).margin(1.0e-3f));
 
+		SECTION("It looks along the requested direction")
+		{
+			// The strongest check of the sign convention: passing +Z must produce a camera looking along +Z,
+			// not one placed on the +Z side looking back.
+			REQUIRE(IsNearlyEqual(Camera.GetForward(), FVector3::UnitZ(), 1.0e-3f));
+			REQUIRE(Camera.GetPosition().Z < Center.Z);
+		}
+
 		SECTION("Clip planes reach past the sphere")
 		{
 			// A large model would otherwise be clipped away entirely.
@@ -258,6 +267,17 @@ TEST_CASE("Aiming the perspective camera", "[Camera][Perspective]")
 			REQUIRE(Camera.GetNearPlane() > 0.0f);
 			REQUIRE(Camera.GetNearPlane() < ToCenter.Length() - 4.0f);
 		}
+	}
+
+	SECTION("A downward view direction places the camera above the target")
+	{
+		// Naming the parameter after the view rather than the offset is what makes this unambiguous: to look
+		// down at a model, the direction points down and the camera ends up above it.
+		FPerspectiveCamera Camera;
+		Camera.FrameSphere(FVector3::Zero(), 1.0f, FVector3{ 0.0f, -0.5f, 1.0f });
+
+		REQUIRE(Camera.GetPosition().Y > 0.0f);
+		REQUIRE(Camera.GetForward().Y < 0.0f);
 	}
 
 	SECTION("FrameSphere scales the distance with the radius")

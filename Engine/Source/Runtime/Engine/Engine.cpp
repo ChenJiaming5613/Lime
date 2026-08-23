@@ -155,6 +155,15 @@ namespace Lime
 		Context.QueryPendingSettings = [this] { return PendingSettings.ToJson(); };
 		Context.SaveSettings = [this] { return PendingSettings.SaveToFile(); };
 
+		Context.SetCameraPose = [this](const FVector3& Position, float YawDegrees, float PitchDegrees)
+		{
+			Camera.SetPosition(Position);
+			Camera.SetRotation(DegreesToRadians(YawDegrees), DegreesToRadians(PitchDegrees));
+			// The controller carries the pose between frames, so it has to be told: otherwise the next mouse
+			// drag would continue from where the camera used to be and undo this in one frame.
+			CameraController.SyncFromCamera(Camera);
+		};
+
 		FAutomationServerDesc Desc;
 		Desc.Port = static_cast<uint16>(Settings.AutomationPort);
 		return Automation.Initialize(Desc, std::move(Context));
@@ -217,13 +226,14 @@ namespace Lime
 		// Framed from the world bounds so a model of any size and position is visible without per model
 		// configuration.
 		//
-		// The direction points from the model towards the camera. glTF authors a model facing -Z, so the
-		// camera goes on that side to see its front; slightly above and to one side reads better than dead
-		// on, which flattens the shape.
+		// The direction is where the camera looks, so this places it on the -Z side, above and to one side,
+		// looking back towards +Z. There is no reliable way to know which way a glTF model faces: the
+		// specification fixes no facing convention and the sample assets disagree, so this is simply a
+		// consistent starting view, and the fly camera is the way to look at the other side.
 		const FBoundingBox Bounds = Scene.ComputeWorldBounds();
 		if (Bounds.bValid)
 		{
-			Camera.FrameSphere(Bounds.GetCenter(), Bounds.GetLongestEdge() * 0.5f, FVector3{ -0.35f, 0.35f, -1.0f });
+			Camera.FrameSphere(Bounds.GetCenter(), Bounds.GetLongestEdge() * 0.5f, FVector3{ -0.3f, -0.25f, -1.0f });
 		}
 
 		// After framing, so the first drag continues from where the camera was placed rather than snapping
