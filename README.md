@@ -315,17 +315,25 @@ A running engine serves its state over HTTP on the loopback interface, which let
 drive it and inspect the result. Debug builds enable it by default; `LIME_BUILD_AUTOMATION=OFF` removes
 the module outright.
 
-`Automation/` holds a standalone Python package. The client needs only the standard library, so it runs
-from a checkout with no install step; the pytest suite needs `Automation/requirements.txt`.
+`Programs/lime_automation/` holds a standalone Python package. The client needs only the standard
+library, so it runs from a checkout with no install step; the pytest suite, in `Tests/Python/`, needs
+`Programs/lime_automation/requirements.txt`.
 
 ```powershell
 ./Scripts/Automation.ps1 test                          # pytest suite, D3D12
 ./Scripts/Automation.ps1 test -Backend d3d12,vulkan    # both backends
 ./Scripts/Automation.ps1 list                          # a project's scripts
 ./Scripts/Automation.ps1 run triangle                  # launch an engine and run one script
-./Scripts/Automation.ps1 run triangle -Remaining --attach   # use a running engine instead
-./Scripts/Automation.ps1 shell                         # interactive REPL with a live engine
+./Scripts/Automation.ps1 run triangle -Attach          # use a running engine instead
+./Scripts/Automation.ps1 info -Port 5613               # describe one engine
+
+./Programs/lime_automation/shell.ps1                   # interactive REPL, attaching if it can
+./Programs/lime_automation/shell.ps1 -Port 5613        # or a specific engine
 ```
+
+A client finds an engine through the endpoint file it publishes under `Saved/Automation/`, falling
+back to handshaking a port range when no file points at a live one. Both confirm the candidate with
+`GET /`, so a file left behind by a killed process is never mistaken for a running engine.
 
 The suite is registered with ctest, one test per backend, and skipped with a status line when pytest
 is absent:

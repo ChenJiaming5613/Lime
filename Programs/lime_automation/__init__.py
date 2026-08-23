@@ -16,7 +16,7 @@ needed for the test suite, not for the client itself.
 from __future__ import annotations
 
 from .client import CommandReply, LimeClient
-from .discovery import EngineEndpoint, discover_engines, find_engine
+from .discovery import EngineEndpoint, discover_engines, find_engine, handshake, scan_ports
 from .errors import (
     CommandError,
     EngineNotFoundError,
@@ -40,7 +40,9 @@ __all__ = [
     "discover_engines",
     "find_engine",
     "find_repo_root",
+    "handshake",
     "resolve_executable",
+    "scan_ports",
 ]
 
 __version__ = "1.0.0"

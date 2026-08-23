@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from .client import LimeClient
-from .discovery import discover_engines, find_engine
+from .discovery import discover_engines, find_engine, handshake
 from .errors import LimeAutomationError
 from .paths import DEFAULT_CONFIG, DEFAULT_PRESET, DEFAULT_PROJECT
 from .runner import ScriptResult, discover_scripts, run_scripts, script_directory
@@ -39,6 +39,11 @@ def _add_launch_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Use a running engine instead of launching one, which keeps the window open afterwards",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        help="Attach to this port directly, skipping discovery. Implies --attach.",
+    )
 
 
 def command_list(arguments: argparse.Namespace) -> int:
@@ -58,14 +63,23 @@ def command_list(arguments: argparse.Namespace) -> int:
 
 
 def command_info(arguments: argparse.Namespace) -> int:
-    engines = discover_engines(config=arguments.config, preset=arguments.preset)
+    # A port names one engine outright, which is how to inspect an instance discovery cannot see.
+    if arguments.port is not None:
+        endpoint = handshake(arguments.port)
+        if endpoint is None:
+            print(f"Nothing answered the automation handshake on port {arguments.port}.")
+            return 1
+        engines = [endpoint]
+    else:
+        engines = discover_engines(config=arguments.config, preset=arguments.preset)
+
     if not engines:
         print("No running engine found.")
         return 1
 
     for engine in engines:
         client = engine.connect()
-        print(f"{engine.url}  pid {engine.pid}  project {engine.project}")
+        print(engine.describe())
         try:
             info = client.engine_info()
             stats = client.engine_stats()
@@ -113,9 +127,14 @@ def command_run(arguments: argparse.Namespace) -> int:
             return 1
         print(f"Running all {len(names)} script(s): {', '.join(names)}")
 
-    if arguments.attach:
-        endpoint = find_engine(project=arguments.project, config=arguments.config, preset=arguments.preset)
-        print(f"Attached to {endpoint.url} (pid {endpoint.pid})")
+    if arguments.attach or arguments.port is not None:
+        endpoint = find_engine(
+            project=arguments.project,
+            config=arguments.config,
+            preset=arguments.preset,
+            port=arguments.port,
+        )
+        print(f"Attached to {endpoint.describe()}")
         results = run_scripts(names, endpoint.connect(), project=arguments.project)
         return _report(results)
 
@@ -147,10 +166,17 @@ def command_shell(arguments: argparse.Namespace) -> int:
     """Opens a Python REPL with a connected engine, for exploring interactively."""
     import code
 
-    if arguments.attach:
-        endpoint = find_engine(project=arguments.project, config=arguments.config, preset=arguments.preset)
+    # A port names one engine outright, so it is enough on its own; --attach stays for the case where
+    # any running engine will do.
+    if arguments.attach or arguments.port is not None:
+        endpoint = find_engine(
+            project=arguments.project,
+            config=arguments.config,
+            preset=arguments.preset,
+            port=arguments.port,
+        )
         engine = endpoint.connect()
-        print(f"Attached to {endpoint.url}")
+        print(f"Attached to {endpoint.describe()}")
         _interact(code, engine)
         return 0
 
@@ -172,6 +198,8 @@ def _interact(code_module, engine: LimeClient) -> None:
         "LimeEngine automation shell\n"
         "  engine   the connected client\n"
         "  Try: engine.engine_info(), engine.list_passes(), engine.save_screenshot('shot.png')\n"
+        "       engine.list_ui_tests(), engine.run_ui_tests(filter='...')\n"
+        "  exit() or Ctrl-Z to leave\n"
     )
     code_module.interact(banner=banner, local={"engine": engine, "Path": Path}, exitmsg="")
 
@@ -190,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
 
     info_parser = subparsers.add_parser("info", help="Describe running engines")
     _add_common_arguments(info_parser)
+    info_parser.add_argument("--port", type=int, help="Describe the engine on this port instead of searching")
     info_parser.set_defaults(handler=command_info)
 
     run_parser = subparsers.add_parser("run", help="Run one or more scripts; all of them when none is named")

@@ -1,4 +1,4 @@
-# Python automation test suite, registered with ctest.
+# Python test suites, registered with ctest.
 #
 # Registered as a small number of coarse tests rather than one per pytest case: each engine launch
 # costs seconds, and ctest would otherwise pay that cost for every test it runs individually. pytest
@@ -27,11 +27,11 @@ execute_process(
 )
 
 if(NOT PytestMissing EQUAL 0)
-	message(STATUS "Automation tests: skipped (pytest not installed; pip install -r Automation/requirements.txt)")
+	message(STATUS "Automation tests: skipped (pytest not installed; pip install -r Programs/lime_automation/requirements.txt)")
 	return()
 endif()
 
-set(AutomationTestDir "${CMAKE_CURRENT_SOURCE_DIR}")
+set(PythonTestDir "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # One test per backend, so a backend specific regression is attributable and the two can run in
 # parallel. The suite launches its own engines, hence the generous timeout.
@@ -48,7 +48,7 @@ foreach(Backend IN ITEMS d3d12 vulkan)
 		COMMAND "${Python3_EXECUTABLE}" -m pytest -q
 			--backend ${Backend}
 			--config $<CONFIG>
-		WORKING_DIRECTORY "${AutomationTestDir}"
+		WORKING_DIRECTORY "${PythonTestDir}"
 	)
 
 	set_tests_properties(Automation.${Backend} PROPERTIES

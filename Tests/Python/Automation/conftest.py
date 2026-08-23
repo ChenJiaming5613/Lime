@@ -1,40 +1,25 @@
-"""Shared pytest fixtures.
+"""Fixtures for the automation suite.
 
 An engine process costs several seconds to start, so it is shared per module and per backend rather
 than per test. Tests therefore have to leave the engine as they found it; the `engine` fixture asserts
 that no errors were logged, which catches a test that corrupted the state for the next one.
+
+Command line options and the import path are set up in the parent conftest, since pytest reads those
+before it descends into this directory.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-# The package lives one directory up, so the suite runs from a checkout without installation.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from lime_automation import LimeClient, LimeSession  # noqa: E402
-from lime_automation.errors import LaunchError  # noqa: E402
-from lime_automation.paths import DEFAULT_CONFIG, DEFAULT_PRESET, DEFAULT_PROJECT  # noqa: E402
+from lime_automation import LimeClient, LimeSession
+from lime_automation.errors import LaunchError
 
 # Kept small so a test run does not depend on the host's display size.
 TEST_WIDTH = 1024
 TEST_HEIGHT = 576
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption("--backend", action="append", default=[], choices=["d3d12", "vulkan"],
-                     help="Backend to test; repeat for several. Defaults to d3d12.")
-    parser.addoption("--config", default=DEFAULT_CONFIG, help="Build configuration to test")
-    parser.addoption("--preset", default=DEFAULT_PRESET, help="CMake preset whose Build directory to use")
-    parser.addoption("--project", default=DEFAULT_PROJECT, help="Project executable to run")
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line("markers", "editor: requires the editor UI to be running")
-    config.addinivalue_line("markers", "slow: launches an extra engine process")
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:

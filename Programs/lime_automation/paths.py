@@ -31,8 +31,9 @@ PROJECTS_DIRECTORY_NAME = "Projects"
 def find_repo_root(start: Path | None = None) -> Path:
     """Walks upwards until the repository root is found.
 
-    Allows the package to be imported from anywhere: a test run from Automation/ and one run from the
-    repository root resolve the same paths.
+    Allows the package to be imported from anywhere. It searches for marker entries rather than
+    counting directory levels, so moving the package does not break it: a test run from
+    Tests/Python and a script run from the repository root resolve the same paths.
     """
     override = os.environ.get("LIME_ROOT")
     if override:
