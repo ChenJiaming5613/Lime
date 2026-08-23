@@ -40,6 +40,9 @@ namespace Lime
 		virtual nvrhi::IDevice* GetDevice() const = 0;
 		virtual nvrhi::IFramebuffer* GetCurrentFramebuffer() const = 0;
 		virtual nvrhi::Format GetBackBufferFormat() const = 0;
+		// Depth format of the swap chain framebuffers. A pass needs it to compile a pipeline that is
+		// compatible with both this and the editor's offscreen target.
+		virtual nvrhi::Format GetDepthFormat() const = 0;
 		virtual ERHIBackend GetBackend() const = 0;
 		virtual uint32 GetBackBufferWidth() const = 0;
 		virtual uint32 GetBackBufferHeight() const = 0;
@@ -56,14 +59,20 @@ namespace Lime
 	public:
 		nvrhi::IFramebuffer* GetCurrentFramebuffer() const override;
 		nvrhi::Format GetBackBufferFormat() const override { return BackBufferFormat; }
+		nvrhi::Format GetDepthFormat() const override { return DepthFormat; }
 		uint32 GetBackBufferWidth() const override { return BackBufferWidth; }
 		uint32 GetBackBufferHeight() const override { return BackBufferHeight; }
 		const std::string& GetAdapterName() const override { return AdapterName; }
 
+		// Matches FViewportTarget::DepthFormat. The two must agree: a pipeline is compiled against one
+		// framebuffer and reused with the other, and NVRHI validates the formats at draw time.
+		static constexpr nvrhi::Format DepthFormat = nvrhi::Format::D32;
+
 	protected:
 		// Wraps the device in the NVRHI validation layer when requested.
 		nvrhi::DeviceHandle ApplyValidationLayer(nvrhi::DeviceHandle InDevice, bool bEnableValidation);
-		// Rebuilds the framebuffer cache from the current back buffer textures.
+		// Rebuilds the framebuffer cache from the current back buffer textures. Also recreates the
+		// shared depth buffer, so the back buffer size must be up to date before calling this.
 		bool RebuildFramebuffers();
 		void ReleaseFramebuffers();
 
@@ -71,11 +80,17 @@ namespace Lime
 		nvrhi::DeviceHandle Device;
 		std::vector<nvrhi::TextureHandle> BackBuffers;
 		std::vector<nvrhi::FramebufferHandle> Framebuffers;
+		// Single depth target shared by every back buffer: depth is written and consumed within one
+		// frame, so unlike colour there is nothing for the presentation engine to still be reading.
+		nvrhi::TextureHandle DepthBuffer;
 		nvrhi::Format BackBufferFormat = nvrhi::Format::RGBA8_UNORM;
 		std::string AdapterName = "Unknown";
 		uint32 BackBufferWidth = 0;
 		uint32 BackBufferHeight = 0;
 		uint32 CurrentBackBufferIndex = 0;
 		bool bVSync = true;
+
+	private:
+		bool RebuildDepthBuffer();
 	};
 } // namespace Lime

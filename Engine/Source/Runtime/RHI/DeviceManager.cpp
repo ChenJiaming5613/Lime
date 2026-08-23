@@ -79,7 +79,25 @@ namespace Lime
 	bool FDeviceManagerBase::RebuildFramebuffers()
 	{
 		Framebuffers.clear();
+
+		// The D3D12 path calls this from CreateSwapChain, which runs before the NVRHI device exists so
+		// that the swap chain format is known when the device is created. There is nothing to build yet
+		// in that case, and WrapBackBuffers calls again once the device is ready.
+		if (Device == nullptr)
+		{
+			return true;
+		}
+
 		Framebuffers.reserve(BackBuffers.size());
+
+		// One depth buffer shared by every back buffer. Unlike the colour targets, which the presentation
+		// engine may still be reading from, depth is written and consumed within a single frame and never
+		// outlives it, so there is nothing to double buffer.
+		if (!RebuildDepthBuffer())
+		{
+			Framebuffers.clear();
+			return false;
+		}
 
 		for (const nvrhi::TextureHandle& BackBuffer : BackBuffers)
 		{
@@ -90,7 +108,8 @@ namespace Lime
 				return false;
 			}
 
-			nvrhi::FramebufferHandle Framebuffer = Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(BackBuffer));
+			nvrhi::FramebufferHandle Framebuffer =
+			    Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(BackBuffer).setDepthAttachment(DepthBuffer));
 			if (Framebuffer == nullptr)
 			{
 				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "createFramebuffer failed");
@@ -104,9 +123,52 @@ namespace Lime
 		return true;
 	}
 
+	bool FDeviceManagerBase::RebuildDepthBuffer()
+	{
+		DepthBuffer = nullptr;
+
+		if (BackBufferWidth == 0 || BackBufferHeight == 0)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "Back buffer size is unknown while creating the depth buffer");
+			return false;
+		}
+
+		// isTypeless matters and is not optional. A depth resource is viewed through two incompatible
+		// view types, a depth stencil view for writing and a shader view for reading, and only a
+		// typeless resource can carry both. Creating it as a plain depth format makes the D3D12 backend
+		// fault while building descriptors. This follows Donut's GBuffer, which is written against the
+		// same NVRHI.
+		const nvrhi::TextureDesc DepthDesc = nvrhi::TextureDesc()
+		                                         .setDimension(nvrhi::TextureDimension::Texture2D)
+		                                         .setWidth(BackBufferWidth)
+		                                         .setHeight(BackBufferHeight)
+		                                         .setFormat(DepthFormat)
+		                                         .setIsRenderTarget(true)
+		                                         .setIsTypeless(true)
+		                                         .setInitialState(nvrhi::ResourceStates::DepthWrite)
+		                                         .setKeepInitialState(true)
+		                                         // Must match the value the renderer clears with, or D3D12
+		                                         // loses the fast clear path and warns about it.
+		                                         .setClearValue(nvrhi::Color(1.0f))
+		                                         .setDebugName("SwapChainDepth");
+
+		DepthBuffer = Device->createTexture(DepthDesc);
+		if (DepthBuffer == nullptr)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RHI, "createTexture failed for the swap chain depth buffer ({}x{})", BackBufferWidth,
+			               BackBufferHeight);
+			return false;
+		}
+
+		return true;
+	}
+
 	void FDeviceManagerBase::ReleaseFramebuffers()
 	{
+		// Framebuffers first: they reference the depth texture, so releasing it earlier would keep the
+		// handle alive anyway and obscure the ownership.
 		Framebuffers.clear();
+		DepthBuffer = nullptr;
 		BackBuffers.clear();
 		CurrentBackBufferIndex = 0;
 	}

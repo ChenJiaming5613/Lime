@@ -16,6 +16,8 @@ lime_add_module(
 		Math/MathUtils.h
 		Math/Matrix.h
 		Math/Matrix.cpp
+		Math/Quaternion.h
+		Math/Quaternion.cpp
 		Math/Vector.h
 		Math/Vector.cpp
 		Reflection/PropertyMeta.h

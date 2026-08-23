@@ -101,10 +101,43 @@ namespace Lime
 			return false;
 		}
 
-		Framebuffer = Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(Texture));
+		// A depth buffer is required for 3D scenes: without one, triangles are drawn in submission
+		// order and closer surfaces get overwritten by farther ones. It is created alongside the colour
+		// target so the two can never disagree on size.
+		//
+		// isTypeless matters and is not optional. A depth resource is viewed through two incompatible
+		// view types, a depth stencil view for writing and a shader view for reading, and only a
+		// typeless resource can carry both. Creating it as a plain depth format makes the D3D12 backend
+		// fault while building descriptors. This follows Donut's GBuffer, which is written against the
+		// same NVRHI.
+		const nvrhi::TextureDesc DepthDesc = nvrhi::TextureDesc()
+		                                         .setDimension(nvrhi::TextureDimension::Texture2D)
+		                                         .setWidth(Width)
+		                                         .setHeight(Height)
+		                                         .setFormat(DepthFormat)
+		                                         .setIsRenderTarget(true)
+		                                         .setIsTypeless(true)
+		                                         .setInitialState(nvrhi::ResourceStates::DepthWrite)
+		                                         .setKeepInitialState(true)
+		                                         // Must match the value RenderScene clears with, or D3D12
+		                                         // loses the fast clear path and warns about it.
+		                                         .setClearValue(nvrhi::Color(1.0f))
+		                                         .setDebugName("ViewportDepth");
+
+		DepthTexture = Device->createTexture(DepthDesc);
+		if (DepthTexture == nullptr)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createTexture failed for the viewport depth buffer ({}x{})", Width, Height);
+			Texture = nullptr;
+			return false;
+		}
+
+		Framebuffer = Device->createFramebuffer(
+		    nvrhi::FramebufferDesc().addColorAttachment(Texture).setDepthAttachment(DepthTexture));
 		if (Framebuffer == nullptr)
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createFramebuffer failed for the viewport target");
+			DepthTexture = nullptr;
 			Texture = nullptr;
 			return false;
 		}
@@ -116,7 +149,10 @@ namespace Lime
 
 	void FViewportTarget::ReleaseResources()
 	{
+		// Framebuffer first: it references both textures, so releasing it last would leave the handles
+		// alive until the framebuffer itself went away.
 		Framebuffer = nullptr;
+		DepthTexture = nullptr;
 		Texture = nullptr;
 	}
 } // namespace Lime

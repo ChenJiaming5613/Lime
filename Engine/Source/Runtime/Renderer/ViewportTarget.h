@@ -35,8 +35,14 @@ namespace Lime
 		bool IsValid() const { return Framebuffer != nullptr; }
 		nvrhi::IFramebuffer* GetFramebuffer() const { return Framebuffer; }
 		nvrhi::ITexture* GetTexture() const { return Texture; }
+		nvrhi::ITexture* GetDepthTexture() const { return DepthTexture; }
 		uint32 GetWidth() const { return CurrentWidth; }
 		uint32 GetHeight() const { return CurrentHeight; }
+
+		// Depth format for the offscreen target. Fixed rather than configurable because it has to match
+		// the swap chain path: a pipeline is compiled against one framebuffer's formats and reused for
+		// the other, so a mismatch would fail validation at draw time.
+		static constexpr nvrhi::Format DepthFormat = nvrhi::Format::D32;
 
 		// Clamped so a collapsed panel cannot request a zero sized or absurdly large texture.
 		static constexpr uint32 MinSize = 1;
@@ -51,6 +57,7 @@ namespace Lime
 
 		nvrhi::IDevice* Device = nullptr;
 		nvrhi::TextureHandle Texture;
+		nvrhi::TextureHandle DepthTexture;
 		nvrhi::FramebufferHandle Framebuffer;
 		nvrhi::Format Format = nvrhi::Format::RGBA8_UNORM;
 		uint32 CurrentWidth = 0;

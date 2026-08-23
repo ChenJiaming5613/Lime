@@ -21,6 +21,11 @@
 # library. This is required, not stylistic: render passes and editor panels register themselves
 # through static initializers, and a static library would let the linker drop the object files whose
 # only purpose is that registration.
+#
+# A project may also have no sources at all. The engine owns main and provides the built-in passes, so
+# a project that only configures existing engine features needs nothing but ProjectSettings.json.
+# LIME_LAUNCH_SOURCE is always compiled in, which gives the executable its one required translation
+# unit.
 
 # lime_add_project([NAME <override>] [SOURCE_DIR <dir>] [SHADER_DIR <dir>])
 function(lime_add_project)
@@ -57,20 +62,22 @@ function(lime_add_project)
 	set(ProjectOutputDir "${ProjectBinariesDir}/$<CONFIG>")
 
 	# Globbing keeps a project's CMakeLists free of file lists. CONFIGURE_DEPENDS makes CMake rerun
-	# when files are added or removed.
-	file(GLOB_RECURSE ProjectSources CONFIGURE_DEPENDS
-		"${LIME_PROJ_SOURCE_DIR}/*.cpp"
-		"${LIME_PROJ_SOURCE_DIR}/*.h"
-	)
-	if(NOT ProjectSources)
-		message(FATAL_ERROR "No sources found under ${LIME_PROJ_SOURCE_DIR}")
+	# when files are added or removed. An empty result is valid: see the note at the top of this file.
+	set(ProjectSources "")
+	if(EXISTS "${LIME_PROJ_SOURCE_DIR}")
+		file(GLOB_RECURSE ProjectSources CONFIGURE_DEPENDS
+			"${LIME_PROJ_SOURCE_DIR}/*.cpp"
+			"${LIME_PROJ_SOURCE_DIR}/*.h"
+		)
 	endif()
 
 	# The launch source is compiled per project rather than shared through a library target, so that
 	# LIME_PROJECT_SOURCE_DIR is visible while compiling main. A shared target could not carry a value
 	# that differs per project.
 	add_executable(${LIME_PROJ_NAME} ${ProjectSources} "${LIME_LAUNCH_SOURCE}")
-	target_include_directories(${LIME_PROJ_NAME} PRIVATE "${LIME_PROJ_SOURCE_DIR}")
+	if(ProjectSources)
+		target_include_directories(${LIME_PROJ_NAME} PRIVATE "${LIME_PROJ_SOURCE_DIR}")
+	endif()
 	target_link_libraries(${LIME_PROJ_NAME} PRIVATE LimeCompilerOptions LimeRuntime)
 
 	# Lets the runtime resolve and write the authored settings file in the source tree.
@@ -91,7 +98,9 @@ function(lime_add_project)
 		COMPILE_PDB_OUTPUT_DIRECTORY "${ProjectIntermediateDir}/Lib/$<CONFIG>"
 		VS_DEBUGGER_WORKING_DIRECTORY "${ProjectOutputDir}"
 	)
-	source_group(TREE "${ProjectDir}" FILES ${ProjectSources})
+	if(ProjectSources)
+		source_group(TREE "${ProjectDir}" FILES ${ProjectSources})
+	endif()
 
 	# Project shaders build straight into Shaders/<ProjectName> inside this project's directory. The
 	# engine registers that path as a search root ahead of its own, so a project can override a
@@ -159,5 +168,13 @@ function(lime_add_project)
 		)
 	endif()
 
-	message(STATUS "Project ${LIME_PROJ_NAME}: ${LIME_PROJ_SOURCE_DIR} -> ${ProjectBinariesDir}/<Config>")
+	# Says whether the project brought code of its own, which is the quickest way to see that a
+	# configuration only project was picked up as intended.
+	if(ProjectSources)
+		list(LENGTH ProjectSources ProjectSourceCount)
+		set(SourceSummary "${ProjectSourceCount} source(s)")
+	else()
+		set(SourceSummary "no sources, engine features only")
+	endif()
+	message(STATUS "Project ${LIME_PROJ_NAME}: ${SourceSummary} -> ${ProjectBinariesDir}/<Config>")
 endfunction()

@@ -9,6 +9,9 @@
 namespace Lime
 {
 	class FRenderer;
+	// Forward declared so this header stays free of a dependency on the scene module, which would
+	// otherwise make LimeRenderer depend on LimeScene and close a cycle.
+	class FScene;
 
 	// Explicit ordering, so a pass ends up in the right place regardless of when it registers.
 	// Passes are sorted by this value and ties keep registration order.
@@ -35,6 +38,19 @@ namespace Lime
 		FVector4 Color;
 	};
 
+	// Vertex layout for imported meshes. Separate from FSimpleVertex rather than an extension of it,
+	// because the two feed different pipelines and widening the simple one would change the vertex
+	// stride of every existing pass.
+	//
+	// Only the attributes the basic lit shading needs: no tangents, since normal mapping is out of
+	// scope and a tangent that is never read would waste bandwidth on every vertex.
+	struct FStaticMeshVertex
+	{
+		FVector3 Position;
+		FVector3 Normal;
+		FVector2 TexCoord;
+	};
+
 	struct FFrameContext
 	{
 		float DeltaSeconds = 0.0f;
@@ -43,6 +59,10 @@ namespace Lime
 		uint32 ViewportHeight = 0;
 		nvrhi::IFramebuffer* Framebuffer = nullptr;
 		nvrhi::ICommandList* CommandList = nullptr;
+		// The scene being rendered, or null when none is loaded. Passed through the frame context
+		// rather than injected into each pass, so it travels the same path as the framebuffer and the
+		// timing data and no pass needs to manage its lifetime.
+		FScene* Scene = nullptr;
 		// True when the scene renders into the editor viewport instead of the swap chain. Passes only
 		// need this if they care about the distinction; the framebuffer and size already differ.
 		bool bIsOffscreen = false;

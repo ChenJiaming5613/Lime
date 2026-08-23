@@ -218,6 +218,7 @@ namespace Lime
 		SceneContext.TotalSeconds = TotalSeconds;
 		SceneContext.Framebuffer = SceneFramebuffer;
 		SceneContext.CommandList = CommandList;
+		SceneContext.Scene = Scene;
 		SceneContext.bIsOffscreen = bOffscreenEnabled;
 		SceneContext.ViewportWidth = bOffscreenEnabled ? ViewportTarget.GetWidth() : DeviceManager->GetBackBufferWidth();
 		SceneContext.ViewportHeight = bOffscreenEnabled ? ViewportTarget.GetHeight() : DeviceManager->GetBackBufferHeight();
@@ -248,6 +249,12 @@ namespace Lime
 		CommandList->open();
 		nvrhi::utils::ClearColorAttachment(CommandList, SceneContext.Framebuffer, 0,
 		                                   nvrhi::Color(ClearColor.X, ClearColor.Y, ClearColor.Z, ClearColor.W));
+
+		// Depth is cleared to the far plane. 1.0 matches the [0, 1] range PerspectiveFovLH produces and
+		// the clearValue the depth textures were created with, which is what keeps D3D12 on its fast
+		// clear path. ClearDepthStencilAttachment is a no-op when the framebuffer has no depth, so this
+		// stays correct if a target is ever built without one.
+		nvrhi::utils::ClearDepthStencilAttachment(CommandList, SceneContext.Framebuffer, 1.0f, 0);
 
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
