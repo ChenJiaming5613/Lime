@@ -26,6 +26,13 @@ else()
 		"${CMAKE_CURRENT_SOURCE_DIR}/Asset/GltfSampleAssetTests.cpp"
 	)
 endif()
+# The scene graph itself holds no GPU objects, so the hierarchy and transform logic is testable here.
+# Guarded because LimeScene depends on LimeRenderer, which only exists when an RHI backend is enabled.
+if(TARGET LimeScene)
+	list(APPEND TestDeps LimeScene)
+else()
+	list(REMOVE_ITEM TestSources "${CMAKE_CURRENT_SOURCE_DIR}/Scene/SceneTests.cpp")
+endif()
 # Project settings live in LimeRuntime; only their value mapping is exercised, not the engine loop.
 if(TARGET LimeRuntime)
 	list(APPEND TestDeps LimeRuntime)

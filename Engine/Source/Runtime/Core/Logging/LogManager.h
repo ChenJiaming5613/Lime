@@ -60,6 +60,8 @@ namespace Lime
 #define LIME_LOG_CATEGORY_PLATFORM "Platform"
 #define LIME_LOG_CATEGORY_RHI "RHI"
 #define LIME_LOG_CATEGORY_RENDERER "Renderer"
+// Scene loading, the entity hierarchy and GPU resource uploads for imported assets.
+#define LIME_LOG_CATEGORY_SCENE "Scene"
 #define LIME_LOG_CATEGORY_EDITOR "Editor"
 #define LIME_LOG_CATEGORY_AUTOMATION "Automation"
 #define LIME_LOG_CATEGORY_APP "App"

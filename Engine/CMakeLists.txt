@@ -15,6 +15,8 @@ add_subdirectory(Source/Runtime/RHI)
 add_subdirectory(Source/Runtime/Renderer)
 # Asset import needs only Core, so it can be built before anything graphics related.
 add_subdirectory(Source/Runtime/Asset)
+# Needs both LimeAsset and LimeRenderer, so it comes after them.
+add_subdirectory(Source/Runtime/Scene)
 
 if(LIME_BUILD_EDITOR)
 	add_subdirectory(Source/Editor)
