@@ -5,6 +5,11 @@
 [Bb]in/
 [Oo]bj/
 
+# Per project build outputs. Each project keeps its binaries and intermediates next to its sources,
+# so these live inside a tracked tree and have to be excluded by name.
+/Projects/*/Binaries/
+/Projects/*/Intermediate/
+
 # Visual Studio / VS Code / JetBrains
 .vs/
 .idea/
@@ -39,8 +44,8 @@ compile_commands.json
 imgui.ini
 *.log
 /Logs/
-# Written next to the executable, which already lives under an ignored Build tree; listed so a
-# relocated output directory does not start tracking them either.
+# Written next to the executable, which lives under an ignored per project Binaries directory; listed
+# so a relocated output directory does not start tracking them either.
 Saved/
 AutomationEndpoint.json
 

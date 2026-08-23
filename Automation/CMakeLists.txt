@@ -57,8 +57,8 @@ foreach(Backend IN ITEMS d3d12 vulkan)
 		# The engines bind loopback ports and share one build directory, so the backends are run one at
 		# a time rather than concurrently.
 		RESOURCE_LOCK "LimeAutomationEngine"
-		# LIME_BUILD_DIR points the suite at the binaries this configure step produced, which is more
-		# reliable than deriving a preset name from the path.
+		# The suite resolves executables from Projects/<Name>/Binaries/<Config>. LIME_BUILD_DIR is
+		# still passed so its fallback can find a tree built before projects owned their outputs.
 		ENVIRONMENT "LIME_ROOT=${CMAKE_SOURCE_DIR};LIME_BUILD_DIR=${CMAKE_BINARY_DIR}"
 	)
 endforeach()

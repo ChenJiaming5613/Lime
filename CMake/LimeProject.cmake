@@ -4,9 +4,18 @@
 # single call with no arguments. Build time and run time therefore read the same file and the project
 # name cannot drift between them.
 #
-# Each project gets its own output directory, Bin/<Config>/<Name>. The engine resolves Shaders,
-# Content, Saved and ProjectSettings.json relative to the executable, so a shared directory would let
-# one project's settings file overwrite another's and send it looking for the wrong shaders.
+# A project is self contained: everything it produces stays inside its own directory rather than in
+# the shared build tree.
+#
+#   Projects/<Name>/Binaries/<Config>/     exe, Shaders, Content, ProjectSettings.json, Saved
+#   Projects/<Name>/Intermediate/          object files, compiler pdb, import libraries
+#
+# Keeping the runtime directory per project matters because the engine resolves Shaders, Content,
+# Saved and ProjectSettings.json relative to the executable: a shared directory would let one
+# project's settings file overwrite another's and send it looking for the wrong shaders.
+#
+# The object files land under Intermediate because Projects/CMakeLists.txt gives each project a build
+# directory there; only the output directories are set here.
 #
 # Project sources are compiled straight into the executable rather than into an intermediate static
 # library. This is required, not stylistic: render passes and editor panels register themselves
@@ -40,8 +49,11 @@ function(lime_add_project)
 	endif()
 
 	# Everything this project produces at build time lands here, and this is also its working
-	# directory at run time.
-	set(ProjectOutputDir "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>/${LIME_PROJ_NAME}")
+	# directory at run time. It sits inside the project rather than in the shared build tree, so a
+	# project directory holds its own sources and its own binaries.
+	set(ProjectBinariesDir "${ProjectDir}/Binaries")
+	set(ProjectIntermediateDir "${ProjectDir}/Intermediate")
+	set(ProjectOutputDir "${ProjectBinariesDir}/$<CONFIG>")
 
 	# Globbing keeps a project's CMakeLists free of file lists. CONFIGURE_DEPENDS makes CMake rerun
 	# when files are added or removed.
@@ -66,10 +78,16 @@ function(lime_add_project)
 		LIME_PROJECT_SOURCE_DIR="${ProjectDir}"
 	)
 
-	# Overrides the global default from the root CMakeLists, giving this project a private directory.
+	# Overrides the global defaults from the root CMakeLists so nothing this target produces ends up
+	# in the shared build tree: the executable and its side files under Binaries, the import library
+	# and the compiler pdb under Intermediate.
 	set_target_properties(${LIME_PROJ_NAME} PROPERTIES
 		FOLDER "Projects"
 		RUNTIME_OUTPUT_DIRECTORY "${ProjectOutputDir}"
+		LIBRARY_OUTPUT_DIRECTORY "${ProjectOutputDir}"
+		ARCHIVE_OUTPUT_DIRECTORY "${ProjectIntermediateDir}/Lib/$<CONFIG>"
+		PDB_OUTPUT_DIRECTORY "${ProjectOutputDir}"
+		COMPILE_PDB_OUTPUT_DIRECTORY "${ProjectIntermediateDir}/Lib/$<CONFIG>"
 		VS_DEBUGGER_WORKING_DIRECTORY "${ProjectOutputDir}"
 	)
 	source_group(TREE "${ProjectDir}" FILES ${ProjectSources})
@@ -127,5 +145,5 @@ function(lime_add_project)
 		)
 	endif()
 
-	message(STATUS "Project ${LIME_PROJ_NAME}: ${LIME_PROJ_SOURCE_DIR}")
+	message(STATUS "Project ${LIME_PROJ_NAME}: ${LIME_PROJ_SOURCE_DIR} -> ${ProjectBinariesDir}/<Config>")
 endfunction()

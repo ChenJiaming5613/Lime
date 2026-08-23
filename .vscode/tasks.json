@@ -70,7 +70,7 @@
 		{
 			"label": "Run HelloTriangle",
 			"type": "shell",
-			"command": "./Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
+			"command": "./Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe",
 			"dependsOn": "Build (Debug)",
 			"problemMatcher": []
 		},

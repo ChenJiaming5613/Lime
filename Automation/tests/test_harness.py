@@ -12,7 +12,7 @@ import pytest
 from lime_automation import LimeClient, find_repo_root, resolve_executable
 from lime_automation.discovery import discover_engines
 from lime_automation.errors import LimeAutomationError
-from lime_automation.paths import project_output_dir
+from lime_automation.paths import project_output_dir, project_source_dir
 from lime_automation.runner import discover_scripts, find_script, run_script, script_directory
 
 
@@ -40,7 +40,11 @@ def test_project_owns_its_output_directory(config: str, preset: str, project: st
     expected = project_output_dir(project=project, config=config, preset=preset)
 
     assert executable.parent == expected, f"{executable} is not inside {expected}"
-    assert executable.parent.name == project
+
+    # The outputs belong to the project's own directory, not to a shared build tree.
+    assert executable.is_relative_to(project_source_dir(project=project)), (
+        f"{executable} is outside {project_source_dir(project=project)}"
+    )
 
     # The runtime dependencies have to be inside that directory, not a level up.
     assert (executable.parent / "ProjectSettings.json").is_file()

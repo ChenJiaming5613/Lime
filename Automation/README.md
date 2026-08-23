@@ -13,7 +13,7 @@ lime_automation/
   session.py     LimeSession: launches an engine and shuts it down
   discovery.py   Attaches to engines that are already running
   runner.py      Loads and executes a project's automation scripts
-  paths.py       Locates the repository, build outputs and executables
+  paths.py       Locates the repository, project outputs and executables
   cli.py         python -m lime_automation
 tests/           pytest suite, registered with ctest
 ```
@@ -93,4 +93,7 @@ def run(engine) -> dict:
 | Variable | Effect |
 | --- | --- |
 | `LIME_ROOT` | Repository root, when it cannot be found by walking upwards |
-| `LIME_BUILD_DIR` | CMake binary directory holding the executables; set by the ctest integration |
+| `LIME_BUILD_DIR` | Old shared CMake binary directory, used only by the legacy executable fallback |
+
+Project executables are resolved from `Projects/<Name>/Binaries/<Config>/`, so neither variable is
+needed for a normal build.

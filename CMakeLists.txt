@@ -43,11 +43,12 @@ set(LIME_VK_SHIFT_SAMPLER 128 CACHE STRING "Vulkan binding offset for HLSL s reg
 set(LIME_VK_SHIFT_CBV 256 CACHE STRING "Vulkan binding offset for HLSL b registers")
 set(LIME_VK_SHIFT_UAV 384 CACHE STRING "Vulkan binding offset for HLSL u registers")
 
-# Every executable gets its own directory under Bin, so two projects never share a working directory.
-# This matters because the engine resolves Shaders, Content, Saved and ProjectSettings.json relative
-# to the executable: a shared directory would let one project's settings file overwrite another's.
-# lime_add_project overrides RUNTIME_OUTPUT_DIRECTORY per target; this is the default for everything
-# else, such as the test executable.
+# Default output locations for engine level targets such as the test executable and ShaderMake.
+# Projects are deliberately not covered by these: lime_add_project redirects each one into
+# Projects/<Name>/Binaries/<Config> and Projects/<Name>/Intermediate, so a project keeps its sources
+# and everything built from them in one directory. This matters because the engine resolves Shaders,
+# Content, Saved and ProjectSettings.json relative to the executable, so two projects must never
+# share a runtime directory.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Bin/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Lib/$<CONFIG>")

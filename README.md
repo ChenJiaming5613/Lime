@@ -32,7 +32,7 @@ cd LimeEngine
 
 ./Scripts/Build.ps1                       # configure + build Debug
 ./Scripts/Build.ps1 -Config Release
-./Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe
+./Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe
 ```
 
 Inside an x64 Native Tools prompt the presets can be used directly:
@@ -71,28 +71,37 @@ so the runtime path stays free of editor cost.
 
 ## Build output layout
 
-Every project gets a private directory, which is also its working directory at run time:
+A project is self contained: everything built from its sources stays inside its own directory, which
+is also its working directory at run time.
 
 ```
-Build/<preset>/
-  Bin/<Config>/
-    HelloTriangle/          Everything this project needs to run
-      HelloTriangle.exe
-      ProjectSettings.json
-      Shaders/              Engine shaders, copied from Staging
-      Shaders/HelloTriangle/  Project shaders, compiled here directly
-      Content/
-      Saved/                Logs, layout, screenshots, automation endpoints
-    LimeTests.exe           Tools stay at the root
-    ShaderMake.exe
+Projects/HelloTriangle/
+  Source/ Shaders/ Content/ Automation/   Authored, tracked in git
+  ProjectSettings.json
+  Binaries/<Config>/                      Everything this project needs to run
+    HelloTriangle.exe
+    ProjectSettings.json
+    Shaders/                Engine shaders, copied from Staging
+    Shaders/HelloTriangle/  Project shaders, compiled here directly
+    Content/
+    Saved/                  Logs, layout, screenshots, automation endpoints
+  Intermediate/                           Never shipped, safe to delete
+    Build/                  CMakeFiles, object files, per config Ninja fragments
+    Lib/<Config>/           Import libraries and the compiler pdb
+
+Build/<preset>/                           Engine level outputs only
+  Bin/<Config>/             LimeTests.exe, ShaderMake.exe
   Staging/<Config>/Shaders/ Engine shaders, built once and shared
-  Lib/<Config>/             Static libraries
+  Lib/<Config>/             Engine static libraries
 ```
+
+Both `Binaries/` and `Intermediate/` are git ignored, so a project directory can be copied or moved
+without carrying build state along.
 
 The engine resolves `Shaders`, `Content`, `Saved` and `ProjectSettings.json` relative to the
-executable, so the separation is what keeps two projects from interfering: sharing one directory would
-let the later build overwrite the earlier project's settings file, which then sends it looking for
-shaders under the wrong name and its passes fail to initialize.
+executable, so the per project directory is what keeps two projects from interfering: sharing one
+would let the later build overwrite the earlier project's settings file, which then sends it looking
+for shaders under the wrong name and its passes fail to initialize.
 
 Engine shaders are compiled once into `Staging` and copied in, so adding a project does not multiply
 the shader build cost.
@@ -110,6 +119,8 @@ Projects/<Name>/
   Shaders/              HLSL plus a ShaderMake .cfg
   Automation/           Python test scripts, discovered by name
   Content/              Optional assets, copied next to the executable
+  Binaries/             Build output, generated and git ignored
+  Intermediate/         Build state, generated and git ignored
 ```
 
 `CMakeLists.txt` is one line:
@@ -500,7 +511,8 @@ Every entry is compiled twice, once into `DXIL/` and once into `SPIRV/`. ShaderM
 permutation expansion, include dependency tracking and incremental builds.
 
 Engine shaders are compiled once into `Build/<preset>/Staging/<Config>/Shaders` and copied into each
-project's directory as `Shaders/`; a project's own land directly in `Shaders/<ProjectName>/`. The engine
+project's directory as `Binaries/<Config>/Shaders/`; a project's own land directly in
+`Shaders/<ProjectName>/`. The engine
 registers the project root with higher precedence, so a project can override a built-in shader by using
 the same relative path. Project shaders can still `#include "Common.hlsli"` from the engine include
 directory.

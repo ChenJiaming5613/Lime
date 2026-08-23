@@ -39,7 +39,7 @@ try
 		throw "Build failed with exit code $LASTEXITCODE."
 	}
 
-	Write-Host "Build succeeded: Build/$Preset/Bin/$Config/<Project>" -ForegroundColor Green
+	Write-Host "Build succeeded: Projects/<Project>/Binaries/$Config" -ForegroundColor Green
 }
 finally
 {

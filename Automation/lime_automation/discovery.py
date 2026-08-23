@@ -1,8 +1,8 @@
 """Finds engines that are already running.
 
-The engine publishes an endpoint file per process under Saved/Automation, so a script can attach to a
-session someone started by hand instead of launching its own. That is what makes this usable for
-interactive debugging rather than only for batch tests.
+The engine publishes an endpoint file per process under Saved/Automation inside its own project
+directory, so a script can attach to a session someone started by hand instead of launching its own.
+That is what makes this usable for interactive debugging rather than only for batch tests.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .client import LimeClient
 from .errors import EngineNotFoundError
-from .paths import build_output_dir
+from .paths import legacy_build_output_dir, project_output_dir, projects_root
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,28 @@ def _read_endpoint(path: Path) -> EngineEndpoint | None:
     )
 
 
+def _endpoint_directories(config: str, preset: str, root: Path | None) -> list[Path]:
+    """Every Saved/Automation directory an engine could have published into.
+
+    Each project owns Projects/<Name>/Binaries/<Config>/Saved/Automation, so the project directories
+    are the primary source. The old shared build tree is scanned as well, so a tree built before
+    projects owned their outputs still resolves.
+    """
+    directories: list[Path] = []
+
+    projects = projects_root(root=root)
+    if projects.is_dir():
+        for project in (item for item in projects.iterdir() if item.is_dir()):
+            directories.append(project_output_dir(project=project.name, config=config, preset=preset, root=root))
+
+    legacy = legacy_build_output_dir(config=config, preset=preset, root=root)
+    if legacy.is_dir():
+        directories.append(legacy)
+        directories.extend(item for item in legacy.iterdir() if item.is_dir())
+
+    return directories
+
+
 def discover_engines(
     config: str = "Debug",
     preset: str = "ninja",
@@ -64,14 +86,8 @@ def discover_engines(
     With verify=True each candidate is probed, which filters out files left behind by a crash. That
     costs one request per entry but avoids handing back an endpoint nothing is listening on.
     """
-    base = build_output_dir(config=config, preset=preset, root=root)
-    if not base.is_dir():
-        return []
-
-    # Each project owns Bin/<Config>/<Name>/Saved/Automation. The direct child is also checked so a
-    # tree built before projects were given private directories still resolves.
     endpoint_files: list[Path] = []
-    for directory in (base, *(item for item in base.iterdir() if item.is_dir())):
+    for directory in _endpoint_directories(config=config, preset=preset, root=root):
         automation = directory / "Saved" / "Automation"
         if automation.is_dir():
             endpoint_files.extend(automation.glob("*.json"))

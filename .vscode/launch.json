@@ -14,7 +14,7 @@
 	// such values through a method call in the Debug Console instead, for example `p Json.dump()`.
 	//
 	// cwd matters: the engine resolves Shaders, Content, Saved and ProjectSettings.json relative to the
-	// executable, and each project owns Bin/<Config>/<Name>.
+	// executable, and each project owns Projects/<Name>/Binaries/<Config>.
 
 	"version": "0.2.0",
 	"configurations": [
@@ -22,8 +22,8 @@
 			"name": "HelloTriangle (D3D12)",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
-			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"program": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug",
 			"args": [],
 			"preLaunchTask": "Build (Debug)"
 		},
@@ -31,8 +31,8 @@
 			"name": "HelloTriangle (Vulkan)",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
-			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"program": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug",
 			"args": ["--rhi=vulkan"],
 			"preLaunchTask": "Build (Debug)"
 		},
@@ -40,8 +40,8 @@
 			"name": "HelloTriangle (runtime only, no editor)",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
-			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"program": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug",
 			"args": ["--no-editor"],
 			"preLaunchTask": "Build (Debug)"
 		},
@@ -49,8 +49,8 @@
 			"name": "HelloTriangle (automation on a fixed port)",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
-			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"program": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug",
 			"args": ["--automation-port=5613"],
 			"preLaunchTask": "Build (Debug)"
 		},
@@ -78,7 +78,7 @@
 			// For a process started elsewhere, such as by an automation script or Automation.ps1 shell.
 			"type": "lldb",
 			"request": "attach",
-			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe"
+			"program": "${workspaceFolder}/Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe"
 		}
 	],
 	"inputs": [

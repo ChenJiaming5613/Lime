@@ -1,7 +1,11 @@
-"""Locates the repository, build outputs and executables.
+"""Locates the repository, project outputs and executables.
 
 Kept separate from the client so a script can find an executable without starting anything, and so
 the layout assumptions live in exactly one place.
+
+Each project is self contained: its binaries, content and writable state live under
+Projects/<Name>/Binaries/<Config>/, not in the shared build tree. The build tree still holds engine
+level outputs such as LimeTests.exe and the shader staging area.
 """
 
 from __future__ import annotations
@@ -18,6 +22,10 @@ ROOT_MARKERS = ("CMakeLists.txt", "Engine", "Projects", "ThirdParty")
 DEFAULT_PRESET = "ninja"
 DEFAULT_CONFIG = "Debug"
 DEFAULT_PROJECT = "HelloTriangle"
+
+# Names of the per project directories, mirroring CMake/LimeProject.cmake.
+BINARIES_DIRECTORY_NAME = "Binaries"
+PROJECTS_DIRECTORY_NAME = "Projects"
 
 
 def find_repo_root(start: Path | None = None) -> Path:
@@ -43,21 +51,53 @@ def _is_repo_root(directory: Path) -> bool:
     return directory.is_dir() and all((directory / marker).exists() for marker in ROOT_MARKERS)
 
 
-def build_output_dir(
+def projects_root(root: Path | None = None) -> Path:
+    """Directory holding every project's source tree, and now its outputs as well."""
+    root = root or find_repo_root()
+    return root / PROJECTS_DIRECTORY_NAME
+
+
+def project_source_dir(project: str = DEFAULT_PROJECT, root: Path | None = None) -> Path:
+    """A project's authored directory, the one tracked in git."""
+    return projects_root(root=root) / project
+
+
+def project_output_dir(
+    project: str = DEFAULT_PROJECT,
     config: str = DEFAULT_CONFIG,
     preset: str = DEFAULT_PRESET,
     root: Path | None = None,
     build_dir: Path | None = None,
 ) -> Path:
-    """Root of the binary output tree for one preset and configuration.
+    """A project's private output directory, which is also its working directory at run time.
 
-    A caller may pass build_dir to name the CMake binary directory outright, which is what the ctest
-    integration does: deriving it from a preset name would break for any non-default layout.
+    Each project owns one so that Shaders, Content, Saved and ProjectSettings.json cannot collide
+    between projects; the engine resolves all of them relative to the executable.
 
-    Single config generators put binaries directly under Bin, multi config ones under Bin/<Config>.
-    Both layouts are accepted so the caller does not need to know which generator was used.
+    preset and build_dir are accepted but unused for the current layout, because the outputs no
+    longer depend on which build tree produced them. They are kept so callers, including the ctest
+    integration, need not know that and so the legacy fallback below can still use them.
 
-    Each project then lives in its own subdirectory of this one; see project_output_dir.
+    Single config generators put binaries directly under Binaries, multi config ones under
+    Binaries/<Config>. Both are accepted so the caller does not need to know which generator was used.
+    """
+    base = project_source_dir(project=project, root=root) / BINARIES_DIRECTORY_NAME
+    with_config = base / config
+    if with_config.is_dir():
+        return with_config
+    return base
+
+
+def legacy_build_output_dir(
+    config: str = DEFAULT_CONFIG,
+    preset: str = DEFAULT_PRESET,
+    root: Path | None = None,
+    build_dir: Path | None = None,
+) -> Path:
+    """Root of the old shared binary tree, Build/<preset>/Bin/<Config>.
+
+    Only used as a fallback, so a tree built before projects owned their outputs still resolves
+    rather than failing with a confusing "not found".
     """
     if build_dir is None:
         environment_override = os.environ.get("LIME_BUILD_DIR")
@@ -76,21 +116,6 @@ def build_output_dir(
     return base
 
 
-def project_output_dir(
-    project: str = DEFAULT_PROJECT,
-    config: str = DEFAULT_CONFIG,
-    preset: str = DEFAULT_PRESET,
-    root: Path | None = None,
-    build_dir: Path | None = None,
-) -> Path:
-    """A project's private directory, which is also its working directory at run time.
-
-    Each project owns one so that Shaders, Content, Saved and ProjectSettings.json cannot collide
-    between projects; the engine resolves all of them relative to the executable.
-    """
-    return build_output_dir(config=config, preset=preset, root=root, build_dir=build_dir) / project
-
-
 def resolve_executable(
     project: str = DEFAULT_PROJECT,
     config: str = DEFAULT_CONFIG,
@@ -105,11 +130,11 @@ def resolve_executable(
     if executable.exists():
         return executable
 
-    # Falls back to the flat layout so a tree built before projects were given private directories
-    # still resolves, rather than failing with a confusing "not found".
-    legacy = build_output_dir(config=config, preset=preset, root=root, build_dir=build_dir) / f"{project}{suffix}"
-    if legacy.exists():
-        return legacy
+    # Falls back to the old shared build tree, both the per project and the flat layout it used.
+    legacy_base = legacy_build_output_dir(config=config, preset=preset, root=root, build_dir=build_dir)
+    for legacy in (legacy_base / project / f"{project}{suffix}", legacy_base / f"{project}{suffix}"):
+        if legacy.exists():
+            return legacy
 
     raise LaunchError(f"{executable} not found; build it first with ./Scripts/Build.ps1 -Config {config}")
 

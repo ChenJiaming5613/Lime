@@ -42,7 +42,7 @@ git clone --recurse-submodules <仓库地址> LimeEngine
 cd LimeEngine
 ./Scripts/SetupSubmodules.ps1     # 若克隆时没带 --recurse-submodules
 ./Scripts/Build.ps1               # 配置 + 构建 Debug
-./Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe
+./Projects/HelloTriangle/Binaries/Debug/HelloTriangle.exe
 ```
 
 ## 常用命令
