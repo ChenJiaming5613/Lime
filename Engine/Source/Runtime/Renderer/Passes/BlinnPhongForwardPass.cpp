@@ -50,8 +50,16 @@ namespace Lime
 			float DrawPadding[2] = { 0.0f, 0.0f };
 		};
 
-		// A default material for primitives that reference none, so drawing needs no special case.
-		const FMaterialData DefaultMaterial;
+		// Stand-in for a primitive that references no material, so drawing needs no special case.
+		//
+		// A function rather than a namespace scope object: FMaterialData holds a std::string, and a static
+		// with a throwing constructor cannot have that exception caught. The local static is initialized on
+		// first use and costs one guard check.
+		const FMaterialData& GetDefaultMaterial()
+		{
+			static const FMaterialData Default;
+			return Default;
+		}
 	} // namespace
 
 	bool FBlinnPhongForwardPass::Initialize(FRenderer& Renderer)
@@ -266,7 +274,7 @@ namespace Lime
 				const FMaterialData& Material =
 				    Section.MaterialIndex >= 0 && static_cast<SizeType>(Section.MaterialIndex) < Materials.size()
 				        ? Materials[static_cast<SizeType>(Section.MaterialIndex)]
-				        : DefaultMaterial;
+				        : GetDefaultMaterial();
 
 				FDrawConstants DrawConstants;
 				DrawConstants.World = World.Matrix;

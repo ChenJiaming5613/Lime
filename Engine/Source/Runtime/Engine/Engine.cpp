@@ -215,11 +215,15 @@ namespace Lime
 		BuildScene(Scene, Import.Scene);
 
 		// Framed from the world bounds so a model of any size and position is visible without per model
-		// configuration. Viewed from the front and slightly above, which reads better than dead on.
+		// configuration.
+		//
+		// The direction points from the model towards the camera. glTF authors a model facing -Z, so the
+		// camera goes on that side to see its front; slightly above and to one side reads better than dead
+		// on, which flattens the shape.
 		const FBoundingBox Bounds = Scene.ComputeWorldBounds();
 		if (Bounds.bValid)
 		{
-			Camera.FrameSphere(Bounds.GetCenter(), Bounds.GetLongestEdge() * 0.5f, FVector3{ 0.3f, 0.4f, 1.0f });
+			Camera.FrameSphere(Bounds.GetCenter(), Bounds.GetLongestEdge() * 0.5f, FVector3{ -0.35f, 0.35f, -1.0f });
 		}
 
 		// After framing, so the first drag continues from where the camera was placed rather than snapping
