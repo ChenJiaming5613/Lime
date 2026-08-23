@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"appearance": {
+		"fontSize": 20.0,
+		"theme": "light",
+		"accentColor": [
+			1.0,
+			0.0,
+			0.0
+		]
+	}
+}

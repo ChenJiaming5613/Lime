@@ -41,9 +41,6 @@ namespace Lime
 		EValidationMode Validation = EValidationMode::DebugOnly;
 
 		bool bEnableEditor = LIME_WITH_EDITOR != 0;
-		// Writes pass settings to Saved/ on exit and restores them on start. Off by default, because
-		// stale saved values silently override changes made to the defaults in code.
-		bool bPersistPassSettings = false;
 
 		// Local automation server. Enabled by default in debug builds only: it exposes engine state
 		// over a loopback socket, which belongs in development rather than in a shipped build.

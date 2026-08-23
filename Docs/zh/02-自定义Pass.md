@@ -45,13 +45,12 @@ LIME_REFLECT(MyGame::FQuadSettings)
 }
 ```
 
-**这段声明一次，换来三件事**：
+**这段声明一次，换来两件事**：
 
 1. Inspector 面板自动生成控件（滑条、颜色选择器、复选框）
-2. 开启 `editor.persistPassSettings` 后自动存盘
-3. 自动化脚本能按字段名读写（`pass.set`）
+2. 自动化脚本能按字段名读写（`pass.set`）
 
-不需要为这三件事分别写代码 —— 这是反射在这个引擎里的核心价值。
+不需要为这两件事分别写代码 —— 这是反射在这个引擎里的核心价值。
 
 ### FProp 可用的修饰
 
@@ -127,7 +126,7 @@ Quad/Quad.hlsl -T vs -E MainVS
 Quad/Quad.hlsl -T ps -E MainPS
 ```
 
-每一行会被编译两次，分别输出到 `DXIL/` 和 `SPIRV/`。ShaderMake 负责宏排列组合展开、include 依赖跟踪、增量构建。
+每一行会被编译两次，分别输出到 `Shaders/<项目名>/DXIL/` 和 `Shaders/<项目名>/SPIRV/`。ShaderMake 负责宏排列组合展开、include 依赖跟踪、增量构建。
 
 引擎的 `Shaders/Include` 在包含路径上，所以可以 `#include "Common.hlsli"`。
 

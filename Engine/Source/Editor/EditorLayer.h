@@ -6,6 +6,7 @@
 #pragma once
 
 #include "Editor/EditorContext.h"
+#include "Editor/EditorSettings.h"
 #include "Editor/Panels/EditorPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
 
@@ -32,8 +33,9 @@ namespace Lime
 
 		// Creates the ImGui context and installs the GLFW platform backend. The renderer backend is
 		// registered separately as a render pass. Routes the scene into a viewport panel.
-		// Settings are passed so the project settings panel can edit and persist them.
-		bool Initialize(FWindow& Window, FRenderer& Renderer, const FProjectSettings& Settings);
+		// Project settings are passed so the project settings panel can edit and persist them; the
+		// editor's own appearance is loaded here from EditorSettings.json.
+		bool Initialize(FWindow& Window, FRenderer& Renderer, const FProjectSettings& ProjectSettings);
 		void Shutdown();
 
 		void BeginFrame();
@@ -50,6 +52,10 @@ namespace Lime
 		IEditorPanel* FindPanel(const char* Name) const;
 		const std::vector<std::shared_ptr<IEditorPanel>>& GetPanels() const { return Panels; }
 
+		// Appearance this session is running with. Loaded during Initialize and never changed
+		// afterwards, so it always describes what is actually on screen.
+		const FEditorSettings& GetSettings() const { return Settings; }
+
 		// Discards the saved arrangement and rebuilds the default layout on the next frame.
 		void RequestLayoutReset()
 		{
@@ -58,8 +64,8 @@ namespace Lime
 		}
 
 	private:
-		void ApplyDarkTheme();
-		void CreatePanels(const FProjectSettings& Settings);
+		void ApplyTheme();
+		void CreatePanels(const FProjectSettings& ProjectSettings);
 		void DrawDockSpace();
 		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();
@@ -69,6 +75,8 @@ namespace Lime
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
 		std::shared_ptr<FViewportPanel> ViewportPanel;
 		FRenderer* Renderer = nullptr;
+		// Appearance from EditorSettings.json, applied once during Initialize.
+		FEditorSettings Settings;
 		ImTextureID ViewportTextureId = ImTextureID_Invalid;
 		std::string LayoutFilePath;
 		bool bInitialized = false;

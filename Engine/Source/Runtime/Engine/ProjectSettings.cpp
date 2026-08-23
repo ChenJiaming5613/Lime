@@ -131,7 +131,6 @@ namespace Lime
 		bOk &= FJsonUtils::Set(Root, "rhi.backBufferCount", BackBufferCount);
 		bOk &= FJsonUtils::Set(Root, "rhi.validation", Lime::ToString(Validation));
 		bOk &= FJsonUtils::Set(Root, "editor.enabled", bEnableEditor);
-		bOk &= FJsonUtils::Set(Root, "editor.persistPassSettings", bPersistPassSettings);
 		bOk &= FJsonUtils::Set(Root, "automation.enabled", bEnableAutomation);
 		bOk &= FJsonUtils::Set(Root, "automation.port", AutomationPort);
 
@@ -170,8 +169,7 @@ namespace Lime
 		return ProjectName == Other.ProjectName && WindowTitle == Other.WindowTitle && WindowWidth == Other.WindowWidth &&
 		       WindowHeight == Other.WindowHeight && Backend == Other.Backend && BackBufferCount == Other.BackBufferCount &&
 		       bVSync == Other.bVSync && Validation == Other.Validation && bEnableEditor == Other.bEnableEditor &&
-		       bPersistPassSettings == Other.bPersistPassSettings && bEnableAutomation == Other.bEnableAutomation &&
-		       AutomationPort == Other.AutomationPort;
+		       bEnableAutomation == Other.bEnableAutomation && AutomationPort == Other.AutomationPort;
 	}
 
 	std::filesystem::path FProjectSettings::ResolveSettingsPath()
@@ -265,11 +263,10 @@ namespace Lime
 
 		if (const FJson* Editor = FJsonUtils::Find(Root, "editor"))
 		{
-			FJsonUtils::WarnUnknownKeys(*Editor, { "enabled", "persistPassSettings" }, "editor", LogContext);
+			FJsonUtils::WarnUnknownKeys(*Editor, { "enabled" }, "editor", LogContext);
 #if LIME_WITH_EDITOR
 			bEnableEditor = FJsonUtils::ReadOr<bool>(Root, "editor.enabled", bEnableEditor, LogContext);
 #endif
-			bPersistPassSettings = FJsonUtils::ReadOr<bool>(Root, "editor.persistPassSettings", bPersistPassSettings, LogContext);
 		}
 
 		if (const FJson* Automation = FJsonUtils::Find(Root, "automation"))
@@ -314,7 +311,6 @@ namespace Lime
 
 		FJson& Editor = Root["editor"] = FJson::object();
 		Editor["enabled"] = bEnableEditor;
-		Editor["persistPassSettings"] = bPersistPassSettings;
 
 		FJson& Automation = Root["automation"] = FJson::object();
 		Automation["enabled"] = bEnableAutomation;
@@ -395,7 +391,6 @@ namespace Lime
 		    !ReadUInt("window.height", 1, MaxWindowDimension, Candidate.WindowHeight) ||
 		    !ReadUInt("rhi.backBufferCount", 2, 8, Candidate.BackBufferCount) || !ReadBool("rhi.vsync", Candidate.bVSync) ||
 		    !ReadBool("editor.enabled", Candidate.bEnableEditor) ||
-		    !ReadBool("editor.persistPassSettings", Candidate.bPersistPassSettings) ||
 		    !ReadBool("automation.enabled", Candidate.bEnableAutomation) ||
 		    !ReadUInt("automation.port", 0, 65535, Candidate.AutomationPort))
 		{

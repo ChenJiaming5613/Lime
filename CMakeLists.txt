@@ -66,7 +66,12 @@ set(LIME_ENGINE_INCLUDE_DIRS
 # Engine shaders and content are built once into a shared staging area, then copied into each
 # project's own directory at build time. Compiling them per project would multiply the build cost for
 # identical output.
-set(LIME_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Staging/$<CONFIG>/Shaders")
+#
+# The shaders land under an Engine subdirectory so the deployed tree reads the same way for every
+# owner: Shaders/Engine/<platform> beside Shaders/<ProjectName>/<platform>. Without it the engine's
+# DXIL and SPIRV directories sit at the Shaders root, where they look like a third project and
+# collide with the name of any project actually called Engine.
+set(LIME_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Staging/$<CONFIG>/Shaders/Engine")
 set(LIME_CONTENT_OUTPUT_DIR "${CMAKE_BINARY_DIR}/Staging/$<CONFIG>/Content")
 
 list(APPEND CMAKE_MODULE_PATH "${LIME_ROOT_DIR}/CMake")

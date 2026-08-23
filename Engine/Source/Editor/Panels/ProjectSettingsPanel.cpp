@@ -100,8 +100,6 @@ namespace Lime
 			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "The editor will not load next launch.");
 			ImGui::TextDisabled("Re-enable it in the file, or run without --no-editor after editing.");
 		}
-
-		ImGui::Checkbox("Persist pass settings", &Edited.bPersistPassSettings);
 	}
 
 	void FProjectSettingsPanel::DrawToolbar()

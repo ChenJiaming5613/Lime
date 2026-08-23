@@ -14,8 +14,12 @@ namespace Lime
 	public:
 		static const std::filesystem::path& GetExecutableDirectory();
 
-		// <exe>/Shaders, falling back to Engine/Shaders in the source tree.
+		// <exe>/Shaders, falling back to Engine/Shaders in the source tree. This is the root that
+		// holds one subdirectory per shader owner, not the built-in shaders themselves.
 		static const std::filesystem::path& GetShaderDirectory();
+		// <exe>/Shaders/Engine, the built-in shaders. A sibling of the per project directories rather
+		// than their parent, so both are resolved the same way.
+		static const std::filesystem::path& GetEngineShaderDirectory();
 		// <exe>/Content, falling back to Engine/Content in the source tree.
 		static const std::filesystem::path& GetContentDirectory();
 		// Writable location for logs, layout and saved settings.

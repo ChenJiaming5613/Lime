@@ -57,6 +57,14 @@ namespace Lime
 		return Directory;
 	}
 
+	const std::filesystem::path& FPlatformPaths::GetEngineShaderDirectory()
+	{
+		// Derived rather than resolved separately, so the built-in shaders always come from the same
+		// tree as the project ones and cannot be picked up from a stale deployment.
+		static const std::filesystem::path Directory = GetShaderDirectory() / "Engine";
+		return Directory;
+	}
+
 	const std::filesystem::path& FPlatformPaths::GetContentDirectory()
 	{
 		static const std::filesystem::path Directory = ResolveEngineDirectory("Content");

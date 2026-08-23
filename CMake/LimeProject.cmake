@@ -29,6 +29,7 @@ function(lime_add_project)
 
 	set(ProjectDir "${CMAKE_CURRENT_SOURCE_DIR}")
 	set(SettingsFile "${ProjectDir}/ProjectSettings.json")
+	set(EditorSettingsFile "${ProjectDir}/EditorSettings.json")
 
 	if(NOT LIME_PROJ_NAME)
 		if(NOT EXISTS "${SettingsFile}")
@@ -111,10 +112,12 @@ function(lime_add_project)
 	add_dependencies(${LIME_PROJ_NAME} LimeShaders)
 
 	# Engine shaders and content are built once into a shared staging area and copied in here, so the
-	# cost of compiling them is paid once no matter how many projects exist.
+	# cost of compiling them is paid once no matter how many projects exist. The destination repeats
+	# the Engine leaf because the staging path already ends in it, and copy_directory copies the
+	# contents rather than the directory itself.
 	add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
-			"${LIME_SHADER_OUTPUT_DIR}" "${ProjectOutputDir}/Shaders"
+			"${LIME_SHADER_OUTPUT_DIR}" "${ProjectOutputDir}/Shaders/Engine"
 		COMMENT "Copying engine shaders"
 		VERBATIM
 	)
@@ -132,6 +135,17 @@ function(lime_add_project)
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
 				"${SettingsFile}" "${ProjectOutputDir}/ProjectSettings.json"
 			COMMENT "Copying ProjectSettings.json"
+			VERBATIM
+		)
+	endif()
+
+	# Editor appearance. Optional: the engine falls back to built-in defaults, so a project only
+	# ships this file when it wants something else.
+	if(EXISTS "${EditorSettingsFile}")
+		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				"${EditorSettingsFile}" "${ProjectOutputDir}/EditorSettings.json"
+			COMMENT "Copying EditorSettings.json"
 			VERBATIM
 		)
 	endif()

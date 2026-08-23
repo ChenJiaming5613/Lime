@@ -62,12 +62,23 @@ def test_project_settings_copy_matches_the_project(config: str, preset: str, pro
 
 
 def test_project_shaders_are_under_the_project_directory(config: str, preset: str, project: str) -> None:
-    """Engine shaders are copied in and the project's own compiled in; both must be present."""
+    """Engine shaders are copied in and the project's own compiled in; both must be present.
+
+    Each owner gets its own subdirectory of Shaders, so the engine set is a sibling of the project
+    set rather than sitting at the root. That symmetry is what lets the engine resolve both through
+    the same search root mechanism, so it is worth asserting rather than assuming.
+    """
     executable = resolve_executable(project=project, config=config, preset=preset)
     shaders = executable.parent / "Shaders"
 
+    engine_shaders = shaders / "Engine"
+    assert engine_shaders.is_dir(), f"no engine shaders in {shaders}"
     # At least one backend directory from the engine set.
-    assert any((shaders / platform).is_dir() for platform in ("DXIL", "SPIRV")), f"no engine shaders in {shaders}"
+    assert any((engine_shaders / platform).is_dir() for platform in ("DXIL", "SPIRV")), f"no backend output in {engine_shaders}"
+
+    # The platform directories belong to an owner, never to the Shaders root itself.
+    assert not (shaders / "DXIL").exists(), f"{shaders} still has backend output at its root"
+    assert not (shaders / "SPIRV").exists(), f"{shaders} still has backend output at its root"
 
     project_shaders = shaders / project
     if project_shaders.is_dir():

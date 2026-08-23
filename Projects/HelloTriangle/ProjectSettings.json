@@ -13,8 +13,7 @@
 		"validation": "debugOnly"
 	},
 	"editor": {
-		"enabled": true,
-		"persistPassSettings": false
+		"enabled": true
 	},
 	"automation": {
 		"enabled": true,

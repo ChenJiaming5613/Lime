@@ -24,7 +24,8 @@ namespace Lime
 		LIME_NON_COPYABLE(FShaderLibrary);
 		LIME_NON_MOVABLE(FShaderLibrary);
 
-		// EngineRootDirectory holds the DXIL/ and SPIRV/ subdirectories of the built-in shaders.
+		// EngineRootDirectory holds the DXIL/ and SPIRV/ subdirectories of the built-in shaders, which
+		// is Shaders/Engine rather than Shaders itself: the engine set is one owner among several.
 		bool Initialize(nvrhi::IDevice* InDevice, ERHIBackend InBackend, std::filesystem::path EngineRootDirectory);
 		void Shutdown();
 

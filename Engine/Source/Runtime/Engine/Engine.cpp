@@ -73,7 +73,8 @@ namespace Lime
 		}
 
 		// Project shaders live in a subdirectory named after the project and take precedence, so a
-		// project can override a built-in shader by shipping one with the same relative path.
+		// project can override a built-in shader by shipping one with the same relative path. It is a
+		// sibling of Shaders/Engine, which the renderer already registered.
 		Renderer.GetShaderLibrary().AddSearchRoot(FPlatformPaths::GetShaderDirectory() / Settings.ProjectName);
 
 #if LIME_WITH_EDITOR

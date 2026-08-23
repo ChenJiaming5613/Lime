@@ -81,7 +81,8 @@ Projects/HelloTriangle/
   Binaries/<Config>/                      Everything this project needs to run
     HelloTriangle.exe
     ProjectSettings.json
-    Shaders/                Engine shaders, copied from Staging
+    EditorSettings.json
+    Shaders/Engine/         Engine shaders, copied from Staging
     Shaders/HelloTriangle/  Project shaders, compiled here directly
     Content/
     Saved/                  Logs, layout, screenshots, automation endpoints
@@ -91,7 +92,7 @@ Projects/HelloTriangle/
 
 Build/<preset>/                           Engine level outputs only
   Bin/<Config>/             LimeTests.exe, ShaderMake.exe
-  Staging/<Config>/Shaders/ Engine shaders, built once and shared
+  Staging/<Config>/Shaders/Engine/  Engine shaders, built once and shared
   Lib/<Config>/             Engine static libraries
 ```
 
@@ -115,6 +116,7 @@ never lists files in CMake and never calls into the engine to register anything.
 Projects/<Name>/
   CMakeLists.txt        One call to lime_add_project()
   ProjectSettings.json  Name, window, RHI and automation configuration
+  EditorSettings.json   Editor appearance. Optional, defaults apply when absent
   Source/               Render passes and editor panels, globbed by CMake
   Shaders/              HLSL plus a ShaderMake .cfg
   Automation/           Python test scripts, discovered by name
@@ -137,7 +139,7 @@ lime_add_project()
   "name": "HelloTriangle",
   "window": { "title": "LimeEngine - HelloTriangle", "width": 1600, "height": 900 },
   "rhi": { "backend": "d3d12", "vsync": true, "backBufferCount": 3, "validation": "debugOnly" },
-  "editor": { "enabled": true, "persistPassSettings": false },
+  "editor": { "enabled": true },
   "automation": { "enabled": true, "port": 5613 }
 }
 ```
@@ -158,6 +160,31 @@ actually using rather than a value that was requested but could not take effect.
 
 `name` is intentionally not editable, because CMake derives the target and the shader output directory
 from it.
+
+`EditorSettings.json` sits beside it and is optional, since the built-in defaults are a complete
+configuration:
+
+```json
+{
+  "version": 1,
+  "appearance": {
+    "fontSize": 16,
+    "theme": "dark",
+    "accentColor": [0.56, 0.83, 0.35]
+  }
+}
+```
+
+`fontSize` is clamped to 8..48, `theme` is `dark`, `light` or `classic`, and `accentColor` tints check
+marks, slider grabs and the selected tab. It is a separate file because nothing outside the editor
+reads it: a build with `LIME_BUILD_EDITOR` off would otherwise carry configuration it can never apply.
+For the same reason `FEditorSettings` lives in `Engine/Source/Editor` rather than beside
+`FProjectSettings`.
+
+`Window > Editor Settings` edits it and follows the same restart rule. The font size has to: it is
+baked into the atlas at startup, which is also why the size is applied through `FontSizeBase` rather
+than by scaling an atlas built at another size. Holding the colours to the same rule keeps what is on
+screen consistent with the file it was loaded from.
 
 ### A render pass
 
@@ -510,12 +537,21 @@ Blur/Blur.hlsl         -T cs -E MainCS -D RADIUS={1,2,4}
 Every entry is compiled twice, once into `DXIL/` and once into `SPIRV/`. ShaderMake handles
 permutation expansion, include dependency tracking and incremental builds.
 
-Engine shaders are compiled once into `Build/<preset>/Staging/<Config>/Shaders` and copied into each
-project's directory as `Binaries/<Config>/Shaders/`; a project's own land directly in
-`Shaders/<ProjectName>/`. The engine
-registers the project root with higher precedence, so a project can override a built-in shader by using
-the same relative path. Project shaders can still `#include "Common.hlsli"` from the engine include
-directory.
+`Shaders/` holds one subdirectory per owner, and each of those holds the backend directories:
+
+```
+Shaders/Engine/DXIL/ImGui/ImGui_MainVS.dxil
+Shaders/Engine/SPIRV/ImGui/ImGui_MainVS.spirv
+Shaders/HelloTriangle/DXIL/Triangle/Triangle_MainVS.dxil
+```
+
+Engine shaders are compiled once into `Build/<preset>/Staging/<Config>/Shaders/Engine` and copied into
+each project's directory; a project's own are compiled straight into `Shaders/<ProjectName>/`. Giving
+the engine set its own subdirectory rather than the `Shaders` root keeps both owners symmetrical, so
+they resolve through the same search root mechanism and a project named `Engine` cannot collide with
+the built-in shaders. The engine registers the project root with higher precedence, so a project can
+override a built-in shader by using the same relative path. Project shaders can still
+`#include "Common.hlsli"` from the engine include directory.
 
 Output names follow `<relative path>[_<Entry> when the entry is not "main"]`. A shader that declares
 defines is packed into a blob and looked up at runtime through `ShaderMake::FindPermutationInBlob`;

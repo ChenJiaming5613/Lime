@@ -102,10 +102,6 @@ TEST_CASE("Equality covers every persisted field", "[Engine][ProjectSettings]")
 	REQUIRE(Other != Base);
 
 	Other = Base;
-	Other.bPersistPassSettings = !Base.bPersistPassSettings;
-	REQUIRE(Other != Base);
-
-	Other = Base;
 	Other.bEnableAutomation = !Base.bEnableAutomation;
 	REQUIRE(Other != Base);
 
@@ -129,7 +125,6 @@ TEST_CASE("Settings survive a JSON round trip", "[Engine][ProjectSettings]")
 	Source.BackBufferCount = 2;
 	Source.bVSync = false;
 	Source.Validation = EValidationMode::On;
-	Source.bPersistPassSettings = true;
 	Source.bEnableAutomation = true;
 	Source.AutomationPort = 9001;
 
@@ -144,7 +139,6 @@ TEST_CASE("Settings survive a JSON round trip", "[Engine][ProjectSettings]")
 	REQUIRE(Target.BackBufferCount == Source.BackBufferCount);
 	REQUIRE(Target.bVSync == Source.bVSync);
 	REQUIRE(Target.Validation == Source.Validation);
-	REQUIRE(Target.bPersistPassSettings == Source.bPersistPassSettings);
 	REQUIRE(Target.bEnableAutomation == Source.bEnableAutomation);
 	REQUIRE(Target.AutomationPort == Source.AutomationPort);
 }

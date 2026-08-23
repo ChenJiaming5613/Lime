@@ -9,11 +9,15 @@ lime_add_module(
 		EditorLayer.cpp
 		EditorPanelRegistry.h
 		EditorPanelRegistry.cpp
+		EditorSettings.h
+		EditorSettings.cpp
 		PropertyDrawer.h
 		PropertyDrawer.cpp
 		Panels/ConsolePanel.h
 		Panels/ConsolePanel.cpp
 		Panels/EditorPanel.h
+		Panels/EditorSettingsPanel.h
+		Panels/EditorSettingsPanel.cpp
 		Panels/InspectorPanel.h
 		Panels/InspectorPanel.cpp
 		Panels/ProjectSettingsPanel.h

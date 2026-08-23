@@ -23,7 +23,7 @@ namespace Lime
 			return false;
 		}
 
-		if (!ShaderLibrary.Initialize(Device, InDeviceManager.GetBackend(), FPlatformPaths::GetShaderDirectory()))
+		if (!ShaderLibrary.Initialize(Device, InDeviceManager.GetBackend(), FPlatformPaths::GetEngineShaderDirectory()))
 		{
 			return false;
 		}

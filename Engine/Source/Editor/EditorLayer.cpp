@@ -3,6 +3,7 @@
 #include "Core/Logging/LogManager.h"
 #include "Editor/EditorPanelRegistry.h"
 #include "Editor/Panels/ConsolePanel.h"
+#include "Editor/Panels/EditorSettingsPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/StatsPanel.h"
@@ -26,7 +27,7 @@ namespace Lime
 		Shutdown();
 	}
 
-	bool FEditorLayer::Initialize(FWindow& Window, FRenderer& InRenderer, const FProjectSettings& Settings)
+	bool FEditorLayer::Initialize(FWindow& Window, FRenderer& InRenderer, const FProjectSettings& ProjectSettings)
 	{
 		if (bInitialized)
 		{
@@ -34,6 +35,11 @@ namespace Lime
 		}
 
 		Renderer = &InRenderer;
+
+		// Before the context exists nothing can consume it, and after this point it is never reloaded:
+		// the appearance on screen therefore always matches what the session started with.
+		Settings.LoadFromFile(FEditorSettings::ResolveSettingsPath());
+		Settings.LogSummary();
 
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
@@ -48,7 +54,7 @@ namespace Lime
 		LayoutFilePath = FPlatformPaths::ToUtf8(LayoutPath);
 		IO.IniFilename = LayoutFilePath.c_str();
 
-		ApplyDarkTheme();
+		ApplyTheme();
 
 		// Only the platform backend comes from ImGui; drawing goes through the NVRHI render pass so
 		// D3D12 and Vulkan share one implementation.
@@ -59,7 +65,7 @@ namespace Lime
 			return false;
 		}
 
-		CreatePanels(Settings);
+		CreatePanels(ProjectSettings);
 
 		// Registered rather than added directly so it is ordered by priority together with the
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
@@ -125,7 +131,7 @@ namespace Lime
 		Renderer->GetViewportTarget().RequestResize(ViewportPanel->GetDesiredWidth(), ViewportPanel->GetDesiredHeight());
 	}
 
-	void FEditorLayer::CreatePanels(const FProjectSettings& Settings)
+	void FEditorLayer::CreatePanels(const FProjectSettings& ProjectSettings)
 	{
 		// Built-in panels first, then whatever the project registered.
 		ViewportPanel = std::make_shared<FViewportPanel>();
@@ -135,8 +141,14 @@ namespace Lime
 		Panels.push_back(std::make_shared<FInspectorPanel>());
 
 		auto SettingsPanel = std::make_shared<FProjectSettingsPanel>();
-		SettingsPanel->Initialize(Settings);
+		SettingsPanel->Initialize(ProjectSettings);
 		Panels.push_back(std::move(SettingsPanel));
+
+		// Seeded with the appearance in use, so the panel opens showing what is on screen rather than
+		// the code defaults.
+		auto AppearancePanel = std::make_shared<FEditorSettingsPanel>();
+		AppearancePanel->Initialize(Settings);
+		Panels.push_back(std::move(AppearancePanel));
 
 		for (std::shared_ptr<IEditorPanel>& Panel : FEditorPanelRegistry::Get().InstantiateAll())
 		{
@@ -204,9 +216,22 @@ namespace Lime
 		bLayoutBuilt = false;
 	}
 
-	void FEditorLayer::ApplyDarkTheme()
+	void FEditorLayer::ApplyTheme()
 	{
-		ImGui::StyleColorsDark();
+		// The palette comes first, then the shared geometry, then the accent. Order matters: the
+		// StyleColors* helpers overwrite every colour, so anything applied before them is lost.
+		switch (Settings.Theme)
+		{
+			case EEditorTheme::Light:
+				ImGui::StyleColorsLight();
+				break;
+			case EEditorTheme::Classic:
+				ImGui::StyleColorsClassic();
+				break;
+			case EEditorTheme::Dark:
+				ImGui::StyleColorsDark();
+				break;
+		}
 
 		ImGuiStyle& Style = ImGui::GetStyle();
 		Style.WindowRounding = 4.0f;
@@ -220,24 +245,39 @@ namespace Lime
 		Style.FramePadding = ImVec2(6.0f, 3.0f);
 		Style.ItemSpacing = ImVec2(8.0f, 5.0f);
 
+		// FontSizeBase rather than FontScaleMain: scaling multiplies the atlas glyphs and blurs them,
+		// while the base size is what the font is actually rasterized at.
+		Style.FontSizeBase = Settings.FontSize;
+
+		// The dark palette is the one the editor was designed against, so it keeps its hand tuned
+		// greys. Light and classic are left as ImGui ships them, since overriding a few colours of a
+		// palette that was not tuned here would only produce an inconsistent mix.
 		ImVec4* Colors = Style.Colors;
-		Colors[ImGuiCol_WindowBg] = ImVec4(0.11f, 0.12f, 0.14f, 1.00f);
-		Colors[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
-		Colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.09f, 0.11f, 1.00f);
-		Colors[ImGuiCol_TitleBgActive] = ImVec4(0.14f, 0.16f, 0.20f, 1.00f);
-		Colors[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
-		Colors[ImGuiCol_Header] = ImVec4(0.18f, 0.21f, 0.26f, 1.00f);
-		Colors[ImGuiCol_HeaderHovered] = ImVec4(0.24f, 0.29f, 0.36f, 1.00f);
-		Colors[ImGuiCol_HeaderActive] = ImVec4(0.28f, 0.34f, 0.42f, 1.00f);
-		Colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.18f, 0.22f, 1.00f);
-		Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.25f, 0.31f, 1.00f);
-		Colors[ImGuiCol_Button] = ImVec4(0.20f, 0.23f, 0.29f, 1.00f);
-		Colors[ImGuiCol_ButtonHovered] = ImVec4(0.27f, 0.32f, 0.40f, 1.00f);
-		Colors[ImGuiCol_Tab] = ImVec4(0.13f, 0.15f, 0.18f, 1.00f);
-		Colors[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.31f, 0.39f, 1.00f);
-		Colors[ImGuiCol_TabSelected] = ImVec4(0.20f, 0.24f, 0.30f, 1.00f);
-		Colors[ImGuiCol_CheckMark] = ImVec4(0.56f, 0.83f, 0.35f, 1.00f);
-		Colors[ImGuiCol_SliderGrab] = ImVec4(0.56f, 0.83f, 0.35f, 1.00f);
+		if (Settings.Theme == EEditorTheme::Dark)
+		{
+			Colors[ImGuiCol_WindowBg] = ImVec4(0.11f, 0.12f, 0.14f, 1.00f);
+			Colors[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.10f, 0.12f, 1.00f);
+			Colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.09f, 0.11f, 1.00f);
+			Colors[ImGuiCol_TitleBgActive] = ImVec4(0.14f, 0.16f, 0.20f, 1.00f);
+			Colors[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
+			Colors[ImGuiCol_Header] = ImVec4(0.18f, 0.21f, 0.26f, 1.00f);
+			Colors[ImGuiCol_HeaderHovered] = ImVec4(0.24f, 0.29f, 0.36f, 1.00f);
+			Colors[ImGuiCol_HeaderActive] = ImVec4(0.28f, 0.34f, 0.42f, 1.00f);
+			Colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.18f, 0.22f, 1.00f);
+			Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.25f, 0.31f, 1.00f);
+			Colors[ImGuiCol_Button] = ImVec4(0.20f, 0.23f, 0.29f, 1.00f);
+			Colors[ImGuiCol_ButtonHovered] = ImVec4(0.27f, 0.32f, 0.40f, 1.00f);
+			Colors[ImGuiCol_Tab] = ImVec4(0.13f, 0.15f, 0.18f, 1.00f);
+			Colors[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.31f, 0.39f, 1.00f);
+			Colors[ImGuiCol_TabSelected] = ImVec4(0.20f, 0.24f, 0.30f, 1.00f);
+		}
+
+		// Applied to every theme, so the accent is what a project actually controls.
+		const ImVec4 Accent(Settings.AccentColor.X, Settings.AccentColor.Y, Settings.AccentColor.Z, 1.00f);
+		Colors[ImGuiCol_CheckMark] = Accent;
+		Colors[ImGuiCol_SliderGrab] = Accent;
+		Colors[ImGuiCol_SliderGrabActive] = Accent;
+		Colors[ImGuiCol_TabSelectedOverline] = Accent;
 	}
 
 	void FEditorLayer::BeginFrame()

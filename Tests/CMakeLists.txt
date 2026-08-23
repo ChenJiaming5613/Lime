@@ -18,6 +18,12 @@ endif()
 if(TARGET LimeRuntime)
 	list(APPEND TestDeps LimeRuntime)
 endif()
+# Editor settings are value logic too, but the target only exists when the editor is built.
+if(TARGET LimeEditor)
+	list(APPEND TestDeps LimeEditor)
+else()
+	list(REMOVE_ITEM TestSources "${CMAKE_CURRENT_SOURCE_DIR}/Editor/EditorSettingsTests.cpp")
+endif()
 # The reflection bridge and script discovery are pure value logic, so they are tested without
 # starting a server.
 if(TARGET LimeAutomation)
