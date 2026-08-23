@@ -20,6 +20,15 @@ namespace Lime
 		bool bCentered = true;
 	};
 
+	enum class ECursorMode
+	{
+		// Visible and free to leave the window.
+		Normal,
+		// Hidden and locked to the window, which is what a fly camera needs: the cursor stops at the
+		// screen edge otherwise, and mouse movement would stop being reported once it got there.
+		Captured
+	};
+
 	class FWindow
 	{
 	public:
@@ -50,6 +59,11 @@ namespace Lime
 		void SetTitle(const std::string& Title);
 		void SetResizeCallback(FResizeCallback Callback) { OnResize = std::move(Callback); }
 
+		// Hides and locks the cursor, or gives it back. Idempotent, so a controller can call it every
+		// frame with the mode it wants rather than tracking transitions itself.
+		void SetCursorMode(ECursorMode Mode);
+		ECursorMode GetCursorMode() const { return CursorMode; }
+
 		// Initializes GLFW once per process; safe to call repeatedly.
 		static bool InitializeSubsystem();
 		static void ShutdownSubsystem();
@@ -62,6 +76,7 @@ namespace Lime
 		GLFWwindow* Handle = nullptr;
 		uint32 Width = 0;
 		uint32 Height = 0;
+		ECursorMode CursorMode = ECursorMode::Normal;
 		FResizeCallback OnResize;
 	};
 } // namespace Lime

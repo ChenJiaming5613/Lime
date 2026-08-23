@@ -9,6 +9,8 @@ lime_compile_shaders(
 
 add_subdirectory(Source/Runtime/Core)
 add_subdirectory(Source/Runtime/Platform)
+# Cameras need input from Platform but nothing graphics related, so they come before the RHI.
+add_subdirectory(Source/Runtime/Camera)
 add_subdirectory(Source/Runtime/RHI)
 add_subdirectory(Source/Runtime/Renderer)
 # Asset import needs only Core, so it can be built before anything graphics related.

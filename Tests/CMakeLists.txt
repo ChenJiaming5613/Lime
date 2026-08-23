@@ -6,7 +6,10 @@ if(NOT TestSources)
 	return()
 endif()
 
-set(TestDeps LimeCompilerOptions LimeCore)
+# LimePlatform and LimeCamera are always built, so they need no guard. Only value logic is exercised
+# here: the camera produces matrices and the fly controller is a pure function, both testable without a
+# window or a device.
+set(TestDeps LimeCompilerOptions LimeCore LimePlatform LimeCamera)
 if(TARGET LimeRHI)
 	list(APPEND TestDeps LimeRHI)
 endif()

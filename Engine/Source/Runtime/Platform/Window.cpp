@@ -117,6 +117,10 @@ namespace Lime
 
 		glfwSetWindowUserPointer(Handle, this);
 		glfwSetFramebufferSizeCallback(Handle, &FWindow::FramebufferSizeCallback);
+		// Installed here, which must stay earlier than the editor's ImGui initialization. ImGui's GLFW
+		// backend chains: it saves whatever callbacks already exist and forwards to them after handling an
+		// event. Attaching after ImGui would instead overwrite its callbacks, and the UI would stop
+		// receiving keyboard and mouse input.
 		FInput::Get().AttachToWindow(Handle);
 
 		glfwShowWindow(Handle);
@@ -138,6 +142,24 @@ namespace Lime
 		Width = 0;
 		Height = 0;
 		ShutdownSubsystem();
+	}
+
+	void FWindow::SetCursorMode(ECursorMode Mode)
+	{
+		if (Handle == nullptr || CursorMode == Mode)
+		{
+			return;
+		}
+
+		CursorMode = Mode;
+		glfwSetInputMode(Handle, GLFW_CURSOR, Mode == ECursorMode::Captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+
+		// Capturing warps the cursor, which GLFW reports as one large jump. Reseeding the cached position
+		// makes that frame's delta zero, so the view does not snap when a fly camera starts or stops.
+		double CursorX = 0.0;
+		double CursorY = 0.0;
+		glfwGetCursorPos(Handle, &CursorX, &CursorY);
+		FInput::Get().ResetMousePosition({ static_cast<float>(CursorX), static_cast<float>(CursorY) });
 	}
 
 	void FWindow::PollEvents()

@@ -68,6 +68,12 @@ namespace Lime
 		FVector2 GetMouseDelta() const { return MousePosition - PreviousMousePosition; }
 		float GetScrollDelta() const { return ScrollDelta; }
 
+		// Sets both the current and previous position, making this frame's delta zero.
+		//
+		// Needed when the cursor is warped, which happens on entering or leaving capture: GLFW reports the
+		// jump as ordinary movement, and a fly camera would spin wildly for one frame without this.
+		void ResetMousePosition(const FVector2& Position);
+
 	private:
 		FInput() = default;
 

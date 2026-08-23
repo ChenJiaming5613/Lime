@@ -69,6 +69,12 @@ namespace Lime
 		ScrollDelta = 0.0f;
 	}
 
+	void FInput::ResetMousePosition(const FVector2& Position)
+	{
+		MousePosition = Position;
+		PreviousMousePosition = Position;
+	}
+
 	bool FInput::IsKeyDown(EKey Key) const
 	{
 		const int32 Index = static_cast<int32>(Key);
