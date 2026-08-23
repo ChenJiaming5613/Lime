@@ -31,6 +31,7 @@ lime_add_module(
 		Commands/RenderPassCommands.cpp
 		Commands/ScriptCommands.cpp
 		Commands/SettingsCommands.cpp
+		Commands/UITestCommands.cpp
 	PUBLIC_DEPS ${AutomationDeps}
 	# httplib is private: it appears only in the server's translation unit, so its <windows.h> include
 	# does not leak into anything that links this module.

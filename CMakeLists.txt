@@ -28,11 +28,28 @@ option(LIME_BUILD_TESTS "Build unit tests" ON)
 # Debug only by default: the automation server exposes full engine state over a local socket, which
 # is a development facility rather than something to ship.
 option(LIME_BUILD_AUTOMATION "Build the automation server used by external test scripts" ON)
+# Drives editor widgets by injecting input events, so a test clicks and drags the way a user would.
+# NOTE: ThirdParty/ImGuiTestEngine/imgui_test_engine is not MIT licensed. See its LICENSE.txt.
+option(LIME_BUILD_IMGUI_TEST_ENGINE "Build the Dear ImGui test engine used for UI automation" ON)
 option(LIME_ENABLE_RHI_D3D12 "Enable the Direct3D 12 backend" ON)
 option(LIME_ENABLE_RHI_VULKAN "Enable the Vulkan backend" ON)
 
 if(NOT LIME_ENABLE_RHI_D3D12 AND NOT LIME_ENABLE_RHI_VULKAN)
 	message(FATAL_ERROR "At least one RHI backend must be enabled.")
+endif()
+
+# The test engine drives editor widgets through an ImGui context that only the editor creates, so
+# without the editor there is nothing for it to attach to.
+if(LIME_BUILD_IMGUI_TEST_ENGINE AND NOT LIME_BUILD_EDITOR)
+	message(STATUS "LIME_BUILD_EDITOR is off, so the ImGui test engine is disabled with it")
+	set(LIME_BUILD_IMGUI_TEST_ENGINE OFF)
+endif()
+
+# The submodule is optional in a fresh clone, so a missing checkout should explain itself rather than
+# failing later with a confusing missing source file.
+if(LIME_BUILD_IMGUI_TEST_ENGINE AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/ImGuiTestEngine/imgui_test_engine/imgui_te_engine.cpp")
+	message(STATUS "ThirdParty/ImGuiTestEngine is not checked out; run 'git submodule update --init'. Disabling the ImGui test engine.")
+	set(LIME_BUILD_IMGUI_TEST_ENGINE OFF)
 endif()
 
 # Single source of truth for HLSL register shifts on Vulkan.
@@ -96,4 +113,4 @@ if(LIME_BUILD_TESTS)
 	add_subdirectory(Automation)
 endif()
 
-message(STATUS "LimeEngine ${PROJECT_VERSION} | Editor: ${LIME_BUILD_EDITOR} | Tests: ${LIME_BUILD_TESTS} | Automation: ${LIME_BUILD_AUTOMATION} | D3D12: ${LIME_ENABLE_RHI_D3D12} | Vulkan: ${LIME_ENABLE_RHI_VULKAN}")
+message(STATUS "LimeEngine ${PROJECT_VERSION} | Editor: ${LIME_BUILD_EDITOR} | Tests: ${LIME_BUILD_TESTS} | Automation: ${LIME_BUILD_AUTOMATION} | UI tests: ${LIME_BUILD_IMGUI_TEST_ENGINE} | D3D12: ${LIME_ENABLE_RHI_D3D12} | Vulkan: ${LIME_ENABLE_RHI_VULKAN}")

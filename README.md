@@ -407,6 +407,63 @@ discard the results around it.
 | `settings.get`, `settings.set`, `settings.save` | Read the running configuration, edit the pending file, write it back |
 | `screenshot.capture` | Writes a PNG on the engine's own machine |
 | `script.list` | Automation scripts the running project ships |
+| `uitest.list`, `uitest.run`, `uitest.status`, `uitest.abort` | Drive UI tests that click and drag real widgets |
+
+### UI automation
+
+`panel.show` flips a visibility flag. A UI test clicks the actual menu item and drags the actual
+slider, which is what catches a menu entry wired to the wrong panel or a widget whose value never
+reaches the code behind it. This is [Dear ImGui Test
+Engine](https://github.com/ocornut/imgui_test_engine), which locates widgets by path and injects real
+input events, so a test never hardcodes screen coordinates.
+
+```python
+status = engine.run_ui_tests()                       # every registered test
+status = engine.run_ui_tests(filter="HelloTriangle") # or a subset
+assert not engine.failed_ui_tests(status)
+```
+
+A run spans many frames, so `uitest.run` only queues the work and returns; the client polls
+`uitest.status`. Waiting inside the engine would stop the very frame loop the tests need in order to
+advance, which is a deadlock rather than a slow reply. `run_ui_tests` wraps the polling and takes its
+own timeout, separate from the per command one.
+
+A project registers tests from its own sources, with no engine change:
+
+```cpp
+namespace MyGame::UITests
+{
+    void TestDragSpeed(ImGuiTestContext* Ctx)
+    {
+        Ctx->SetRef("//LimeEditorDockHost");
+        Ctx->MenuCheck("Window/Inspector");
+        // Panels sharing a dock slot are tabs of one node, and only the selected tab can be
+        // hovered, so the window has to be focused before its widgets can be driven.
+        Ctx->WindowFocus("//Inspector");
+
+        // The Inspector wraps each pass in PushID, so ** steps over the generated id.
+        Ctx->ItemDragWithDelta("//Inspector/**/Speed", ImVec2(-30.0f, 0.0f));
+        IM_CHECK_NE(Ctx->ItemReadAsFloat("//Inspector/**/Speed"), 1.0f);
+    }
+}
+
+LIME_REGISTER_UI_TEST("MyGame", "drag_speed", &MyGame::UITests::TestDragSpeed);
+```
+
+The static macro works in a project because its sources are compiled into the executable. Engine
+side tests cannot use it, for the same reason automation commands cannot: a static library lets the
+linker drop an object file that only registers something.
+
+`Window > UI Tests` opens the test engine's own window, where a test can be run by hand and watched.
+Tests run at full speed by default; the window can slow them down to make each action visible.
+
+Built with the editor and removed by `LIME_BUILD_IMGUI_TEST_ENGINE=OFF`, which also drops the
+`uitest.*` commands from the catalogue.
+
+> **Licensing.** The `imgui_test_engine/` directory is **not MIT**. It is free for individuals,
+> education, open source and small companies; larger companies need a paid license. See
+> `ThirdParty/ImGuiTestEngine/imgui_test_engine/LICENSE.txt` before shipping commercially. The rest
+> of that repository is MIT.
 
 ### Why this is reliable
 

@@ -38,3 +38,6 @@
 	path = ThirdParty/HttpLib
 	url = https://github.com/yhirose/cpp-httplib.git
 	branch = v0.29.0
+[submodule "ThirdParty/ImGuiTestEngine"]
+	path = ThirdParty/ImGuiTestEngine
+	url = https://github.com/ocornut/imgui_test_engine.git

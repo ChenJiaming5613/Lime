@@ -101,6 +101,91 @@ target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS IMGUI_DISABL
 target_link_libraries(imgui PUBLIC glfw)
 
 # ---------------------------------------------------------------------------------------
+# Dear ImGui Test Engine. Drives the UI from an end user's point of view by injecting
+# input events, which is what lets a test click and drag real widgets.
+#
+# IMGUI_ENABLE_TEST_ENGINE changes the layout of ImGuiContext, so it has to be PUBLIC on
+# the imgui target itself: a module that saw a different layout than imgui.cpp would read
+# the wrong offsets, and the resulting corruption would be silent and hard to trace.
+#
+# LICENSING: the imgui_test_engine directory is NOT MIT. It is free for individuals,
+# education, open source and small companies; larger companies need a paid license. See
+# ImGuiTestEngine/imgui_test_engine/LICENSE.txt before shipping commercially.
+# ---------------------------------------------------------------------------------------
+if(LIME_BUILD_IMGUI_TEST_ENGINE)
+	target_compile_definitions(imgui PUBLIC
+		IMGUI_ENABLE_TEST_ENGINE
+		# The engine ships a std::thread based coroutine implementation. A test reads as
+		# straight line code while its actions span many frames, and the coroutine is what
+		# suspends it between them.
+		IMGUI_TEST_ENGINE_ENABLE_COROUTINE_STDTHREAD_IMPL=1
+		# Tests are registered with std::function so a project can capture state in a lambda.
+		IMGUI_TEST_ENGINE_ENABLE_STD_FUNCTION=1
+		# Screen capture is out of scope here and would pull in stb_image_write and ffmpeg.
+		# The engine already guards every capture path behind this flag.
+		IMGUI_TEST_ENGINE_ENABLE_CAPTURE=0
+		# Routes ImGui's own assertions through the test engine instead of the CRT.
+		#
+		# This matters far more than it looks. The default IM_ASSERT calls abort(), which on
+		# Windows opens a modal dialog. That dialog blocks the main thread, so the frame loop
+		# stops, the automation server never answers again and every command times out with
+		# "Timed out waiting for the main thread" - a message that says nothing about the real
+		# cause. Worse, the test engine's own watchdog cannot fire either, because it is driven
+		# by test time that only advances while frames are running.
+		#
+		# The test engine's macro logs the failing expression with the running test's name and
+		# then breaks only under a debugger, so a headless run reports the failure and keeps
+		# going.
+		#
+		# imgui_te_imconfig.h has to arrive through IMGUI_USER_CONFIG rather than
+		# IMGUI_USER_H_FILENAME: imgui.h includes the former at the top, before its default
+		# IM_ASSERT is defined, and the latter only at the very end, far too late to override
+		# anything. It also declares ImGuiTestEngine_AssertLog, which the macro calls.
+		IMGUI_USER_CONFIG="imgui_test_engine/imgui_te_imconfig.h"
+		IM_ASSERT=IM_TEST_ENGINE_ASSERT
+	)
+	# imgui.h now includes a test engine header, so the directory holding it has to be visible
+	# to imgui itself and to everything that includes imgui.h. This is added to the imgui target
+	# rather than only to imgui_test_engine, which would create a circular dependency.
+	target_include_directories(imgui SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ImGuiTestEngine)
+
+	add_library(imgui_test_engine STATIC
+		# The capture tool and perf tool are compiled in even though neither feature is used here:
+		# imgui_te_engine.cpp constructs ImGuiCaptureToolUI and ImGuiPerfTool unconditionally.
+		# IMGUI_TEST_ENGINE_ENABLE_CAPTURE only guards the code that saves images, not the types.
+		ImGuiTestEngine/imgui_test_engine/imgui_capture_tool.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_capture_tool.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_context.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_context.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_coroutine.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_coroutine.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_engine.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_engine.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_exporters.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_exporters.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_internal.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_perftool.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_perftool.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_ui.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_ui.h
+		ImGuiTestEngine/imgui_test_engine/imgui_te_utils.cpp
+		ImGuiTestEngine/imgui_test_engine/imgui_te_utils.h
+	)
+	# Str.h is included unqualified by the engine sources, so its directory has to be on the
+	# include path rather than reached through a relative path.
+	target_include_directories(imgui_test_engine SYSTEM PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/ImGuiTestEngine
+		${CMAKE_CURRENT_SOURCE_DIR}/ImGuiTestEngine/imgui_test_engine/thirdparty/Str
+	)
+	target_link_libraries(imgui_test_engine PUBLIC imgui)
+	# These sources define IMGUI_DEFINE_MATH_OPERATORS themselves while the imgui target already
+	# passes it on the command line. The definitions agree, so the redefinition warning is noise.
+	if(MSVC)
+		target_compile_options(imgui_test_engine PRIVATE /wd4005)
+	endif()
+endif()
+
+# ---------------------------------------------------------------------------------------
 # tinygltf. tiny_gltf.cc is the vendored single implementation translation unit.
 # ---------------------------------------------------------------------------------------
 add_library(tinygltf STATIC
@@ -169,11 +254,13 @@ endif()
 
 # ---------------------------------------------------------------------------------------
 # Keep third party warnings out of our build log and group the targets in the IDE.
+# Both helpers skip targets that do not exist, so the optional ones can be listed here
+# unconditionally.
 # ---------------------------------------------------------------------------------------
-lime_mark_system_includes(nvrhi nvrhi_d3d12 nvrhi_vk glfw spdlog imgui tinygltf ShaderMakeBlob)
+lime_mark_system_includes(nvrhi nvrhi_d3d12 nvrhi_vk glfw spdlog imgui imgui_test_engine tinygltf ShaderMakeBlob)
 lime_set_third_party_folder(
 	nvrhi nvrhi_d3d12 nvrhi_vk
-	glfw spdlog imgui tinygltf
+	glfw spdlog imgui imgui_test_engine tinygltf
 	ShaderMake ShaderMakeBlob
 	DirectX-Headers DirectX-Guids
 	Catch2 Catch2WithMain

@@ -10,6 +10,10 @@
 #include "Editor/Panels/EditorPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
 
+#if LIME_WITH_IMGUI_TEST_ENGINE
+#include "Editor/TestEngine/EditorTestEngine.h"
+#endif
+
 #include <imgui.h>
 
 #include <memory>
@@ -48,6 +52,20 @@ namespace Lime
 		// the UI was built.
 		void SubmitViewportSize();
 
+		// Bracket the swap chain present. Forwarded rather than exposed so FEngine does not need the
+		// test engine headers, matching how SubmitViewportSize hides the viewport panel.
+		void PreSwap();
+		void PostSwap();
+
+		// True while the UI automation wants frames as fast as possible, which is the cue to stop
+		// waiting for vsync. Always false without the test engine, so callers need no conditional.
+		bool IsRequestingMaxAppSpeed() const;
+
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		// Null when the editor failed to start the test engine. Used by the automation commands.
+		FEditorTestEngine* GetTestEngine() { return TestEngine.IsInitialized() ? &TestEngine : nullptr; }
+#endif
+
 		// Looks a panel up by its name, for the rare case a project needs to reach one.
 		IEditorPanel* FindPanel(const char* Name) const;
 		const std::vector<std::shared_ptr<IEditorPanel>>& GetPanels() const { return Panels; }
@@ -77,6 +95,9 @@ namespace Lime
 		FRenderer* Renderer = nullptr;
 		// Appearance from EditorSettings.json, applied once during Initialize.
 		FEditorSettings Settings;
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		FEditorTestEngine TestEngine;
+#endif
 		ImTextureID ViewportTextureId = ImTextureID_Invalid;
 		std::string LayoutFilePath;
 		bool bInitialized = false;
@@ -84,5 +105,8 @@ namespace Lime
 		bool bHasSavedLayout = false;
 		bool bLayoutBuilt = false;
 		bool bShowDemoWindow = false;
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		bool bShowTestEngineWindow = false;
+#endif
 	};
 } // namespace Lime

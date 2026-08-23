@@ -67,6 +67,15 @@ namespace Lime
 
 		CreatePanels(ProjectSettings);
 
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		// After the platform backend, because the engine takes over the same ImGuiIO the backend
+		// feeds. A failure here is not fatal: the editor is still usable without UI automation.
+		if (!TestEngine.Initialize(ImGui::GetCurrentContext()))
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_EDITOR, "UI test engine failed to start; continuing without UI automation");
+		}
+#endif
+
 		// Registered rather than added directly so it is ordered by priority together with the
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
 		// the linker would be free to discard a translation unit that only registers.
@@ -78,8 +87,15 @@ namespace Lime
 		if (!InRenderer.EnableOffscreenRendering(DeviceManager.GetBackBufferWidth(), DeviceManager.GetBackBufferHeight()))
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_EDITOR, "Failed to create the viewport target");
+#if LIME_WITH_IMGUI_TEST_ENGINE
+			// The coroutine has to be joined before the context it runs against disappears.
+			TestEngine.Shutdown();
+#endif
 			ImGui_ImplGlfw_Shutdown();
 			ImGui::DestroyContext();
+#if LIME_WITH_IMGUI_TEST_ENGINE
+			TestEngine.DestroyAfterImGuiContext();
+#endif
 			return false;
 		}
 
@@ -209,11 +225,45 @@ namespace Lime
 
 		Panels.clear();
 
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		// Ordering is prescribed by the test engine and cannot be collapsed into one call: Stop()
+		// joins the coroutine, which may still be suspended inside a test and would resume against a
+		// destroyed context. Destroying the engine has to come last so it can save its own state.
+		TestEngine.Shutdown();
+#endif
+
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		TestEngine.DestroyAfterImGuiContext();
+#endif
+
 		bInitialized = false;
 		bLayoutBuilt = false;
+	}
+
+	void FEditorLayer::PreSwap()
+	{
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		TestEngine.PreSwap();
+#endif
+	}
+
+	void FEditorLayer::PostSwap()
+	{
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		TestEngine.PostSwap();
+#endif
+	}
+
+	bool FEditorLayer::IsRequestingMaxAppSpeed() const
+	{
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		return TestEngine.IsRequestingMaxAppSpeed();
+#else
+		return false;
+#endif
 	}
 
 	void FEditorLayer::ApplyTheme()
@@ -444,6 +494,9 @@ namespace Lime
 				RequestLayoutReset();
 			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &bShowDemoWindow);
+#if LIME_WITH_IMGUI_TEST_ENGINE
+			ImGui::MenuItem("UI Tests", nullptr, &bShowTestEngineWindow);
+#endif
 			ImGui::EndMenu();
 		}
 
@@ -478,6 +531,16 @@ namespace Lime
 		{
 			ImGui::ShowDemoWindow(&bShowDemoWindow);
 		}
+
+#if LIME_WITH_IMGUI_TEST_ENGINE
+		// Drawn last so the test list floats above the panels it drives. Only when open: the engine
+		// runs tests regardless of whether its window is visible, which is what lets the automation
+		// commands work headless.
+		if (bShowTestEngineWindow)
+		{
+			TestEngine.DrawUI(&bShowTestEngineWindow);
+		}
+#endif
 	}
 
 	void FEditorLayer::EndFrame()

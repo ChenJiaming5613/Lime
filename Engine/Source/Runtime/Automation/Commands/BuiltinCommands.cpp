@@ -12,6 +12,7 @@ namespace Lime
 	void RegisterEditorAutomationCommands();
 	void RegisterSettingsAutomationCommands();
 	void RegisterScriptAutomationCommands();
+	void RegisterUITestAutomationCommands();
 
 	void RegisterBuiltinAutomationCommands()
 	{
@@ -23,6 +24,7 @@ namespace Lime
 			RegisterEditorAutomationCommands();
 			RegisterSettingsAutomationCommands();
 			RegisterScriptAutomationCommands();
+			RegisterUITestAutomationCommands();
 			return true;
 		}();
 		LIME_UNUSED(bRegistered);

@@ -232,6 +232,60 @@ class LimeClient:
     def reset_layout(self) -> None:
         self.call("panel.resetLayout")
 
+    # -- ui tests ----------------------------------------------------------------------------
+    #
+    # These drive the Dear ImGui test engine, which clicks and drags real widgets by injecting input
+    # events. A run spans many frames, so it is asynchronous: start_ui_tests only queues the work and
+    # the caller polls. Waiting inside the engine would stop the frame loop the tests need.
+
+    def list_ui_tests(self) -> list[dict[str, Any]]:
+        """Registered UI tests, each with the outcome of its last run."""
+        return self.call("uitest.list")["tests"]
+
+    def start_ui_tests(self, filter: str | None = None) -> dict[str, Any]:
+        """Queues UI tests and returns at once, without waiting for them.
+
+        `filter` matches a substring of "Category/Name". A filter that matches nothing is an error
+        rather than an empty run, so a typo cannot look like a suite that passed.
+        """
+        params: dict[str, Any] = {}
+        if filter is not None:
+            params["filter"] = filter
+        return self.call("uitest.run", **params)
+
+    def ui_test_status(self) -> dict[str, Any]:
+        """Progress of the current or most recent run, including per test results."""
+        return self.call("uitest.status")
+
+    def abort_ui_tests(self) -> dict[str, Any]:
+        return self.call("uitest.abort")
+
+    def run_ui_tests(self, filter: str | None = None, timeout: float = 120.0) -> dict[str, Any]:
+        """Runs UI tests and blocks until they finish, returning the final status.
+
+        The timeout is separate from the client's command timeout: an individual poll is quick, but
+        the run as a whole can take far longer than any single command is allowed to.
+
+        Returns the status rather than raising on a failing test, so a caller can inspect which test
+        failed. Only the run not finishing in time is an error.
+        """
+        self.start_ui_tests(filter=filter)
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.ui_test_status()
+            if not status["running"]:
+                return status
+            time.sleep(0.05)
+
+        # Leaving a run in flight would break the next test, which would see it still running.
+        self.abort_ui_tests()
+        raise TransportError(f"UI tests did not finish within {timeout}s")
+
+    def failed_ui_tests(self, status: dict[str, Any]) -> list[str]:
+        """Qualified names of the tests that did not succeed in the given status."""
+        return [test["qualifiedName"] for test in status["tests"] if test["status"] == "error"]
+
     # -- settings ----------------------------------------------------------------------------
     #
     # Settings are consumed once at startup, so nothing here changes the running session. Editing goes

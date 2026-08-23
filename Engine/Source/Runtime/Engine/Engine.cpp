@@ -239,7 +239,23 @@ namespace Lime
 		Automation.FlushDeferred();
 #endif
 
+#if LIME_WITH_EDITOR
+		// Brackets Present so the UI test engine can measure frame timing. Forwarded through the
+		// editor layer, which owns the test engine, so this file needs none of its headers.
+		if (bEditorEnabled)
+		{
+			Editor.PreSwap();
+		}
+#endif
+
 		DeviceManager->Present();
+
+#if LIME_WITH_EDITOR
+		if (bEditorEnabled)
+		{
+			Editor.PostSwap();
+		}
+#endif
 	}
 
 	void FEngine::Shutdown()
