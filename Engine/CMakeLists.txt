@@ -11,6 +11,8 @@ add_subdirectory(Source/Runtime/Core)
 add_subdirectory(Source/Runtime/Platform)
 add_subdirectory(Source/Runtime/RHI)
 add_subdirectory(Source/Runtime/Renderer)
+# Asset import needs only Core, so it can be built before anything graphics related.
+add_subdirectory(Source/Runtime/Asset)
 
 if(LIME_BUILD_EDITOR)
 	add_subdirectory(Source/Editor)

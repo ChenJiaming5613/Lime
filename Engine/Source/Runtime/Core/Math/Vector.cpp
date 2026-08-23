@@ -34,6 +34,11 @@ namespace Lime
 		return { X * Inverse, Y * Inverse, Z * Inverse };
 	}
 
+	bool IsNearlyEqual(const FVector2& A, const FVector2& B, float Tolerance)
+	{
+		return IsNearlyEqual(A.X, B.X, Tolerance) && IsNearlyEqual(A.Y, B.Y, Tolerance);
+	}
+
 	bool IsNearlyEqual(const FVector3& A, const FVector3& B, float Tolerance)
 	{
 		return IsNearlyEqual(A.X, B.X, Tolerance) && IsNearlyEqual(A.Y, B.Y, Tolerance) && IsNearlyEqual(A.Z, B.Z, Tolerance);

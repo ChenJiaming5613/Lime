@@ -110,6 +110,7 @@ namespace Lime
 		return { A.Y * B.Z - A.Z * B.Y, A.Z * B.X - A.X * B.Z, A.X * B.Y - A.Y * B.X };
 	}
 
+	bool IsNearlyEqual(const FVector2& A, const FVector2& B, float Tolerance = SmallNumber);
 	bool IsNearlyEqual(const FVector3& A, const FVector3& B, float Tolerance = SmallNumber);
 	bool IsNearlyEqual(const FVector4& A, const FVector4& B, float Tolerance = SmallNumber);
 } // namespace Lime

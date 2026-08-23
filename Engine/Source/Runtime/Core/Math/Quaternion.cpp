@@ -27,6 +27,47 @@ namespace Lime
 		return Multiply(Yaw, Multiply(Pitch, Roll));
 	}
 
+	FQuat FQuat::FromRotationMatrix(const FMatrix4x4& Matrix)
+	{
+		// Shepperd's method: the naive formula divides by a term that approaches zero for rotations near
+		// 180 degrees, so the largest of four candidate denominators is chosen instead. Picking the wrong
+		// branch loses most of the precision.
+		const float Trace = Matrix.M[0][0] + Matrix.M[1][1] + Matrix.M[2][2];
+
+		if (Trace > 0.0f)
+		{
+			const float Scale = std::sqrt(Trace + 1.0f) * 2.0f;
+			const float Inverse = 1.0f / Scale;
+			return FQuat((Matrix.M[2][1] - Matrix.M[1][2]) * Inverse, (Matrix.M[0][2] - Matrix.M[2][0]) * Inverse,
+			             (Matrix.M[1][0] - Matrix.M[0][1]) * Inverse, Scale * 0.25f)
+			    .GetNormalized();
+		}
+
+		if (Matrix.M[0][0] > Matrix.M[1][1] && Matrix.M[0][0] > Matrix.M[2][2])
+		{
+			const float Scale = std::sqrt(1.0f + Matrix.M[0][0] - Matrix.M[1][1] - Matrix.M[2][2]) * 2.0f;
+			const float Inverse = 1.0f / Scale;
+			return FQuat(Scale * 0.25f, (Matrix.M[0][1] + Matrix.M[1][0]) * Inverse, (Matrix.M[0][2] + Matrix.M[2][0]) * Inverse,
+			             (Matrix.M[2][1] - Matrix.M[1][2]) * Inverse)
+			    .GetNormalized();
+		}
+
+		if (Matrix.M[1][1] > Matrix.M[2][2])
+		{
+			const float Scale = std::sqrt(1.0f + Matrix.M[1][1] - Matrix.M[0][0] - Matrix.M[2][2]) * 2.0f;
+			const float Inverse = 1.0f / Scale;
+			return FQuat((Matrix.M[0][1] + Matrix.M[1][0]) * Inverse, Scale * 0.25f, (Matrix.M[1][2] + Matrix.M[2][1]) * Inverse,
+			             (Matrix.M[0][2] - Matrix.M[2][0]) * Inverse)
+			    .GetNormalized();
+		}
+
+		const float Scale = std::sqrt(1.0f + Matrix.M[2][2] - Matrix.M[0][0] - Matrix.M[1][1]) * 2.0f;
+		const float Inverse = 1.0f / Scale;
+		return FQuat((Matrix.M[0][2] + Matrix.M[2][0]) * Inverse, (Matrix.M[1][2] + Matrix.M[2][1]) * Inverse, Scale * 0.25f,
+		             (Matrix.M[1][0] - Matrix.M[0][1]) * Inverse)
+		    .GetNormalized();
+	}
+
 	float FQuat::Length() const
 	{
 		return std::sqrt(X * X + Y * Y + Z * Z + W * W);

@@ -38,6 +38,10 @@ namespace Lime
 		// yaw is applied in world space and pitch in the camera's own space, which is what keeps the
 		// horizon level however far the camera has turned.
 		static FQuat FromYawPitchRoll(float YawRadians, float PitchRadians, float RollRadians = 0.0f);
+		// Extracts the rotation from a matrix whose upper 3x3 is orthonormal. Needed because a glTF node
+		// may store a full matrix instead of separate components, and decomposing it lets the editor show
+		// editable translation, rotation and scale.
+		static FQuat FromRotationMatrix(const FMatrix4x4& Matrix);
 
 		float Length() const;
 		// Returns identity when the length is below the tolerance, so a malformed glTF rotation cannot

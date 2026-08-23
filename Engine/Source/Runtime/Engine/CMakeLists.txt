@@ -1,6 +1,7 @@
 # LimeRuntime: engine loop, project settings and the optional application hooks.
 
-set(RuntimeDeps LimeRenderer tinygltf)
+# tinygltf is not listed here: it is a private detail of LimeAsset, which owns glTF parsing.
+set(RuntimeDeps LimeRenderer LimeAsset)
 if(LIME_BUILD_EDITOR)
 	list(APPEND RuntimeDeps LimeEditor)
 endif()
