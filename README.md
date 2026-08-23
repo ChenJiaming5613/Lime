@@ -163,11 +163,18 @@ the tree stays visible.
 
 ## A project with no code
 
-A directory containing only `ProjectSettings.json` is a complete project. The build generates the
-CMake glue it needs, so nothing has to be written by hand.
+A directory containing only `ProjectSettings.json` is a complete project. `Projects/CMakeLists.txt`
+generates the CMake glue it needs into `<Project>/Intermediate/Generated/`, which is git ignored, so
+nothing is written by hand and nothing lands in the source tree.
 
 `Projects/GltfViewer/` is exactly that: one settings file, no sources, no `CMakeLists.txt`. It builds
-into its own executable and renders the configured model.
+into its own executable and renders the configured model. Adding a `CMakeLists.txt` later takes
+precedence over the generated stub, so growing such a project into one with code needs no migration.
+
+The stub exists because `add_subdirectory(<source> <binary>)` is the only way to give a project its own
+binary directory — CMake does not allow overriding where a target's object files go. Calling
+`lime_add_project` directly from the `Projects` scope would scatter a code-free project's intermediates
+across the shared build tree.
 
 ## Writing a project
 

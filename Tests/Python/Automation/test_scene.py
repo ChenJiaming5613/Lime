@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -302,6 +303,52 @@ class TestSceneRendering:
         width, height = read_png_size(scene.screenshot(source="viewport"))
 
         assert (width, height) == (info["viewportWidth"], info["viewportHeight"])
+
+
+class TestZeroCodeProject:
+    """GltfViewer is the proof that a project needs nothing but configuration.
+
+    Asserted from the file system rather than from the engine, because the property being protected is a
+    build time one: the moment someone adds a CMakeLists.txt or a source file here, the generated stub
+    path stops being exercised and could rot without anyone noticing.
+    """
+
+    PROJECT_DIR = Path(__file__).resolve().parents[3] / "Projects" / "GltfViewer"
+
+    def test_the_project_has_no_build_script(self) -> None:
+        assert not (self.PROJECT_DIR / "CMakeLists.txt").exists(), (
+            "GltfViewer gained a CMakeLists.txt, so the generated stub path is no longer covered"
+        )
+
+    def test_the_project_has_no_sources(self) -> None:
+        assert not (self.PROJECT_DIR / "Source").exists()
+
+    def test_settings_are_the_only_authored_file(self) -> None:
+        # Intermediate and Binaries are build outputs and are git ignored, so they do not count.
+        authored = {
+            entry.name
+            for entry in self.PROJECT_DIR.iterdir()
+            if entry.name not in ("Intermediate", "Binaries")
+        }
+
+        assert authored == {"ProjectSettings.json"}, f"unexpected files in GltfViewer: {sorted(authored)}"
+
+    def test_it_still_builds_and_runs(self, scene: LimeClient) -> None:
+        """The whole point: no code, yet a window, a device and a rendered scene."""
+        info = scene.engine_info()
+
+        assert info["project"] == "GltfViewer"
+        assert scene.call("scene.info")["triangles"] > 0
+
+    def test_the_scene_is_drawn_by_a_builtin_pass(self, scene: LimeClient) -> None:
+        """A project with no code cannot register a pass, so the engine has to provide one.
+
+        Also confirms the explicit registration function works: this pass lives in a static library,
+        where the linker is free to discard an object file whose only content is a self-registration.
+        """
+        names = [item["name"] for item in scene.list_passes()]
+
+        assert "BlinnPhongForward" in names
 
 
 class TestHierarchyPanel:

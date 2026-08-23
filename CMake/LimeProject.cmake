@@ -25,14 +25,21 @@
 # A project may also have no sources at all. The engine owns main and provides the built-in passes, so
 # a project that only configures existing engine features needs nothing but ProjectSettings.json.
 # LIME_LAUNCH_SOURCE is always compiled in, which gives the executable its one required translation
-# unit.
+# unit. Such a project needs no CMakeLists.txt either: Projects/CMakeLists.txt generates a stub that
+# calls this function with PROJECT_DIR pointing back at the authored directory.
 
-# lime_add_project([NAME <override>] [SOURCE_DIR <dir>] [SHADER_DIR <dir>])
+# lime_add_project([NAME <override>] [PROJECT_DIR <dir>] [SOURCE_DIR <dir>] [SHADER_DIR <dir>])
 function(lime_add_project)
-	set(OneValueArgs NAME SOURCE_DIR SHADER_DIR)
+	set(OneValueArgs NAME PROJECT_DIR SOURCE_DIR SHADER_DIR)
 	cmake_parse_arguments(LIME_PROJ "" "${OneValueArgs}" "" ${ARGN})
 
-	set(ProjectDir "${CMAKE_CURRENT_SOURCE_DIR}")
+	# PROJECT_DIR exists for generated stubs, which are configured into Intermediate/Generated and so
+	# cannot rely on CMAKE_CURRENT_SOURCE_DIR to find the project they belong to.
+	if(LIME_PROJ_PROJECT_DIR)
+		set(ProjectDir "${LIME_PROJ_PROJECT_DIR}")
+	else()
+		set(ProjectDir "${CMAKE_CURRENT_SOURCE_DIR}")
+	endif()
 	set(SettingsFile "${ProjectDir}/ProjectSettings.json")
 	set(EditorSettingsFile "${ProjectDir}/EditorSettings.json")
 

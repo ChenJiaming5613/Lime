@@ -32,9 +32,19 @@ namespace Lime
 
 	bool FShaderLibrary::AddSearchRoot(std::filesystem::path Root)
 	{
+		// A root that does not exist at all is not a problem: a project with no shaders of its own is a
+		// valid project, and the engine's own root is still registered. Warning here would mean every
+		// configuration-only project logs a diagnostic about something it never asked for.
+		if (!std::filesystem::exists(Root))
+		{
+			return false;
+		}
+
 		const std::filesystem::path PlatformDirectory = Root / GetShaderPlatformDirectory(Backend);
 		if (!std::filesystem::exists(PlatformDirectory))
 		{
+			// The directory exists but holds nothing for this backend, which does deserve a warning: shaders
+			// were built for one backend and the engine is running on the other.
 			LIME_LOG_WARNING(LIME_LOG_CATEGORY_RHI, "Skipping shader root without {} output: {}", GetShaderPlatformDirectory(Backend),
 			                 FPlatformPaths::ToUtf8(Root));
 			return false;
