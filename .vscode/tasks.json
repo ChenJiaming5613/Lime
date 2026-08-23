@@ -1,0 +1,139 @@
+{
+	// Build and tooling tasks.
+	//
+	// These go through the repository's PowerShell scripts so that the same commands work from a
+	// terminal, from CI and from the editor. Scripts/EnterDevShell.ps1 loads the MSVC environment and
+	// resolves VULKAN_SDK, which makes the tasks independent of how the editor itself was launched.
+	//
+	// The CMake Tools buttons work too, and go through CMakePresets.json. Both routes end up in
+	// Build/ninja, so they can be mixed freely.
+
+	"version": "2.0.0",
+	"windows": {
+		"options": {
+			"shell": {
+				"executable": "powershell.exe",
+				"args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+			}
+		}
+	},
+	"presentation": {
+		"panel": "shared",
+		"clear": true
+	},
+	"tasks": [
+		{
+			"label": "Build (Debug)",
+			"detail": "Configure if needed, then build every target",
+			"type": "shell",
+			"command": "./Scripts/Build.ps1 -Config Debug",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": "$msCompile"
+		},
+		{
+			"label": "Build (Release)",
+			"type": "shell",
+			"command": "./Scripts/Build.ps1 -Config Release",
+			"group": "build",
+			"problemMatcher": "$msCompile"
+		},
+		{
+			"label": "Configure (fresh)",
+			"detail": "Discard the CMake cache and reconfigure. Use after changing generators or CMake versions",
+			"type": "shell",
+			"command": "./Scripts/Build.ps1 -ConfigureOnly -Fresh",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test (all)",
+			"detail": "ctest: Catch2 unit tests plus the Python automation suite",
+			"type": "shell",
+			// Sourced first because ctest is not on PATH by default; it lives beside cmake.
+			"command": ". ./Scripts/EnterDevShell.ps1; ctest --preset ninja-debug",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Test (C++ only)",
+			"detail": "Skips the automation suite, which launches real engine processes",
+			"type": "shell",
+			"command": ". ./Scripts/EnterDevShell.ps1; ctest --preset ninja-debug -LE automation",
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Run HelloTriangle",
+			"type": "shell",
+			"command": "./Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
+			"dependsOn": "Build (Debug)",
+			"problemMatcher": []
+		},
+		{
+			"label": "Format",
+			"type": "shell",
+			"command": "./Scripts/FormatCode.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "Format (check only)",
+			"detail": "Reports violations without rewriting files",
+			"type": "shell",
+			"command": "./Scripts/FormatCode.ps1 -Check",
+			"problemMatcher": []
+		},
+		{
+			"label": "Clang-Tidy",
+			"type": "shell",
+			"command": "./Scripts/RunClangTidy.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "Automation: pytest",
+			"type": "shell",
+			"command": "./Scripts/Automation.ps1 test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Automation: run project scripts",
+			"type": "shell",
+			"command": "./Scripts/Automation.ps1 run",
+			"problemMatcher": []
+		},
+		{
+			"label": "Automation: shell",
+			"detail": "Interactive Python REPL attached to a freshly launched engine",
+			"type": "shell",
+			"command": "./Scripts/Automation.ps1 shell",
+			"presentation": {
+				"panel": "dedicated"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Setup: regenerate .clangd",
+			"detail": "Refreshes the MSVC include paths clangd needs. Run after a Visual Studio or Windows SDK update",
+			"type": "shell",
+			"command": "./Scripts/UpdateClangdConfig.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "Setup: fix the default MSVC toolset",
+			"detail": "Points the Visual Studio default toolset files at an installed version, which is what lets IDEs find cl.exe",
+			"type": "shell",
+			"command": "./Scripts/FixVCToolsVersion.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "Setup: init submodules",
+			"type": "shell",
+			"command": "./Scripts/SetupSubmodules.ps1",
+			"problemMatcher": []
+		}
+	]
+}

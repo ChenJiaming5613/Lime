@@ -1,0 +1,92 @@
+{
+	// Debug configurations for CodeBuddy CN.
+	//
+	// Uses CodeLLDB ("lldb"), not cppvsdbg. cppvsdbg comes from the Microsoft C/C++ extension, which
+	// Microsoft licenses for official VS Code only, so it is not installable here; the copy under
+	// ~/.vscode/extensions belongs to VS Code and CodeBuddy reads ~/.codebuddycn/extensions instead.
+	//
+	// CodeLLDB reads MSVC PDBs well enough for real work. Verified on this build: breakpoints resolve
+	// by file and line, call stacks map back to source, std::string prints as its contents and enums
+	// print as their names.
+	//
+	// One known gap: LLDB does not read .natvis, so types that rely on a visualiser show their raw
+	// layout. nlohmann::json is the notable one, since its union displays every member at once. Read
+	// such values through a method call in the Debug Console instead, for example `p Json.dump()`.
+	//
+	// cwd matters: the engine resolves Shaders, Content, Saved and ProjectSettings.json relative to the
+	// executable, and each project owns Bin/<Config>/<Name>.
+
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "HelloTriangle (D3D12)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"args": [],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "HelloTriangle (Vulkan)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"args": ["--rhi=vulkan"],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "HelloTriangle (runtime only, no editor)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"args": ["--no-editor"],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "HelloTriangle (automation on a fixed port)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe",
+			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle",
+			"args": ["--automation-port=5613"],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "LimeTests (all)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/LimeTests.exe",
+			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug",
+			"args": [],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "LimeTests (filter by tag)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/LimeTests.exe",
+			"cwd": "${workspaceFolder}/Build/ninja/Bin/Debug",
+			// Catch2 takes a tag or test name as a positional argument.
+			"args": ["${input:catch2Filter}"],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "Attach to a running engine",
+			// For a process started elsewhere, such as by an automation script or Automation.ps1 shell.
+			"type": "lldb",
+			"request": "attach",
+			"program": "${workspaceFolder}/Build/ninja/Bin/Debug/HelloTriangle/HelloTriangle.exe"
+		}
+	],
+	"inputs": [
+		{
+			"id": "catch2Filter",
+			"type": "promptString",
+			"description": "Catch2 tag or test name, e.g. [Automation] or [Math]",
+			"default": "[Automation]"
+		}
+	]
+}

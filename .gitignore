@@ -7,7 +7,6 @@
 
 # Visual Studio / VS Code / JetBrains
 .vs/
-.vscode/
 .idea/
 *.user
 *.suo
@@ -15,10 +14,23 @@
 *.vcxproj*
 CMakeUserPresets.json
 
+# Editor configuration: the shared files reference only ${workspaceFolder} and repository scripts, so
+# they work on any machine. settings.json is excluded because it pins local tool paths (CMake, clangd,
+# the Vulkan SDK), and .clangd because Scripts/UpdateClangdConfig.ps1 generates it from the installed
+# MSVC and Windows SDK.
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+/.clangd
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
 compile_commands.json
+
+# clangd background index. Machine-local and large, but .clangd itself is configuration and is tracked.
+/.cache/
 
 # Downloaded tool binaries
 /ThirdParty/Binaries/

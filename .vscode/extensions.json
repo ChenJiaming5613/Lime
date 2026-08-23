@@ -1,0 +1,19 @@
+{
+	"recommendations": [
+		// CMake configure/build UI with CMakePresets.json support.
+		"ms-vscode.cmake-tools",
+		// C/C++ language support. Used instead of ms-vscode.cpptools, which Microsoft licenses for
+		// official VS Code builds only and cannot be installed in a derivative such as CodeBuddy.
+		"llvm-vs-code-extensions.vscode-clangd",
+		// Debugger for launch.json. Reads MSVC PDBs, since cppvsdbg is part of cpptools.
+		"vadimcn.vscode-lldb",
+		// For the Automation package and project automation scripts.
+		"ms-python.python",
+		// Syntax highlighting for the shaders under Engine/Shaders and Projects/*/Shaders.
+		"tboox.vscode-hlsl"
+	],
+	"unwantedRecommendations": [
+		// Would fight clangd over IntelliSense if it were somehow installed.
+		"ms-vscode.cpptools"
+	]
+}
