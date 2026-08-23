@@ -107,6 +107,68 @@ for shaders under the wrong name and its passes fail to initialize.
 Engine shaders are compiled once into `Staging` and copied in, so adding a project does not multiply
 the shader build cost.
 
+## glTF scenes
+
+A project renders a model by naming it in `ProjectSettings.json`. No code is involved: the pass that
+draws it and the shader it uses are both built into the engine.
+
+```json
+"scene": {
+  "gltf": "glTF-Sample-Assets/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+  "cameraFieldOfView": 60.0,
+  "cameraMoveSpeed": 3.0,
+  "lightIntensity": 3.0,
+  "ambientStrength": 0.25
+}
+```
+
+A relative path is looked for in the project directory first and then in the shared `Assets/`
+directory, so a project can either ship its own model or reference the sample set. An absolute path is
+used as given.
+
+To fetch the Khronos sample assets:
+
+```powershell
+./Scripts/FetchSampleAssets.ps1
+```
+
+`Assets/` is git ignored; the set is several gigabytes and is a developer's choice rather than a build
+requirement. Everything degrades gracefully without it: an empty `gltf` is a normal configuration, and
+a path that does not resolve is reported once and leaves the engine running an empty scene rather than
+refusing to start.
+
+Both `.gltf` and `.glb` load. Node hierarchies, base colour textures and colour factors, and vertex
+normals are honoured; missing normals are generated from the faces. Shading is Blinn-Phong under a
+single directional light, which the scene builder supplies because glTF defines none.
+
+The camera is placed from the model's world bounds, so a model of any size and position is framed
+without per model configuration.
+
+### Flying the camera
+
+Controls match Unity's scene view: hold the right mouse button to fly, then the mouse aims, `WASD`
+moves on the view plane, `QE` moves vertically, the scroll wheel changes speed and `Shift`
+accelerates. Releasing the button hands the cursor straight back.
+
+Flight only starts while the cursor is over the viewport, so a right click on an editor panel operates
+that panel. Once flying, the camera keeps control wherever the cursor travels, which is what makes a
+drag across the whole window work.
+
+### Scene hierarchy
+
+The editor's Scene Hierarchy panel shows the scene as a collapsible tree, with `[M]` marking a node
+that has a mesh and `[L]` a light. Selecting a node fills the inspector with its transform, world
+position and mesh details. The filter box keeps the parents needed to reach a match, so a hit deep in
+the tree stays visible.
+
+## A project with no code
+
+A directory containing only `ProjectSettings.json` is a complete project. The build generates the
+CMake glue it needs, so nothing has to be written by hand.
+
+`Projects/GltfViewer/` is exactly that: one settings file, no sources, no `CMakeLists.txt`. It builds
+into its own executable and renders the configured model.
+
 ## Writing a project
 
 A project owns render passes, editor panels, shaders and automation scripts. It never defines `main`,
@@ -573,16 +635,17 @@ before 3.15, `entt::meta_factory<T>{}` from 3.15 on).
 
 ```
 CMake/          Build modules (compiler options, target helpers, shaders, projects)
+Assets/         Shared sample models, fetched on demand and git ignored
 Engine/
   Shaders/      Built-in HLSL sources plus the ShaderMake config
   Content/      Built-in assets such as textures
   Source/
-    Runtime/    Core, Platform, RHI, Renderer, Automation, Engine, Launch
+    Runtime/    Core, Platform, Camera, Asset, RHI, Scene, Renderer, Automation, Engine, Launch
     Editor/     Editor layer, registry and built-in panels
 Projects/       One directory per application, each with a ProjectSettings.json
-Automation/     Python client library and the pytest suite
+Programs/       Python automation library and its interactive shell
 Docs/zh/        Chinese tutorials
-Tests/          Catch2 unit tests
+Tests/          Catch2 unit tests plus the Python automation suite
 ThirdParty/     Submodules
 Scripts/        Submodule setup, build, formatting, static analysis, capture, automation
 ```

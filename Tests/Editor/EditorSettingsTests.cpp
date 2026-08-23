@@ -71,7 +71,8 @@ TEST_CASE("ApplyJson accepts a partial object", "[Editor][EditorSettings]")
 TEST_CASE("ApplyJson rejects bad values without applying any of them", "[Editor][EditorSettings]")
 {
 	// The rejected key comes after a valid one, so a half applied change would be visible.
-	auto RequireRejected = [](const FJson& Appearance) {
+	auto RequireRejected = [](const FJson& Appearance)
+	{
 		FEditorSettings Settings;
 		const FEditorSettings Before = Settings;
 

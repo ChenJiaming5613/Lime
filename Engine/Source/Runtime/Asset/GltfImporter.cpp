@@ -17,8 +17,8 @@ namespace Lime
 		//
 		// glTF allows positions and normals to be float, and texture coordinates to additionally be
 		// normalized bytes or shorts. Converting on read keeps a single vertex format downstream.
-		bool ReadAccessorAsFloats(const tinygltf::Model& Model, const tinygltf::Accessor& Accessor, size_t ElementIndex,
-		                          float* OutValues, size_t ComponentCount)
+		bool ReadAccessorAsFloats(const tinygltf::Model& Model, const tinygltf::Accessor& Accessor, size_t ElementIndex, float* OutValues,
+		                          size_t ComponentCount)
 		{
 			if (Accessor.bufferView < 0 || Accessor.bufferView >= static_cast<int>(Model.bufferViews.size()))
 			{
@@ -80,14 +80,16 @@ namespace Lime
 					{
 						int16 Value = 0;
 						std::memcpy(&Value, Component, sizeof(int16));
-						OutValues[Index] = Accessor.normalized ? std::max(static_cast<float>(Value) / 32767.0f, -1.0f) : static_cast<float>(Value);
+						OutValues[Index] =
+						    Accessor.normalized ? std::max(static_cast<float>(Value) / 32767.0f, -1.0f) : static_cast<float>(Value);
 						break;
 					}
 					case TINYGLTF_COMPONENT_TYPE_BYTE:
 					{
 						int8 Value = 0;
 						std::memcpy(&Value, Component, sizeof(int8));
-						OutValues[Index] = Accessor.normalized ? std::max(static_cast<float>(Value) / 127.0f, -1.0f) : static_cast<float>(Value);
+						OutValues[Index] =
+						    Accessor.normalized ? std::max(static_cast<float>(Value) / 127.0f, -1.0f) : static_cast<float>(Value);
 						break;
 					}
 					default:
@@ -396,8 +398,8 @@ namespace Lime
 			const std::vector<double>& Factor = Source.pbrMetallicRoughness.baseColorFactor;
 			if (Factor.size() >= 4)
 			{
-				Result.BaseColorFactor = { static_cast<float>(Factor[0]), static_cast<float>(Factor[1]),
-					                       static_cast<float>(Factor[2]), static_cast<float>(Factor[3]) };
+				Result.BaseColorFactor = { static_cast<float>(Factor[0]), static_cast<float>(Factor[1]), static_cast<float>(Factor[2]),
+				                           static_cast<float>(Factor[3]) };
 			}
 
 			if (Source.alphaMode == "MASK")
@@ -432,14 +434,14 @@ namespace Lime
 				// Decomposed rather than kept as a matrix, so the editor can show and edit meaningful values.
 				// Column major in the file: translation sits in elements 12 to 14.
 				Result.Translation = { static_cast<float>(Source.matrix[12]), static_cast<float>(Source.matrix[13]),
-					                   static_cast<float>(Source.matrix[14]) };
+				                       static_cast<float>(Source.matrix[14]) };
 
 				FVector3 Columns[3];
 				for (int32 Column = 0; Column < 3; ++Column)
 				{
 					Columns[Column] = { static_cast<float>(Source.matrix[Column * 4 + 0]),
-						                static_cast<float>(Source.matrix[Column * 4 + 1]),
-						                static_cast<float>(Source.matrix[Column * 4 + 2]) };
+					                    static_cast<float>(Source.matrix[Column * 4 + 1]),
+					                    static_cast<float>(Source.matrix[Column * 4 + 2]) };
 				}
 
 				Result.Scale = { Columns[0].Length(), Columns[1].Length(), Columns[2].Length() };
@@ -465,7 +467,7 @@ namespace Lime
 				if (Source.translation.size() >= 3)
 				{
 					Result.Translation = { static_cast<float>(Source.translation[0]), static_cast<float>(Source.translation[1]),
-						                   static_cast<float>(Source.translation[2]) };
+					                       static_cast<float>(Source.translation[2]) };
 				}
 				if (Source.rotation.size() >= 4)
 				{
@@ -477,7 +479,7 @@ namespace Lime
 				if (Source.scale.size() >= 3)
 				{
 					Result.Scale = { static_cast<float>(Source.scale[0]), static_cast<float>(Source.scale[1]),
-						             static_cast<float>(Source.scale[2]) };
+					                 static_cast<float>(Source.scale[2]) };
 				}
 			}
 

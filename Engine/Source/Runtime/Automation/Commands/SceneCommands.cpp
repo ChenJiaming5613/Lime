@@ -4,11 +4,11 @@
 // That last part is what makes a screenshot comparison meaningful: without a fixed camera, two captures
 // of the same scene differ because the view drifted.
 
-#include "Camera/Camera.h"
 #include "Renderer/Renderer.h"
-#include "Scene/Scene.h"
 
 #include "Automation/AutomationCommandRegistry.h"
+#include "Camera/Camera.h"
+#include "Scene/Scene.h"
 
 #if LIME_WITH_EDITOR
 #include "Editor/EditorLayer.h"
@@ -134,38 +134,37 @@ namespace Lime
 	{
 		FAutomationCommandRegistry& Registry = FAutomationCommandRegistry::Get();
 
-		Registry.Register(
-		    "scene.info", "Reports the loaded scene's path and its entity, mesh and triangle counts",
-		    [](FAutomationInvocation& Invocation)
-		    {
-			    FRenderer* Renderer = Invocation.GetContext().Renderer;
-			    if (Renderer == nullptr)
-			    {
-				    Invocation.Fail("No renderer");
-				    return;
-			    }
+		Registry.Register("scene.info", "Reports the loaded scene's path and its entity, mesh and triangle counts",
+		                  [](FAutomationInvocation& Invocation)
+		                  {
+			                  FRenderer* Renderer = Invocation.GetContext().Renderer;
+			                  if (Renderer == nullptr)
+			                  {
+				                  Invocation.Fail("No renderer");
+				                  return;
+			                  }
 
-			    FJson& Result = Invocation.GetResult();
+			                  FJson& Result = Invocation.GetResult();
 
-			    // Reports loaded=false rather than failing: "is a scene loaded" is a legitimate question, and
-			    // a project with no scene is a valid configuration.
-			    const FScene* Scene = Renderer->GetScene();
-			    if (Scene == nullptr)
-			    {
-				    Result["loaded"] = false;
-				    return;
-			    }
+			                  // Reports loaded=false rather than failing: "is a scene loaded" is a legitimate question, and
+			                  // a project with no scene is a valid configuration.
+			                  const FScene* Scene = Renderer->GetScene();
+			                  if (Scene == nullptr)
+			                  {
+				                  Result["loaded"] = false;
+				                  return;
+			                  }
 
-			    const FSceneStats Stats = Scene->GetStats();
-			    Result["loaded"] = !Scene->GetSourcePath().empty();
-			    Result["path"] = Scene->GetSourcePath();
-			    Result["entities"] = Stats.EntityCount;
-			    Result["meshEntities"] = Stats.MeshEntityCount;
-			    Result["triangles"] = Stats.TriangleCount;
-			    Result["materials"] = Stats.MaterialCount;
-			    Result["textures"] = Stats.TextureCount;
-			    Result["roots"] = Scene->GetRootEntities().size();
-		    });
+			                  const FSceneStats Stats = Scene->GetStats();
+			                  Result["loaded"] = !Scene->GetSourcePath().empty();
+			                  Result["path"] = Scene->GetSourcePath();
+			                  Result["entities"] = Stats.EntityCount;
+			                  Result["meshEntities"] = Stats.MeshEntityCount;
+			                  Result["triangles"] = Stats.TriangleCount;
+			                  Result["materials"] = Stats.MaterialCount;
+			                  Result["textures"] = Stats.TextureCount;
+			                  Result["roots"] = Scene->GetRootEntities().size();
+		                  });
 
 		Registry.Register("scene.list", "Returns the scene hierarchy as a tree of named nodes",
 		                  [](FAutomationInvocation& Invocation)
@@ -209,104 +208,103 @@ namespace Lime
 			                      Camera.GetProjectionType() == ECameraProjection::Perspective ? "perspective" : "orthographic";
 		                  });
 
-		Registry.Register(
-		    "scene.camera.set", "Places the camera. Params: position [x,y,z], yaw, pitch (degrees). Omitted fields are left alone",
-		    [](FAutomationInvocation& Invocation)
-		    {
-			    FAutomationContext& Context = Invocation.GetContext();
-			    if (!Context.SetCameraPose || Context.Renderer == nullptr || Context.Renderer->GetCamera() == nullptr)
-			    {
-				    Invocation.Fail("No camera");
-				    return;
-			    }
+		Registry.Register("scene.camera.set",
+		                  "Places the camera. Params: position [x,y,z], yaw, pitch (degrees). Omitted fields are left alone",
+		                  [](FAutomationInvocation& Invocation)
+		                  {
+			                  FAutomationContext& Context = Invocation.GetContext();
+			                  if (!Context.SetCameraPose || Context.Renderer == nullptr || Context.Renderer->GetCamera() == nullptr)
+			                  {
+				                  Invocation.Fail("No camera");
+				                  return;
+			                  }
 
-			    // Seeded from the current pose so a request may set only what it cares about, which is what
-			    // makes "look from here" and "turn to this angle" separate one line calls.
-			    FVector3 Position = Context.Renderer->GetCamera()->GetPosition();
-			    float Yaw = 0.0f;
-			    float Pitch = 0.0f;
+			                  // Seeded from the current pose so a request may set only what it cares about, which is what
+			                  // makes "look from here" and "turn to this angle" separate one line calls.
+			                  FVector3 Position = Context.Renderer->GetCamera()->GetPosition();
+			                  float Yaw = 0.0f;
+			                  float Pitch = 0.0f;
 
-			    std::string Error;
-			    if (!TryReadVector3(Invocation.GetParams(), "position", Position, Error))
-			    {
-				    Invocation.Fail(Error);
-				    return;
-			    }
+			                  std::string Error;
+			                  if (!TryReadVector3(Invocation.GetParams(), "position", Position, Error))
+			                  {
+				                  Invocation.Fail(Error);
+				                  return;
+			                  }
 
-			    const auto ReadAngle = [&Invocation](const char* Key, float& OutValue)
-			    {
-				    const FJson* Node = FJsonUtils::Find(Invocation.GetParams(), Key);
-				    if (Node == nullptr)
-				    {
-					    return true;
-				    }
-				    if (!Node->is_number())
-				    {
-					    Invocation.Fail(fmt::format("'{}' must be a number", Key));
-					    return false;
-				    }
-				    OutValue = Node->get<float>();
-				    return true;
-			    };
+			                  const auto ReadAngle = [&Invocation](const char* Key, float& OutValue)
+			                  {
+				                  const FJson* Node = FJsonUtils::Find(Invocation.GetParams(), Key);
+				                  if (Node == nullptr)
+				                  {
+					                  return true;
+				                  }
+				                  if (!Node->is_number())
+				                  {
+					                  Invocation.Fail(fmt::format("'{}' must be a number", Key));
+					                  return false;
+				                  }
+				                  OutValue = Node->get<float>();
+				                  return true;
+			                  };
 
-			    if (!ReadAngle("yaw", Yaw) || !ReadAngle("pitch", Pitch))
-			    {
-				    return;
-			    }
+			                  if (!ReadAngle("yaw", Yaw) || !ReadAngle("pitch", Pitch))
+			                  {
+				                  return;
+			                  }
 
-			    Context.SetCameraPose(Position, Yaw, Pitch);
+			                  Context.SetCameraPose(Position, Yaw, Pitch);
 
-			    // Echoed back so a caller can confirm what was applied; the camera clamps pitch, so the
-			    // requested and effective values can differ.
-			    const ICamera& Camera = *Context.Renderer->GetCamera();
-			    Invocation.GetResult()["position"] = ToJson(Camera.GetPosition());
-			    Invocation.GetResult()["forward"] = ToJson(Camera.GetForward());
-		    });
+			                  // Echoed back so a caller can confirm what was applied; the camera clamps pitch, so the
+			                  // requested and effective values can differ.
+			                  const ICamera& Camera = *Context.Renderer->GetCamera();
+			                  Invocation.GetResult()["position"] = ToJson(Camera.GetPosition());
+			                  Invocation.GetResult()["forward"] = ToJson(Camera.GetForward());
+		                  });
 
 #if LIME_WITH_EDITOR
-		Registry.Register(
-		    "scene.select", "Selects an entity by name, or clears the selection when name is omitted. Params: name",
-		    [](FAutomationInvocation& Invocation)
-		    {
-			    FEditorLayer* Editor = Invocation.GetContext().Editor;
-			    if (Editor == nullptr)
-			    {
-				    Invocation.Fail("The editor is not enabled");
-				    return;
-			    }
+		Registry.Register("scene.select", "Selects an entity by name, or clears the selection when name is omitted. Params: name",
+		                  [](FAutomationInvocation& Invocation)
+		                  {
+			                  FEditorLayer* Editor = Invocation.GetContext().Editor;
+			                  if (Editor == nullptr)
+			                  {
+				                  Invocation.Fail("The editor is not enabled");
+				                  return;
+			                  }
 
-			    const FScene* Scene = ResolveScene(Invocation);
-			    if (Scene == nullptr)
-			    {
-				    return;
-			    }
+			                  const FScene* Scene = ResolveScene(Invocation);
+			                  if (Scene == nullptr)
+			                  {
+				                  return;
+			                  }
 
-			    std::string Name;
-			    std::string Error;
-			    if (!Invocation.TryGetString("name", Name, Error))
-			    {
-				    Invocation.Fail(Error);
-				    return;
-			    }
+			                  std::string Name;
+			                  std::string Error;
+			                  if (!Invocation.TryGetString("name", Name, Error))
+			                  {
+				                  Invocation.Fail(Error);
+				                  return;
+			                  }
 
-			    if (Name.empty())
-			    {
-				    Editor->GetSelection().Clear();
-				    Invocation.GetResult()["selected"] = FJson();
-				    return;
-			    }
+			                  if (Name.empty())
+			                  {
+				                  Editor->GetSelection().Clear();
+				                  Invocation.GetResult()["selected"] = FJson();
+				                  return;
+			                  }
 
-			    const entt::entity Entity = Scene->FindByName(Name);
-			    if (Entity == entt::null)
-			    {
-				    Invocation.Fail(fmt::format("No entity named '{}'; call 'scene.list' for the available ones", Name));
-				    return;
-			    }
+			                  const entt::entity Entity = Scene->FindByName(Name);
+			                  if (Entity == entt::null)
+			                  {
+				                  Invocation.Fail(fmt::format("No entity named '{}'; call 'scene.list' for the available ones", Name));
+				                  return;
+			                  }
 
-			    Editor->GetSelection().Set(Entity);
-			    Invocation.GetResult()["selected"] = Name;
-			    Invocation.GetResult()["id"] = entt::to_integral(Entity);
-		    });
+			                  Editor->GetSelection().Set(Entity);
+			                  Invocation.GetResult()["selected"] = Name;
+			                  Invocation.GetResult()["id"] = entt::to_integral(Entity);
+		                  });
 #endif
 	}
 } // namespace Lime

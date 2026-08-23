@@ -1,11 +1,12 @@
 #include "Engine/Engine.h"
 
-#include "Asset/GltfImporter.h"
 #include "Core/Logging/LogManager.h"
 #include "Core/Math/MathUtils.h"
 #include "Platform/PlatformPaths.h"
 #include "Renderer/Passes/BlinnPhongForwardPass.h"
 #include "Renderer/RenderPassRegistry.h"
+
+#include "Asset/GltfImporter.h"
 #include "Scene/SceneBuilder.h"
 
 namespace Lime
@@ -201,8 +202,7 @@ namespace Lime
 		{
 			// Logged once, here, rather than from the render loop. The engine continues with an empty scene:
 			// a mistyped path should not stop the editor from opening.
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "Scene '{}' was not found in the project or Assets directory",
-			               Settings.ScenePath);
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "Scene '{}' was not found in the project or Assets directory", Settings.ScenePath);
 			CameraController.SyncFromCamera(Camera);
 			return;
 		}
@@ -262,10 +262,10 @@ namespace Lime
 
 		// Set every frame because the viewport can be resized at any time; a stale ratio shows as a
 		// horizontally stretched image.
-		const uint32 Width = Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetWidth()
-		                                                           : DeviceManager->GetBackBufferWidth();
-		const uint32 Height = Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetHeight()
-		                                                             : DeviceManager->GetBackBufferHeight();
+		const uint32 Width =
+		    Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetWidth() : DeviceManager->GetBackBufferWidth();
+		const uint32 Height =
+		    Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetHeight() : DeviceManager->GetBackBufferHeight();
 		if (Height > 0)
 		{
 			Camera.SetAspectRatio(static_cast<float>(Width) / static_cast<float>(Height));

@@ -1,9 +1,10 @@
 #include "Renderer/Passes/BlinnPhongForwardPass.h"
 
-#include "Camera/Camera.h"
 #include "Core/Logging/LogManager.h"
 #include "Renderer/RenderPassRegistry.h"
 #include "Renderer/Renderer.h"
+
+#include "Camera/Camera.h"
 #include "Scene/Scene.h"
 
 #include <nvrhi/utils.h>
@@ -305,8 +306,7 @@ namespace Lime
 				GraphicsState.viewport = ViewportState;
 				GraphicsState.addBindingSet(BindingSet);
 				GraphicsState.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(MeshGpu->VertexBuffer).setSlot(0));
-				GraphicsState.indexBuffer =
-				    nvrhi::IndexBufferBinding().setBuffer(MeshGpu->IndexBuffer).setFormat(nvrhi::Format::R32_UINT);
+				GraphicsState.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(MeshGpu->IndexBuffer).setFormat(nvrhi::Format::R32_UINT);
 
 				Context.CommandList->setGraphicsState(GraphicsState);
 
@@ -323,8 +323,9 @@ namespace Lime
 		// Registration replaces by name, so running twice is harmless.
 		static const bool bRegistered = []
 		{
-			FRenderPassRegistry::Get().Register("FBlinnPhongForwardPass", FBlinnPhongForwardPass::Priority,
-			                                    [] { return std::static_pointer_cast<IRenderPass>(std::make_shared<FBlinnPhongForwardPass>()); });
+			FRenderPassRegistry::Get().Register(
+			    "FBlinnPhongForwardPass", FBlinnPhongForwardPass::Priority,
+			    [] { return std::static_pointer_cast<IRenderPass>(std::make_shared<FBlinnPhongForwardPass>()); });
 			return true;
 		}();
 		LIME_UNUSED(bRegistered);

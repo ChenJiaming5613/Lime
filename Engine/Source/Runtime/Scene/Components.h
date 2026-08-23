@@ -12,7 +12,6 @@
 #include "Core/Math/Vector.h"
 
 #include <entt/entity/registry.hpp>
-
 #include <string>
 #include <vector>
 

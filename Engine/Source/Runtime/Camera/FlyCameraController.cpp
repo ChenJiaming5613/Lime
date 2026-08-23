@@ -1,8 +1,9 @@
 #include "Camera/FlyCameraController.h"
 
-#include "Camera/PerspectiveCamera.h"
 #include "Platform/Input.h"
 #include "Platform/Window.h"
+
+#include "Camera/PerspectiveCamera.h"
 
 #include <cmath>
 
@@ -48,8 +49,8 @@ namespace Lime
 		// Speed changes persist after the camera stops flying, so a chosen speed is not lost between drags.
 		if (Input.ScrollDelta != 0.0f)
 		{
-			Result.MoveSpeed = Clamp(Motion.MoveSpeed * std::pow(Settings.SpeedScrollFactor, Input.ScrollDelta),
-			                         Settings.MinMoveSpeed, Settings.MaxMoveSpeed);
+			Result.MoveSpeed = Clamp(Motion.MoveSpeed * std::pow(Settings.SpeedScrollFactor, Input.ScrollDelta), Settings.MinMoveSpeed,
+			                         Settings.MaxMoveSpeed);
 		}
 
 		// Look is driven by pixels, not by time: the view should follow the hand one to one regardless of

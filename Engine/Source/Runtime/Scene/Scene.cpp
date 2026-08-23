@@ -200,7 +200,8 @@ namespace Lime
 	{
 		FBoundingBox Result;
 
-		for (const auto [Entity, MeshRenderer, World] : Registry.view<const FMeshRendererComponent, const FWorldTransformComponent>().each())
+		for (const auto [Entity, MeshRenderer, World] :
+		     Registry.view<const FMeshRendererComponent, const FWorldTransformComponent>().each())
 		{
 			if (!MeshRenderer.bVisible || MeshRenderer.MeshIndex >= Meshes.size())
 			{

@@ -3,6 +3,7 @@
 #include "Editor/EditorSelection.h"
 #include "Editor/PropertyDrawer.h"
 #include "Renderer/Renderer.h"
+
 #include "Scene/Scene.h"
 
 #include <imgui.h>
@@ -30,8 +31,8 @@ namespace Lime
 				{
 					ImGui::Text("Translation  %.3f, %.3f, %.3f", Transform->Translation.X, Transform->Translation.Y,
 					            Transform->Translation.Z);
-					ImGui::Text("Rotation     %.3f, %.3f, %.3f, %.3f", Transform->Rotation.X, Transform->Rotation.Y,
-					            Transform->Rotation.Z, Transform->Rotation.W);
+					ImGui::Text("Rotation     %.3f, %.3f, %.3f, %.3f", Transform->Rotation.X, Transform->Rotation.Y, Transform->Rotation.Z,
+					            Transform->Rotation.W);
 					ImGui::Text("Scale        %.3f, %.3f, %.3f", Transform->Scale.X, Transform->Scale.Y, Transform->Scale.Z);
 				}
 			}

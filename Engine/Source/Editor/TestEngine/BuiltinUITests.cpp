@@ -10,9 +10,8 @@
 // of setting the underlying state, because driving the real path is the whole point: a menu entry
 // wired to the wrong panel passes a state based check and fails this one.
 
-#include "Editor/TestEngine/UITestRegistry.h"
-
 #include "Editor/EditorSettings.h"
+#include "Editor/TestEngine/UITestRegistry.h"
 
 #include <imgui.h>
 // FindWindowByName lives in the internal API. Checking window state directly is what makes these

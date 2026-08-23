@@ -132,8 +132,7 @@ namespace Lime
 			return false;
 		}
 
-		Framebuffer = Device->createFramebuffer(
-		    nvrhi::FramebufferDesc().addColorAttachment(Texture).setDepthAttachment(DepthTexture));
+		Framebuffer = Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(Texture).setDepthAttachment(DepthTexture));
 		if (Framebuffer == nullptr)
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createFramebuffer failed for the viewport target");

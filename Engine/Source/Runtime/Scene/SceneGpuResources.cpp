@@ -1,6 +1,7 @@
 #include "Scene/SceneGpuResources.h"
 
 #include "Core/Logging/LogManager.h"
+
 #include "Scene/Scene.h"
 
 #include <array>
@@ -86,19 +87,19 @@ namespace Lime
 
 			const size_t VertexBytes = Source.Vertices.size() * sizeof(FMeshVertex);
 			Target.VertexBuffer = Device->createBuffer(nvrhi::BufferDesc()
-			                                              .setByteSize(VertexBytes)
-			                                              .setIsVertexBuffer(true)
-			                                              .setInitialState(nvrhi::ResourceStates::VertexBuffer)
-			                                              .setKeepInitialState(true)
-			                                              .setDebugName("SceneMeshVertices"));
+			                                               .setByteSize(VertexBytes)
+			                                               .setIsVertexBuffer(true)
+			                                               .setInitialState(nvrhi::ResourceStates::VertexBuffer)
+			                                               .setKeepInitialState(true)
+			                                               .setDebugName("SceneMeshVertices"));
 
 			const size_t IndexBytes = Source.Indices.size() * sizeof(uint32);
 			Target.IndexBuffer = Device->createBuffer(nvrhi::BufferDesc()
-			                                             .setByteSize(IndexBytes)
-			                                             .setIsIndexBuffer(true)
-			                                             .setInitialState(nvrhi::ResourceStates::IndexBuffer)
-			                                             .setKeepInitialState(true)
-			                                             .setDebugName("SceneMeshIndices"));
+			                                              .setByteSize(IndexBytes)
+			                                              .setIsIndexBuffer(true)
+			                                              .setInitialState(nvrhi::ResourceStates::IndexBuffer)
+			                                              .setKeepInitialState(true)
+			                                              .setDebugName("SceneMeshIndices"));
 
 			if (Target.VertexBuffer == nullptr || Target.IndexBuffer == nullptr)
 			{
@@ -162,7 +163,8 @@ namespace Lime
 		for (SizeType Index = 0; Index < Materials.size(); ++Index)
 		{
 			const int32 ImageIndex = Materials[Index].BaseColorImage;
-			if (ImageIndex >= 0 && static_cast<SizeType>(ImageIndex) < Textures.size() && Textures[static_cast<SizeType>(ImageIndex)] != nullptr)
+			if (ImageIndex >= 0 && static_cast<SizeType>(ImageIndex) < Textures.size() &&
+			    Textures[static_cast<SizeType>(ImageIndex)] != nullptr)
 			{
 				MaterialTextures[Index] = Textures[static_cast<SizeType>(ImageIndex)].Get();
 			}

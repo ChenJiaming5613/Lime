@@ -12,6 +12,7 @@
 
 #include "Core/Reflection/Reflection.h"
 #include "Renderer/RenderTypes.h"
+
 #include "Scene/SceneGpuResources.h"
 
 namespace Lime

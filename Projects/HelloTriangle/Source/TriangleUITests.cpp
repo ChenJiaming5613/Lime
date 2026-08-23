@@ -14,10 +14,10 @@
 
 #if LIME_WITH_IMGUI_TEST_ENGINE
 
-#include "TrianglePass.h"
-
 #include "Core/Reflection/Reflection.h"
 #include "Editor/TestEngine/UITestRegistry.h"
+
+#include "TrianglePass.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>

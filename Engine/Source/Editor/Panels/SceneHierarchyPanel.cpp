@@ -1,6 +1,7 @@
 #include "Editor/Panels/SceneHierarchyPanel.h"
 
 #include "Editor/EditorSelection.h"
+
 #include "Scene/Scene.h"
 
 #include <imgui.h>
@@ -20,9 +21,9 @@ namespace Lime
 				return true;
 			}
 
-			const auto Found = std::search(Haystack.begin(), Haystack.end(), Needle.begin(), Needle.end(),
-			                               [](char A, char B)
-			                               { return std::tolower(static_cast<unsigned char>(A)) == std::tolower(static_cast<unsigned char>(B)); });
+			const auto Found =
+			    std::search(Haystack.begin(), Haystack.end(), Needle.begin(), Needle.end(), [](char A, char B)
+				            { return std::tolower(static_cast<unsigned char>(A)) == std::tolower(static_cast<unsigned char>(B)); });
 			return Found != Haystack.end();
 		}
 	} // namespace

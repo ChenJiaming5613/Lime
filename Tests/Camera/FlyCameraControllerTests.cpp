@@ -188,8 +188,7 @@ TEST_CASE("Movement keys travel along the expected axes", "[Camera][FlyCamera]")
 		Frame.bForward = true;
 		Frame.bSprint = true;
 
-		REQUIRE(Step(Motion, Frame, Settings).Position.Z ==
-		        Approx(Motion.MoveSpeed * Settings.SprintMultiplier).margin(1.0e-3f));
+		REQUIRE(Step(Motion, Frame, Settings).Position.Z == Approx(Motion.MoveSpeed * Settings.SprintMultiplier).margin(1.0e-3f));
 	}
 
 	SECTION("Movement follows where the camera is aimed")

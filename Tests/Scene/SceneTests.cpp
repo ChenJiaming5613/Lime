@@ -183,8 +183,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Entity).Translation = { 1.0f, 2.0f, 3.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Entity).GetWorldPosition(),
-		                      FVector3{ 1.0f, 2.0f, 3.0f }));
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Entity).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }));
 	}
 
 	SECTION("A child follows its parent's translation")
@@ -197,8 +196,8 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Child).Translation = { 0.0f, 5.0f, 0.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(),
-		                      FVector3{ 10.0f, 5.0f, 0.0f }, 1.0e-5f));
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(), FVector3{ 10.0f, 5.0f, 0.0f },
+		                      1.0e-5f));
 	}
 
 	SECTION("A parent's rotation moves the child around it")
@@ -214,8 +213,8 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Child).Translation = { 1.0f, 0.0f, 0.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(),
-		                      FVector3{ 0.0f, 0.0f, -1.0f }, 1.0e-4f));
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(), FVector3{ 0.0f, 0.0f, -1.0f },
+		                      1.0e-4f));
 	}
 
 	SECTION("A parent's scale scales the child's offset")
@@ -244,8 +243,8 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(C).Translation = { 0.0f, 0.0f, 3.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(C).GetWorldPosition(),
-		                      FVector3{ 1.0f, 2.0f, 3.0f }, 1.0e-5f));
+		REQUIRE(
+		    IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(C).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }, 1.0e-5f));
 	}
 
 	SECTION("A deep hierarchy does not overflow the stack")
@@ -359,8 +358,7 @@ TEST_CASE("Scene statistics and bounds", "[Scene]")
 		// camera would then be placed too close and clip the model.
 		const entt::entity Entity = Scene.CreateEntity("Cube");
 		Scene.GetRegistry().emplace<FMeshRendererComponent>(Entity, 0u, true);
-		Scene.GetRegistry().get<FTransformComponent>(Entity).Rotation =
-		    FQuat::FromAxisAngle(FVector3::UnitY(), DegreesToRadians(45.0f));
+		Scene.GetRegistry().get<FTransformComponent>(Entity).Rotation = FQuat::FromAxisAngle(FVector3::UnitY(), DegreesToRadians(45.0f));
 		Scene.UpdateTransforms();
 
 		const FBoundingBox Bounds = Scene.ComputeWorldBounds();

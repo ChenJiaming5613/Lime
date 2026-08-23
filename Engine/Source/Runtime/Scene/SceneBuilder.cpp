@@ -1,6 +1,7 @@
 #include "Scene/SceneBuilder.h"
 
 #include "Core/Logging/LogManager.h"
+
 #include "Scene/Scene.h"
 
 #include <vector>

@@ -25,8 +25,7 @@ namespace
 	// runner happens to use.
 	std::filesystem::path GetSampleRoot()
 	{
-		return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "Assets" / "glTF-Sample-Assets" /
-		       "Models";
+		return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "Assets" / "glTF-Sample-Assets" / "Models";
 	}
 
 	// Returns an empty path when the model is absent, which the caller turns into a skip.

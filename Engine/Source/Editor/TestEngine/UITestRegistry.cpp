@@ -27,12 +27,8 @@ namespace Lime
 			return;
 		}
 
-		const auto Existing = std::find_if(Registrations.begin(), Registrations.end(),
-		                                   [&Registration](const FUITestRegistration& Candidate)
-		                                   {
-			                                   return Candidate.Category == Registration.Category &&
-			                                          Candidate.Name == Registration.Name;
-		                                   });
+		const auto Existing = std::find_if(Registrations.begin(), Registrations.end(), [&Registration](const FUITestRegistration& Candidate)
+		                                   { return Candidate.Category == Registration.Category && Candidate.Name == Registration.Name; });
 
 		// Replacing rather than appending lets a project override a built-in test, and keeps the
 		// name unique so the automation API can address a test unambiguously.

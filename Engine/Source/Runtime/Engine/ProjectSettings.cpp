@@ -170,10 +170,9 @@ namespace Lime
 		return ProjectName == Other.ProjectName && WindowTitle == Other.WindowTitle && WindowWidth == Other.WindowWidth &&
 		       WindowHeight == Other.WindowHeight && Backend == Other.Backend && BackBufferCount == Other.BackBufferCount &&
 		       bVSync == Other.bVSync && Validation == Other.Validation && bEnableEditor == Other.bEnableEditor &&
-		       bEnableAutomation == Other.bEnableAutomation && AutomationPort == Other.AutomationPort &&
-		       ScenePath == Other.ScenePath && CameraFieldOfView == Other.CameraFieldOfView &&
-		       CameraMoveSpeed == Other.CameraMoveSpeed && LightIntensity == Other.LightIntensity &&
-		       AmbientStrength == Other.AmbientStrength;
+		       bEnableAutomation == Other.bEnableAutomation && AutomationPort == Other.AutomationPort && ScenePath == Other.ScenePath &&
+		       CameraFieldOfView == Other.CameraFieldOfView && CameraMoveSpeed == Other.CameraMoveSpeed &&
+		       LightIntensity == Other.LightIntensity && AmbientStrength == Other.AmbientStrength;
 	}
 
 	std::filesystem::path FProjectSettings::ResolveSettingsPath()
@@ -294,8 +293,8 @@ namespace Lime
 
 		if (const FJson* Scene = FJsonUtils::Find(Root, "scene"))
 		{
-			FJsonUtils::WarnUnknownKeys(
-			    *Scene, { "gltf", "cameraFieldOfView", "cameraMoveSpeed", "lightIntensity", "ambientStrength" }, "scene", LogContext);
+			FJsonUtils::WarnUnknownKeys(*Scene, { "gltf", "cameraFieldOfView", "cameraMoveSpeed", "lightIntensity", "ambientStrength" },
+			                            "scene", LogContext);
 
 			ScenePath = FJsonUtils::ReadOr<std::string>(Root, "scene.gltf", ScenePath, LogContext);
 
@@ -303,8 +302,7 @@ namespace Lime
 			// should still start, and a silently corrected value is easier to diagnose than a refusal to run.
 			CameraFieldOfView =
 			    Clamp(FJsonUtils::ReadOr<float>(Root, "scene.cameraFieldOfView", CameraFieldOfView, LogContext), 1.0f, 179.0f);
-			CameraMoveSpeed =
-			    Clamp(FJsonUtils::ReadOr<float>(Root, "scene.cameraMoveSpeed", CameraMoveSpeed, LogContext), 0.01f, 1000.0f);
+			CameraMoveSpeed = Clamp(FJsonUtils::ReadOr<float>(Root, "scene.cameraMoveSpeed", CameraMoveSpeed, LogContext), 0.01f, 1000.0f);
 			LightIntensity = Clamp(FJsonUtils::ReadOr<float>(Root, "scene.lightIntensity", LightIntensity, LogContext), 0.0f, 100.0f);
 			AmbientStrength = Clamp(FJsonUtils::ReadOr<float>(Root, "scene.ambientStrength", AmbientStrength, LogContext), 0.0f, 1.0f);
 		}
@@ -443,8 +441,7 @@ namespace Lime
 		if (!ReadString("window.title", Candidate.WindowTitle) || !ReadUInt("window.width", 1, MaxWindowDimension, Candidate.WindowWidth) ||
 		    !ReadUInt("window.height", 1, MaxWindowDimension, Candidate.WindowHeight) ||
 		    !ReadUInt("rhi.backBufferCount", 2, 8, Candidate.BackBufferCount) || !ReadBool("rhi.vsync", Candidate.bVSync) ||
-		    !ReadBool("editor.enabled", Candidate.bEnableEditor) ||
-		    !ReadBool("automation.enabled", Candidate.bEnableAutomation) ||
+		    !ReadBool("editor.enabled", Candidate.bEnableEditor) || !ReadBool("automation.enabled", Candidate.bEnableAutomation) ||
 		    !ReadUInt("automation.port", 0, 65535, Candidate.AutomationPort) || !ReadString("scene.gltf", Candidate.ScenePath) ||
 		    !ReadFloat("scene.cameraFieldOfView", 1.0f, 179.0f, Candidate.CameraFieldOfView) ||
 		    !ReadFloat("scene.cameraMoveSpeed", 0.01f, 1000.0f, Candidate.CameraMoveSpeed) ||

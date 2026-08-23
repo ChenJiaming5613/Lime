@@ -7,9 +7,10 @@
 
 #pragma once
 
-#include "Camera/Camera.h"
 #include "Core/Math/MathUtils.h"
 #include "Core/Math/Quaternion.h"
+
+#include "Camera/Camera.h"
 
 namespace Lime
 {

@@ -86,5 +86,5 @@ namespace Lime
 #define LIME_REGISTER_UI_TEST(Category, Name, TestFunction)                                                                                \
 	namespace                                                                                                                              \
 	{                                                                                                                                      \
-		const bool LIME_CONCAT(bLimeRegisteredUITest_, __COUNTER__) = ::Lime::RegisterUITest((Category), (Name), (TestFunction));           \
+		const bool LIME_CONCAT(bLimeRegisteredUITest_, __COUNTER__) = ::Lime::RegisterUITest((Category), (Name), (TestFunction));          \
 	}

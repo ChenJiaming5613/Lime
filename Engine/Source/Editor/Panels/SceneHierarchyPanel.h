@@ -9,7 +9,6 @@
 #include "Editor/Panels/EditorPanel.h"
 
 #include <entt/entity/entity.hpp>
-
 #include <string>
 
 namespace Lime

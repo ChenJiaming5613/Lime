@@ -136,9 +136,8 @@ TEST_CASE("Matrix inverse", "[Math][Matrix]")
 	{
 		// Non uniform scale on purpose: a rigid transform shortcut would pass a uniform case and fail
 		// here, and glTF nodes routinely carry non uniform scale.
-		const FMatrix4x4 Transform =
-		    Multiply(FMatrix4x4::Translation({ 3.0f, -2.0f, 5.0f }),
-		             Multiply(FMatrix4x4::RotationY(0.7f), FMatrix4x4::Scale({ 2.0f, 0.5f, 3.0f })));
+		const FMatrix4x4 Transform = Multiply(FMatrix4x4::Translation({ 3.0f, -2.0f, 5.0f }),
+		                                      Multiply(FMatrix4x4::RotationY(0.7f), FMatrix4x4::Scale({ 2.0f, 0.5f, 3.0f })));
 
 		bool bInvertible = false;
 		const FMatrix4x4 Inverse = Transform.GetInverse(&bInvertible);
@@ -245,8 +244,7 @@ TEST_CASE("MakeTransform composes in glTF order", "[Math][Quaternion]")
 	{
 		// Wrong order shows up as a model drifting away from its intended position as it rotates,
 		// which is why the expected value is checked against the explicit composition.
-		const FMatrix4x4 Expected =
-		    Multiply(FMatrix4x4::Translation(Translation), Multiply(Rotation.ToMatrix(), FMatrix4x4::Scale(Scale)));
+		const FMatrix4x4 Expected = Multiply(FMatrix4x4::Translation(Translation), Multiply(Rotation.ToMatrix(), FMatrix4x4::Scale(Scale)));
 		REQUIRE(IsNearlyEqual(Transform, Expected, 1.0e-5f));
 	}
 
@@ -282,4 +280,3 @@ TEST_CASE("Normal matrix keeps normals perpendicular under non uniform scale", "
 		REQUIRE(Dot(Tangent.GetNormalized(), Wrong.GetNormalized()) != Approx(0.0f).margin(1.0e-3f));
 	}
 }
-
