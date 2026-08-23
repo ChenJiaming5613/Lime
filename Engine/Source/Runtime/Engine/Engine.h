@@ -2,12 +2,15 @@
 
 #pragma once
 
+#include "Camera/FlyCameraController.h"
+#include "Camera/PerspectiveCamera.h"
 #include "Engine/ApplicationInterface.h"
 #include "Engine/ProjectSettings.h"
 #include "Platform/PlatformTime.h"
 #include "Platform/Window.h"
 #include "RHI/DeviceManager.h"
 #include "Renderer/Renderer.h"
+#include "Scene/Scene.h"
 
 #include <memory>
 
@@ -41,6 +44,10 @@ namespace Lime
 		const FProjectSettings& GetSettings() const { return Settings; }
 		const FTimer& GetTimer() const { return Timer; }
 
+		FScene& GetScene() { return Scene; }
+		FPerspectiveCamera& GetCamera() { return Camera; }
+		FFlyCameraController& GetCameraController() { return CameraController; }
+
 #if LIME_WITH_EDITOR
 		// Null when the editor is disabled through settings or --no-editor.
 		FEditorLayer* GetEditor() { return bEditorEnabled ? &Editor : nullptr; }
@@ -50,6 +57,14 @@ namespace Lime
 		bool Initialize();
 		void Shutdown();
 		void Tick();
+
+		// Loads the configured glTF, or leaves the scene empty when none is set. Never fails the startup:
+		// a bad path is reported once here and the engine continues with an empty scene, which is far more
+		// useful than refusing to open a window.
+		void LoadConfiguredScene();
+		// Advances the fly camera. Only allows flight to start when the cursor is over the viewport, so a
+		// right click on an editor panel does not take over the view.
+		void UpdateCamera(float DeltaSeconds);
 
 #if LIME_WITH_AUTOMATION
 		// Builds the command context, including the delegates that reach back into the engine.
@@ -70,6 +85,10 @@ namespace Lime
 		std::unique_ptr<IDeviceManager> DeviceManager;
 		FRenderer Renderer;
 		FTimer Timer;
+		// The scene outlives the renderer's use of it, which is what lets the renderer hold a bare pointer.
+		FScene Scene;
+		FPerspectiveCamera Camera;
+		FFlyCameraController CameraController;
 #if LIME_WITH_EDITOR
 		FEditorLayer Editor;
 #endif

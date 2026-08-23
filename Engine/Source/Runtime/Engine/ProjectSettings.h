@@ -47,6 +47,21 @@ namespace Lime
 		bool bEnableAutomation = LIME_DEBUG != 0;
 		uint32 AutomationPort = 5613;
 
+		// glTF file to load at startup. Empty means the project runs without a scene, which is a valid
+		// configuration rather than an error: a project may draw entirely through its own passes.
+		//
+		// Relative paths are resolved against the project directory and then the shared Assets directory,
+		// so a settings file can reference the sample assets without an absolute path.
+		std::string ScenePath;
+		// Vertical field of view in degrees. Degrees rather than radians because this is hand edited.
+		float CameraFieldOfView = 60.0f;
+		// Units per second the fly camera moves at before any scroll adjustment.
+		float CameraMoveSpeed = 3.0f;
+		// Multiplies the directional light. Zero leaves the scene lit by ambient alone.
+		float LightIntensity = 3.0f;
+		// Flat term standing in for bounced light, so faces turned away from the light are not pure black.
+		float AmbientStrength = 0.25f;
+
 		// <exe>/ProjectSettings.json, falling back to the source tree during development.
 		static std::filesystem::path ResolveSettingsPath();
 		// The file inside the project source tree, which is the one worth editing: the copy beside the

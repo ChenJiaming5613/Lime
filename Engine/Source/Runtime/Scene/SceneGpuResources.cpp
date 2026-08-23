@@ -1,22 +1,12 @@
 #include "Scene/SceneGpuResources.h"
 
 #include "Core/Logging/LogManager.h"
-#include "Renderer/RenderTypes.h"
 #include "Scene/Scene.h"
 
 #include <array>
 
 namespace Lime
 {
-	// The importer produces its own vertex struct so that LimeAsset needs no renderer dependency. The two
-	// must stay byte compatible, since mesh data is uploaded straight from the imported array without a
-	// conversion pass. Checked here, where the two meet.
-	static_assert(sizeof(FMeshVertex) == sizeof(FStaticMeshVertex),
-	              "FMeshVertex and FStaticMeshVertex must match so imported data can be uploaded directly");
-	static_assert(offsetof(FMeshVertex, Position) == offsetof(FStaticMeshVertex, Position), "Vertex position offset mismatch");
-	static_assert(offsetof(FMeshVertex, Normal) == offsetof(FStaticMeshVertex, Normal), "Vertex normal offset mismatch");
-	static_assert(offsetof(FMeshVertex, TexCoord) == offsetof(FStaticMeshVertex, TexCoord), "Vertex texcoord offset mismatch");
-
 	FSceneGpuResources::~FSceneGpuResources()
 	{
 		Release();

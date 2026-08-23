@@ -1,8 +1,8 @@
 # LimeRuntime: engine loop, project settings and the optional application hooks.
 
-# LimeScene brings LimeAsset, LimeCamera and LimeRenderer with it as public dependencies. tinygltf is not
+# LimeRenderer brings LimeScene, LimeCamera and LimeRHI with it as public dependencies. tinygltf is not
 # listed: it is a private detail of LimeAsset, which owns glTF parsing.
-set(RuntimeDeps LimeScene)
+set(RuntimeDeps LimeRenderer)
 if(LIME_BUILD_EDITOR)
 	list(APPEND RuntimeDeps LimeEditor)
 endif()

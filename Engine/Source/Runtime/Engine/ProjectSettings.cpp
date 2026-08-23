@@ -2,6 +2,7 @@
 
 #include "Core/Json/JsonUtils.h"
 #include "Core/Logging/LogManager.h"
+#include "Core/Math/MathUtils.h"
 #include "Platform/PlatformPaths.h"
 
 #include <spdlog/fmt/fmt.h>
@@ -169,7 +170,10 @@ namespace Lime
 		return ProjectName == Other.ProjectName && WindowTitle == Other.WindowTitle && WindowWidth == Other.WindowWidth &&
 		       WindowHeight == Other.WindowHeight && Backend == Other.Backend && BackBufferCount == Other.BackBufferCount &&
 		       bVSync == Other.bVSync && Validation == Other.Validation && bEnableEditor == Other.bEnableEditor &&
-		       bEnableAutomation == Other.bEnableAutomation && AutomationPort == Other.AutomationPort;
+		       bEnableAutomation == Other.bEnableAutomation && AutomationPort == Other.AutomationPort &&
+		       ScenePath == Other.ScenePath && CameraFieldOfView == Other.CameraFieldOfView &&
+		       CameraMoveSpeed == Other.CameraMoveSpeed && LightIntensity == Other.LightIntensity &&
+		       AmbientStrength == Other.AmbientStrength;
 	}
 
 	std::filesystem::path FProjectSettings::ResolveSettingsPath()
@@ -210,7 +214,7 @@ namespace Lime
 			LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "{}: unsupported version {}; parsing as version 1", LogContext, Version);
 		}
 
-		FJsonUtils::WarnUnknownKeys(Root, { "version", "name", "window", "rhi", "editor", "automation" }, {}, LogContext);
+		FJsonUtils::WarnUnknownKeys(Root, { "version", "name", "window", "rhi", "editor", "automation", "scene" }, {}, LogContext);
 
 		ProjectName = FJsonUtils::ReadOr<std::string>(Root, "name", ProjectName, LogContext);
 		// The window title defaults to the project name so the field can be omitted.
@@ -288,6 +292,23 @@ namespace Lime
 			}
 		}
 
+		if (const FJson* Scene = FJsonUtils::Find(Root, "scene"))
+		{
+			FJsonUtils::WarnUnknownKeys(
+			    *Scene, { "gltf", "cameraFieldOfView", "cameraMoveSpeed", "lightIntensity", "ambientStrength" }, "scene", LogContext);
+
+			ScenePath = FJsonUtils::ReadOr<std::string>(Root, "scene.gltf", ScenePath, LogContext);
+
+			// Each value is clamped rather than rejected: a hand edited file carrying an out of range number
+			// should still start, and a silently corrected value is easier to diagnose than a refusal to run.
+			CameraFieldOfView =
+			    Clamp(FJsonUtils::ReadOr<float>(Root, "scene.cameraFieldOfView", CameraFieldOfView, LogContext), 1.0f, 179.0f);
+			CameraMoveSpeed =
+			    Clamp(FJsonUtils::ReadOr<float>(Root, "scene.cameraMoveSpeed", CameraMoveSpeed, LogContext), 0.01f, 1000.0f);
+			LightIntensity = Clamp(FJsonUtils::ReadOr<float>(Root, "scene.lightIntensity", LightIntensity, LogContext), 0.0f, 100.0f);
+			AmbientStrength = Clamp(FJsonUtils::ReadOr<float>(Root, "scene.ambientStrength", AmbientStrength, LogContext), 0.0f, 1.0f);
+		}
+
 		return true;
 	}
 
@@ -315,6 +336,13 @@ namespace Lime
 		FJson& Automation = Root["automation"] = FJson::object();
 		Automation["enabled"] = bEnableAutomation;
 		Automation["port"] = AutomationPort;
+
+		FJson& Scene = Root["scene"] = FJson::object();
+		Scene["gltf"] = ScenePath;
+		Scene["cameraFieldOfView"] = CameraFieldOfView;
+		Scene["cameraMoveSpeed"] = CameraMoveSpeed;
+		Scene["lightIntensity"] = LightIntensity;
+		Scene["ambientStrength"] = AmbientStrength;
 
 		return Root;
 	}
@@ -371,6 +399,31 @@ namespace Lime
 			return true;
 		};
 
+		const auto ReadFloat = [&Json, &OutError](const char* Path, float Minimum, float Maximum, float& OutValue)
+		{
+			const FJson* Node = FJsonUtils::Find(Json, Path);
+			if (Node == nullptr)
+			{
+				return true;
+			}
+			// is_number rather than is_number_float, so an integer literal such as 60 is accepted where a
+			// float is expected. Requiring 60.0 would be a needless trap in a hand edited file.
+			if (!Node->is_number())
+			{
+				OutError = fmt::format("'{}' must be a number", Path);
+				return false;
+			}
+
+			const double Parsed = Node->get<double>();
+			if (Parsed < static_cast<double>(Minimum) || Parsed > static_cast<double>(Maximum))
+			{
+				OutError = fmt::format("'{}' must be between {} and {}", Path, Minimum, Maximum);
+				return false;
+			}
+			OutValue = static_cast<float>(Parsed);
+			return true;
+		};
+
 		const auto ReadString = [&Json, &OutError](const char* Path, std::string& OutValue)
 		{
 			const FJson* Node = FJsonUtils::Find(Json, Path);
@@ -392,7 +445,11 @@ namespace Lime
 		    !ReadUInt("rhi.backBufferCount", 2, 8, Candidate.BackBufferCount) || !ReadBool("rhi.vsync", Candidate.bVSync) ||
 		    !ReadBool("editor.enabled", Candidate.bEnableEditor) ||
 		    !ReadBool("automation.enabled", Candidate.bEnableAutomation) ||
-		    !ReadUInt("automation.port", 0, 65535, Candidate.AutomationPort))
+		    !ReadUInt("automation.port", 0, 65535, Candidate.AutomationPort) || !ReadString("scene.gltf", Candidate.ScenePath) ||
+		    !ReadFloat("scene.cameraFieldOfView", 1.0f, 179.0f, Candidate.CameraFieldOfView) ||
+		    !ReadFloat("scene.cameraMoveSpeed", 0.01f, 1000.0f, Candidate.CameraMoveSpeed) ||
+		    !ReadFloat("scene.lightIntensity", 0.0f, 100.0f, Candidate.LightIntensity) ||
+		    !ReadFloat("scene.ambientStrength", 0.0f, 1.0f, Candidate.AmbientStrength))
 		{
 			return false;
 		}
@@ -541,5 +598,12 @@ namespace Lime
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_CORE, "Project '{}' | {} | {}x{} | vsync {} | validation {} | editor {} | automation {}",
 		              ProjectName, Lime::ToString(Backend), WindowWidth, WindowHeight, bVSync ? "on" : "off",
 		              IsValidationEnabled() ? "on" : "off", bEnableEditor ? "on" : "off", bEnableAutomation ? "on" : "off");
+
+		// Only mentioned when configured. A project with no scene is a normal setup, so an empty line here
+		// would be noise on every start.
+		if (!ScenePath.empty())
+		{
+			LIME_LOG_INFO(LIME_LOG_CATEGORY_CORE, "Scene '{}' | fov {} | move speed {}", ScenePath, CameraFieldOfView, CameraMoveSpeed);
+		}
 	}
 } // namespace Lime

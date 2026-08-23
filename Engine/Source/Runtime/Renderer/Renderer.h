@@ -80,6 +80,10 @@ namespace Lime
 		void SetScene(FScene* InScene) { Scene = InScene; }
 		FScene* GetScene() const { return Scene; }
 
+		// The camera scene passes render through. Null is valid: a pass that needs one skips its work.
+		void SetCamera(ICamera* InCamera) { Camera = InCamera; }
+		ICamera* GetCamera() const { return Camera; }
+
 		// Invoked after the viewport target is recreated, so the editor can rebind its ImGui texture.
 		using FViewportResizedDelegate = std::function<void(FViewportTarget&)>;
 		void SetViewportResizedDelegate(FViewportResizedDelegate Delegate) { ViewportResizedDelegate = std::move(Delegate); }
@@ -105,6 +109,8 @@ namespace Lime
 		FFrameContext EditorUIContext;
 		// Not owned: the engine holds the scene and outlives the renderer's use of it.
 		FScene* Scene = nullptr;
+		// Not owned either, for the same reason.
+		ICamera* Camera = nullptr;
 		FVector4 ClearColor{ 0.06f, 0.07f, 0.09f, 1.0f };
 		// Tracked separately: the two stages can target different framebuffers.
 		nvrhi::IFramebuffer* LastSceneFramebuffer = nullptr;

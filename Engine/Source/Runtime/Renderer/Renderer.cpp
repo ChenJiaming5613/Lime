@@ -219,6 +219,7 @@ namespace Lime
 		SceneContext.Framebuffer = SceneFramebuffer;
 		SceneContext.CommandList = CommandList;
 		SceneContext.Scene = Scene;
+		SceneContext.Camera = Camera;
 		SceneContext.bIsOffscreen = bOffscreenEnabled;
 		SceneContext.ViewportWidth = bOffscreenEnabled ? ViewportTarget.GetWidth() : DeviceManager->GetBackBufferWidth();
 		SceneContext.ViewportHeight = bOffscreenEnabled ? ViewportTarget.GetHeight() : DeviceManager->GetBackBufferHeight();

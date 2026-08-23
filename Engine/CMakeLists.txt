@@ -11,12 +11,13 @@ add_subdirectory(Source/Runtime/Core)
 add_subdirectory(Source/Runtime/Platform)
 # Cameras need input from Platform but nothing graphics related, so they come before the RHI.
 add_subdirectory(Source/Runtime/Camera)
-add_subdirectory(Source/Runtime/RHI)
-add_subdirectory(Source/Runtime/Renderer)
 # Asset import needs only Core, so it can be built before anything graphics related.
 add_subdirectory(Source/Runtime/Asset)
-# Needs both LimeAsset and LimeRenderer, so it comes after them.
+add_subdirectory(Source/Runtime/RHI)
+# The scene uploads through the RHI but knows nothing about passes, so it precedes the renderer.
 add_subdirectory(Source/Runtime/Scene)
+# Its built-in passes draw a scene through a camera, so it comes after both.
+add_subdirectory(Source/Runtime/Renderer)
 
 if(LIME_BUILD_EDITOR)
 	add_subdirectory(Source/Editor)

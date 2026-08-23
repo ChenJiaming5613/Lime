@@ -1,8 +1,8 @@
-# LimeScene: the entity component scene, its GPU resources and the passes that draw it.
+# LimeScene: the entity component scene and its GPU resources.
 #
-# Depends on LimeAsset for the imported data and on LimeRenderer for the device and pass interfaces. The
-# scene pass lives here rather than in LimeRenderer, which would otherwise have to depend on this module
-# and close a cycle.
+# Depends on LimeAsset for the imported data and on LimeRHI for the device types it uploads through, but
+# deliberately not on LimeRenderer: the passes that draw a scene live in LimeRenderer, so a dependency in
+# this direction would close a cycle.
 
 lime_add_module(
 	NAME LimeScene
@@ -16,8 +16,7 @@ lime_add_module(
 		SceneGpuResources.cpp
 	PUBLIC_DEPS
 		LimeAsset
-		LimeCamera
-		LimeRenderer
+		LimeRHI
 		entt
 	FOLDER "Engine/Runtime"
 )

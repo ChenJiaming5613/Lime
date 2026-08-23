@@ -71,6 +71,72 @@ namespace Lime
 		return Directory;
 	}
 
+	const std::filesystem::path& FPlatformPaths::GetAssetsDirectory()
+	{
+		static const std::filesystem::path Directory = []
+		{
+			// Not resolved through ResolveEngineDirectory: this one sits at the repository root rather than
+			// under Engine/, because it is shared by every project and by no module in particular.
+			const std::filesystem::path Deployed = GetExecutableDirectory() / "Assets";
+			if (std::filesystem::exists(Deployed))
+			{
+				return Deployed;
+			}
+
+#if defined(LIME_SOURCE_DIR)
+			const std::filesystem::path Source = std::filesystem::path(LIME_SOURCE_DIR) / "Assets";
+			if (std::filesystem::exists(Source))
+			{
+				return Source;
+			}
+#endif
+
+			return Deployed;
+		}();
+		return Directory;
+	}
+
+	std::filesystem::path FPlatformPaths::ResolveAssetPath(const std::filesystem::path& RelativeOrAbsolute)
+	{
+		if (RelativeOrAbsolute.empty())
+		{
+			return {};
+		}
+
+		std::error_code ErrorCode;
+
+		if (RelativeOrAbsolute.is_absolute())
+		{
+			return std::filesystem::exists(RelativeOrAbsolute, ErrorCode) ? RelativeOrAbsolute : std::filesystem::path{};
+		}
+
+		// The project directory comes first, so a model shipped with a project takes precedence over one of
+		// the same name in the shared directory.
+		if (!GetProjectSourceDirectory().empty())
+		{
+			const std::filesystem::path InProject = GetProjectSourceDirectory() / RelativeOrAbsolute;
+			if (std::filesystem::exists(InProject, ErrorCode))
+			{
+				return InProject;
+			}
+		}
+
+		const std::filesystem::path InAssets = GetAssetsDirectory() / RelativeOrAbsolute;
+		if (std::filesystem::exists(InAssets, ErrorCode))
+		{
+			return InAssets;
+		}
+
+		// Beside the executable, which is where a deployed build keeps its data.
+		const std::filesystem::path BesideExecutable = GetExecutableDirectory() / RelativeOrAbsolute;
+		if (std::filesystem::exists(BesideExecutable, ErrorCode))
+		{
+			return BesideExecutable;
+		}
+
+		return {};
+	}
+
 	const std::filesystem::path& FPlatformPaths::GetSavedDirectory()
 	{
 		static const std::filesystem::path Directory = []

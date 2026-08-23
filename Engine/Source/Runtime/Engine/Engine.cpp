@@ -1,8 +1,12 @@
 #include "Engine/Engine.h"
 
+#include "Asset/GltfImporter.h"
 #include "Core/Logging/LogManager.h"
+#include "Core/Math/MathUtils.h"
 #include "Platform/PlatformPaths.h"
+#include "Renderer/Passes/BlinnPhongForwardPass.h"
 #include "Renderer/RenderPassRegistry.h"
+#include "Scene/SceneBuilder.h"
 
 namespace Lime
 {
@@ -89,9 +93,17 @@ namespace Lime
 		bEditorEnabled = false;
 #endif
 
+		// Registered before instantiating, so engine provided passes and project passes end up in one list
+		// ordered by priority. An explicit call rather than a static initializer, because the built-in
+		// passes live in a static library where the linker may discard a registration-only object file.
+		RegisterBuiltinRenderPasses();
+
 		// Passes come from the registry, so ordering is by declared priority rather than by
 		// registration site. The editor's ImGui pass is registered the same way and sorts last.
 		FRenderPassRegistry::Get().InstantiateAll(Renderer);
+
+		// After the passes exist, so the scene pass picks the data up on its first frame.
+		LoadConfiguredScene();
 
 		if (!Application->OnStartup(*this))
 		{
@@ -149,6 +161,106 @@ namespace Lime
 	}
 #endif
 
+	void FEngine::LoadConfiguredScene()
+	{
+		// Applied whether or not a scene loads, so a project drawing through its own passes still gets the
+		// configured camera.
+		Camera.SetFieldOfView(DegreesToRadians(Settings.CameraFieldOfView));
+
+		FFlyCameraSettings CameraSettings = CameraController.GetSettings();
+		CameraSettings.MoveSpeed = Settings.CameraMoveSpeed;
+		CameraController.SetSettings(CameraSettings);
+
+		Renderer.SetScene(&Scene);
+		Renderer.SetCamera(&Camera);
+
+		if (FBlinnPhongForwardPass* Pass = Renderer.FindPass<FBlinnPhongForwardPass>())
+		{
+			Pass->GetSettings().LightIntensity = Settings.LightIntensity;
+			Pass->GetSettings().AmbientStrength = Settings.AmbientStrength;
+		}
+
+		if (Settings.ScenePath.empty())
+		{
+			// Not a warning: a project without a scene is a normal configuration.
+			CameraController.SyncFromCamera(Camera);
+			return;
+		}
+
+		const std::filesystem::path Resolved = FPlatformPaths::ResolveAssetPath(Settings.ScenePath);
+		if (Resolved.empty())
+		{
+			// Logged once, here, rather than from the render loop. The engine continues with an empty scene:
+			// a mistyped path should not stop the editor from opening.
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "Scene '{}' was not found in the project or Assets directory",
+			               Settings.ScenePath);
+			CameraController.SyncFromCamera(Camera);
+			return;
+		}
+
+		const FGltfImportResult Import = FGltfImporter::LoadFromFile(Resolved);
+		if (!Import.bSucceeded)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "Failed to load '{}': {}", Resolved.string(), Import.Message);
+			CameraController.SyncFromCamera(Camera);
+			return;
+		}
+
+		if (!Import.Message.empty())
+		{
+			// tinygltf reports recoverable problems through a warning, worth surfacing but not fatal.
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_SCENE, "While loading '{}': {}", Resolved.string(), Import.Message);
+		}
+
+		BuildScene(Scene, Import.Scene);
+
+		// Framed from the world bounds so a model of any size and position is visible without per model
+		// configuration. Viewed from the front and slightly above, which reads better than dead on.
+		const FBoundingBox Bounds = Scene.ComputeWorldBounds();
+		if (Bounds.bValid)
+		{
+			Camera.FrameSphere(Bounds.GetCenter(), Bounds.GetLongestEdge() * 0.5f, FVector3{ 0.3f, 0.4f, 1.0f });
+		}
+
+		// After framing, so the first drag continues from where the camera was placed rather than snapping
+		// back to the default pose.
+		CameraController.SyncFromCamera(Camera);
+
+		const FSceneStats Stats = Scene.GetStats();
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_SCENE, "Loaded '{}': {} entities, {} meshes, {} triangles", Resolved.filename().string(),
+		              Stats.EntityCount, Stats.MeshEntityCount, Stats.TriangleCount);
+	}
+
+	void FEngine::UpdateCamera(float DeltaSeconds)
+	{
+		// Flight may only start while the cursor is over the scene, so a right click on an editor panel
+		// operates that panel instead of taking over the view. Once flying, the controller keeps control
+		// regardless of where the cursor travels.
+		bool bCanStartFlying = true;
+#if LIME_WITH_EDITOR
+		if (bEditorEnabled)
+		{
+			bCanStartFlying = Editor.IsViewportHovered();
+		}
+#endif
+
+		CameraController.Update(Camera, Window, DeltaSeconds, bCanStartFlying);
+
+		// Set every frame because the viewport can be resized at any time; a stale ratio shows as a
+		// horizontally stretched image.
+		const uint32 Width = Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetWidth()
+		                                                           : DeviceManager->GetBackBufferWidth();
+		const uint32 Height = Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetHeight()
+		                                                             : DeviceManager->GetBackBufferHeight();
+		if (Height > 0)
+		{
+			Camera.SetAspectRatio(static_cast<float>(Width) / static_cast<float>(Height));
+		}
+
+		// Rebuilt after the camera moves so that the matrices the passes read are for this frame.
+		Scene.UpdateTransforms();
+	}
+
 	void FEngine::Tick()
 	{
 		Window.PollEvents();
@@ -163,6 +275,10 @@ namespace Lime
 
 		const float DeltaSeconds = Timer.Tick();
 		Application->OnUpdate(DeltaSeconds);
+
+		// Before the UI is built, so the hierarchy panel and the scene pass see the same transforms this
+		// frame rather than the previous one's.
+		UpdateCamera(DeltaSeconds);
 
 #if LIME_WITH_AUTOMATION
 		// Before the UI is built, so a command that changes a panel or a pass setting is reflected in
@@ -260,6 +376,13 @@ namespace Lime
 
 	void FEngine::Shutdown()
 	{
+		// Before anything else, so the cursor can never be left hidden if the loop exited while flying.
+		CameraController.Release(Window);
+
+		// The renderer must stop reading them before the scene and camera go out of scope.
+		Renderer.SetScene(nullptr);
+		Renderer.SetCamera(nullptr);
+
 #if LIME_WITH_AUTOMATION
 		// First: its handlers hold raw pointers into everything below, and a connection thread could
 		// otherwise still be dispatching while those are being destroyed.

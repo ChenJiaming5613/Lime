@@ -12,6 +12,9 @@ namespace Lime
 	// Forward declared so this header stays free of a dependency on the scene module, which would
 	// otherwise make LimeRenderer depend on LimeScene and close a cycle.
 	class FScene;
+	// Likewise forward declared. Only a pointer travels through the frame context, so LimeRenderer needs
+	// no link dependency on the camera module; the passes that dereference it already have one.
+	class ICamera;
 
 	// Explicit ordering, so a pass ends up in the right place regardless of when it registers.
 	// Passes are sorted by this value and ties keep registration order.
@@ -63,6 +66,10 @@ namespace Lime
 		// rather than injected into each pass, so it travels the same path as the framebuffer and the
 		// timing data and no pass needs to manage its lifetime.
 		FScene* Scene = nullptr;
+		// The camera the scene is viewed through, or null when none is set. Travels the same path as the
+		// scene: a pass reads it per frame rather than holding a reference, so a camera can be swapped
+		// between frames without notifying anything.
+		ICamera* Camera = nullptr;
 		// True when the scene renders into the editor viewport instead of the swap chain. Passes only
 		// need this if they care about the distinction; the framebuffer and size already differ.
 		bool bIsOffscreen = false;

@@ -52,6 +52,10 @@ namespace Lime
 		// the UI was built.
 		void SubmitViewportSize();
 
+		// True while the cursor is over the scene viewport. Forwarded rather than exposing the panel, so
+		// FEngine can gate the fly camera without depending on the panel types.
+		bool IsViewportHovered() const;
+
 		// Bracket the swap chain present. Forwarded rather than exposed so FEngine does not need the
 		// test engine headers, matching how SubmitViewportSize hides the viewport panel.
 		void PreSwap();

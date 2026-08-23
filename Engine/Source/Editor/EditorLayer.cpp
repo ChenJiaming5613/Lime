@@ -147,6 +147,13 @@ namespace Lime
 		Renderer->GetViewportTarget().RequestResize(ViewportPanel->GetDesiredWidth(), ViewportPanel->GetDesiredHeight());
 	}
 
+	bool FEditorLayer::IsViewportHovered() const
+	{
+		// False before the panel has been drawn once, which is the safe answer: it prevents the camera from
+		// starting on the very first frame, when no panel has reported hover state yet.
+		return ViewportPanel != nullptr && ViewportPanel->IsHovered();
+	}
+
 	void FEditorLayer::CreatePanels(const FProjectSettings& ProjectSettings)
 	{
 		// Built-in panels first, then whatever the project registered.
