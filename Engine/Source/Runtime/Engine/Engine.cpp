@@ -103,8 +103,8 @@ namespace Lime
 		// registration site. The editor's ImGui pass is registered the same way and sorts last.
 		FRenderPassRegistry::Get().InstantiateAll(Renderer);
 
-		// After the passes exist, so the scene pass picks the data up on its first frame.
-		LoadConfiguredScene();
+		// After the passes exist, so the scene pass picks the data up on the frame the import lands.
+		BeginLoadConfiguredScene();
 
 		if (!Application->OnStartup(*this))
 		{
@@ -171,7 +171,7 @@ namespace Lime
 	}
 #endif
 
-	void FEngine::LoadConfiguredScene()
+	void FEngine::BeginLoadConfiguredScene()
 	{
 		// Applied whether or not a scene loads, so a project drawing through its own passes still gets the
 		// configured camera.
@@ -193,7 +193,7 @@ namespace Lime
 		if (Settings.ScenePath.empty())
 		{
 			// Not a warning: a project without a scene is a normal configuration.
-			CameraController.SyncFromCamera(Camera);
+			FinishSceneLoad();
 			return;
 		}
 
@@ -203,15 +203,49 @@ namespace Lime
 			// Logged once, here, rather than from the render loop. The engine continues with an empty scene:
 			// a mistyped path should not stop the editor from opening.
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "Scene '{}' was not found in the project or Assets directory", Settings.ScenePath);
-			CameraController.SyncFromCamera(Camera);
+			FinishSceneLoad();
 			return;
 		}
 
-		const FGltfImportResult Import = FGltfImporter::LoadFromFile(Resolved);
+		LoadingScenePath = Resolved;
+
+		// Started rather than awaited, which is the whole point: parsing Bistro is around 15 seconds of CPU
+		// work and blocking here made the window unresponsive for all of it. PollSceneLoad picks the result
+		// up on a later frame.
+		if (!SceneLoader.Start(Resolved))
+		{
+			LoadingScenePath.clear();
+			FinishSceneLoad();
+			return;
+		}
+
+		// The camera is usable while the scene loads, so flying around an empty view does not snap when the
+		// model appears; PollSceneLoad frames it again once the bounds are known.
+		FinishSceneLoad();
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_SCENE, "Loading '{}' in the background", Resolved.filename().string());
+	}
+
+	void FEngine::PollSceneLoad()
+	{
+		if (!SceneLoader.IsFinished())
+		{
+			return;
+		}
+
+		FGltfImportResult Import;
+		if (!SceneLoader.TakeResult(Import))
+		{
+			return;
+		}
+
+		const std::filesystem::path Resolved = LoadingScenePath;
+		LoadingScenePath.clear();
+
 		if (!Import.bSucceeded)
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "Failed to load '{}': {}", Resolved.string(), Import.Message);
-			CameraController.SyncFromCamera(Camera);
+			FinishSceneLoad();
 			return;
 		}
 
@@ -221,6 +255,9 @@ namespace Lime
 			LIME_LOG_WARNING(LIME_LOG_CATEGORY_SCENE, "While loading '{}': {}", Resolved.string(), Import.Message);
 		}
 
+		// On this thread because it populates the registry the renderer and the editor panels read. Measured
+		// at under a second even for Bistro, so it does not need splitting across frames; the 15 seconds that
+		// did need moving was the parsing, and that already happened on the worker.
 		BuildScene(Scene, Import.Scene);
 
 		// Framed from the world bounds so a model of any size and position is visible without per model
@@ -236,13 +273,18 @@ namespace Lime
 			Camera.FrameSphere(Bounds.GetCenter(), Bounds.GetLongestEdge() * 0.5f, FVector3{ -0.3f, -0.25f, -1.0f });
 		}
 
-		// After framing, so the first drag continues from where the camera was placed rather than snapping
-		// back to the default pose.
-		CameraController.SyncFromCamera(Camera);
+		FinishSceneLoad();
 
 		const FSceneStats Stats = Scene.GetStats();
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_SCENE, "Loaded '{}': {} entities, {} meshes, {} triangles", Resolved.filename().string(),
 		              Stats.EntityCount, Stats.MeshEntityCount, Stats.TriangleCount);
+	}
+
+	void FEngine::FinishSceneLoad()
+	{
+		// After framing, so the first drag continues from where the camera was placed rather than snapping
+		// back to the default pose.
+		CameraController.SyncFromCamera(Camera);
 	}
 
 	void FEngine::UpdateCamera(float DeltaSeconds)
@@ -289,6 +331,11 @@ namespace Lime
 
 		const float DeltaSeconds = Timer.Tick();
 		Application->OnUpdate(DeltaSeconds);
+
+		// Before UpdateCamera, because building the scene frames the camera on the new bounds and
+		// UpdateCamera propagates the transforms that framing depends on. Doing it after would show one
+		// frame with the model present but the camera still pointing at where nothing is.
+		PollSceneLoad();
 
 		// Before the UI is built, so the hierarchy panel and the scene pass see the same transforms this
 		// frame rather than the previous one's.
@@ -392,6 +439,11 @@ namespace Lime
 	{
 		// Before anything else, so the cursor can never be left hidden if the loop exited while flying.
 		CameraController.Release(Window);
+
+		// Before the scene and the renderer go away. Closing the window during a long import is the normal
+		// way to abandon one, and the worker writes into members of this engine, so it has to be finished
+		// with before any of them are destroyed. The wait is bounded by the import that was already running.
+		SceneLoader.Cancel();
 
 		// The renderer must stop reading them before the scene and camera go out of scope.
 		Renderer.SetScene(nullptr);

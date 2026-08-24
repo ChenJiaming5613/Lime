@@ -9,6 +9,8 @@ lime_add_module(
 	SOURCES
 		AssetTypes.h
 		AssetTypes.cpp
+		AsyncGltfLoader.h
+		AsyncGltfLoader.cpp
 		DdsLoader.h
 		DdsLoader.cpp
 		GltfImporter.h

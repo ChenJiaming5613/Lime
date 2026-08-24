@@ -9,10 +9,12 @@
 #include "RHI/DeviceManager.h"
 #include "Renderer/Renderer.h"
 
+#include "Asset/AsyncGltfLoader.h"
 #include "Camera/FlyCameraController.h"
 #include "Camera/PerspectiveCamera.h"
 #include "Scene/Scene.h"
 
+#include <filesystem>
 #include <memory>
 
 #if LIME_WITH_EDITOR
@@ -49,6 +51,10 @@ namespace Lime
 		FPerspectiveCamera& GetCamera() { return Camera; }
 		FFlyCameraController& GetCameraController() { return CameraController; }
 
+		// State of the scene import running in the background, for a caller that wants to say the scene is
+		// still loading rather than draw an empty view with no explanation. Cheap enough to poll per frame.
+		FAsyncLoadProgress GetSceneLoadProgress() const { return SceneLoader.GetProgress(); }
+
 #if LIME_WITH_EDITOR
 		// Null when the editor is disabled through settings or --no-editor.
 		FEditorLayer* GetEditor() { return bEditorEnabled ? &Editor : nullptr; }
@@ -59,10 +65,21 @@ namespace Lime
 		void Shutdown();
 		void Tick();
 
-		// Loads the configured glTF, or leaves the scene empty when none is set. Never fails the startup:
-		// a bad path is reported once here and the engine continues with an empty scene, which is far more
-		// useful than refusing to open a window.
-		void LoadConfiguredScene();
+		// Applies the configured camera and lighting, then starts the glTF import on a worker thread.
+		// Never fails the startup: a bad path is reported once here and the engine continues with an empty
+		// scene, which is far more useful than refusing to open a window.
+		//
+		// Returns without waiting, so the window is interactive while a large scene loads. The import is
+		// collected later by PollSceneLoad.
+		void BeginLoadConfiguredScene();
+		// Turns a finished import into entities, then frames the camera on it. Call once per frame.
+		//
+		// Separate from the import because this part touches the scene's registry and the camera, which
+		// belong to this thread; only the parsing was moved off it.
+		void PollSceneLoad();
+		// Shared by the startup path and the failure paths, so the camera controller ends up consistent
+		// with the camera however the load turned out.
+		void FinishSceneLoad();
 		// Advances the fly camera. Only allows flight to start when the cursor is over the viewport, so a
 		// right click on an editor panel does not take over the view.
 		void UpdateCamera(float DeltaSeconds);
@@ -88,6 +105,10 @@ namespace Lime
 		FTimer Timer;
 		// The scene outlives the renderer's use of it, which is what lets the renderer hold a bare pointer.
 		FScene Scene;
+		// Imports off the main thread. Idle once the configured scene has been collected.
+		FAsyncGltfLoader SceneLoader;
+		// Kept for the log line and the progress message, since the loader only knows the file name.
+		std::filesystem::path LoadingScenePath;
 		FPerspectiveCamera Camera;
 		FFlyCameraController CameraController;
 #if LIME_WITH_EDITOR
