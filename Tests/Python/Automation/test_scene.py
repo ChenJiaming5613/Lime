@@ -129,6 +129,29 @@ class TestSceneLoading:
         """A path that resolved and parsed cleanly must leave the log free of errors."""
         assert not scene.errors()
 
+    def test_a_finished_load_reports_that_it_is_not_loading(self, scene: LimeClient) -> None:
+        """The flag a script polls to wait for a large scene, so it has to clear when the import ends."""
+        info = scene.call("scene.info")
+
+        assert info["loading"] is False
+        # Present whether or not anything is loading, so a caller can read it without a key check.
+        assert "load" in info
+        assert info["load"]["loading"] is False
+
+    def test_the_engine_renders_while_a_scene_loads(self, scene: LimeClient) -> None:
+        """The property that makes a background import worth having.
+
+        Importing used to block the main loop, so the window was frozen for as long as it took and could
+        not be told apart from a hang. Frames advancing is what proves the work moved off that thread.
+        Asserted here rather than only on a huge scene because a regression would reintroduce the stall
+        for every scene, not just the slow ones.
+        """
+        first = scene.ping()["frame"]
+        scene.wait_frames(3)
+        second = scene.ping()["frame"]
+
+        assert second > first
+
 
 class TestSceneHierarchy:
     def test_every_node_is_named(self, scene: LimeClient) -> None:

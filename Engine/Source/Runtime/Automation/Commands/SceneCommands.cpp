@@ -146,6 +146,21 @@ namespace Lime
 
 			                  FJson& Result = Invocation.GetResult();
 
+			                  // Reported before the scene itself, because during a background import there is no scene
+			                  // yet and "loaded: false" alone cannot be told apart from a project that has none. A
+			                  // script waiting for a large scene needs to know which of the two it is looking at.
+			                  const std::function<FJson()>& QuerySceneLoad = Invocation.GetContext().QuerySceneLoad;
+			                  Result["loading"] = false;
+			                  if (QuerySceneLoad)
+			                  {
+				                  const FJson Load = QuerySceneLoad();
+				                  if (!Load.is_null() && !Load.empty())
+				                  {
+					                  Result["loading"] = Load.value("loading", false);
+					                  Result["load"] = Load;
+				                  }
+			                  }
+
 			                  // Reports loaded=false rather than failing: "is a scene loaded" is a legitimate question, and
 			                  // a project with no scene is a valid configuration.
 			                  const FScene* Scene = Renderer->GetScene();

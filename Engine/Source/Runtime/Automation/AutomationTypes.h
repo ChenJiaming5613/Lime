@@ -54,6 +54,13 @@ namespace Lime
 		// concrete camera type, and routing it through the engine keeps this module free of that dependency.
 		// Angles are in degrees, matching what scene.camera.get reports.
 		std::function<void(const FVector3& Position, float YawDegrees, float PitchDegrees)> SetCameraPose;
+
+		// Reports a scene import still running on a worker thread, so a script can wait for a large scene
+		// instead of guessing how long it takes. Empty JSON when nothing is loading.
+		//
+		// A delegate for the same reason as the others: the loader lives in the asset module and this one
+		// stays free of it.
+		std::function<FJson()> QuerySceneLoad;
 	};
 
 	// A single command in flight. The handler fills Result or Error; returning without touching

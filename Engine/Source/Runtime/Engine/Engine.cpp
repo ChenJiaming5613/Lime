@@ -165,6 +165,18 @@ namespace Lime
 			CameraController.SyncFromCamera(Camera);
 		};
 
+		// Lets a script wait for a background import rather than sleeping for a guessed duration, which is
+		// the difference between a test that is reliable on a slow machine and one that is flaky.
+		Context.QuerySceneLoad = [this]
+		{
+			const FAsyncLoadProgress Progress = GetSceneLoadProgress();
+			FJson Result;
+			Result["loading"] = Progress.IsBusy();
+			Result["elapsedSeconds"] = Progress.ElapsedSeconds;
+			Result["file"] = Progress.FileName;
+			return Result;
+		};
+
 		FAutomationServerDesc Desc;
 		Desc.Port = static_cast<uint16>(Settings.AutomationPort);
 		return Automation.Initialize(Desc, std::move(Context));
@@ -376,6 +388,11 @@ namespace Lime
 			EditorContext.AdapterName = DeviceManager->GetAdapterName();
 			EditorContext.LogBuffer = &FLogManager::Get().GetRingBuffer();
 			EditorContext.Renderer = &Renderer;
+
+			const FAsyncLoadProgress SceneLoad = GetSceneLoadProgress();
+			EditorContext.bSceneLoading = SceneLoad.IsBusy();
+			EditorContext.SceneLoadSeconds = SceneLoad.ElapsedSeconds;
+			EditorContext.SceneLoadFileName = SceneLoad.FileName;
 
 			Editor.DrawUI(EditorContext);
 			Editor.EndFrame();
