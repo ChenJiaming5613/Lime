@@ -15,6 +15,26 @@ namespace Lime
 		}
 	} // namespace
 
+	const char* ToString(EGltfImportPhase Phase)
+	{
+		switch (Phase)
+		{
+			case EGltfImportPhase::Pending:
+				return "Starting";
+			case EGltfImportPhase::Parsing:
+				return "Parsing";
+			case EGltfImportPhase::Textures:
+				return "Textures";
+			case EGltfImportPhase::Meshes:
+				return "Meshes";
+			case EGltfImportPhase::Finalizing:
+				return "Finishing";
+			case EGltfImportPhase::Done:
+				return "Done";
+		}
+		return "Unknown";
+	}
+
 	FAsyncGltfLoader::~FAsyncGltfLoader()
 	{
 		// A running worker writes into members of this object, so letting the destructor finish while it
@@ -43,6 +63,7 @@ namespace Lime
 		StartNanoseconds.store(NowNanoseconds());
 		FinishNanoseconds.store(0);
 		bFinished.store(false);
+		ImportProgress.Reset();
 		Stage.store(EAsyncLoadStage::Importing);
 
 		// The path is captured by value: the caller's object may well be a temporary, and the worker
@@ -50,7 +71,7 @@ namespace Lime
 		Worker = std::thread(
 		    [this, Path]()
 		    {
-			    FGltfImportResult Imported = FGltfImporter::LoadFromFile(Path);
+			    FGltfImportResult Imported = FGltfImporter::LoadFromFile(Path, &ImportProgress);
 
 			    {
 				    const std::lock_guard<std::mutex> Lock(ResultMutex);
@@ -70,6 +91,15 @@ namespace Lime
 	{
 		FAsyncLoadProgress Progress;
 		Progress.Stage = Stage.load();
+
+		// Phase first, then the counters. A reader can then trust that the counters belong to a phase at
+		// least as early as the one reported, which is what keeps a texture count from being divided by a
+		// mesh total across a phase change.
+		Progress.Phase = ImportProgress.Phase.load();
+		Progress.TexturesDone = ImportProgress.TexturesDone.load();
+		Progress.TextureCount = ImportProgress.TextureCount.load();
+		Progress.MeshesDone = ImportProgress.MeshesDone.load();
+		Progress.MeshCount = ImportProgress.MeshCount.load();
 
 		const int64 Started = StartNanoseconds.load();
 		if (Started != 0)
@@ -114,6 +144,8 @@ namespace Lime
 		Stage.store(EAsyncLoadStage::Idle);
 		StartNanoseconds.store(0);
 		FinishNanoseconds.store(0);
+		// Cleared with the rest, so an idle loader does not report the phase of the load that just ended.
+		ImportProgress.Reset();
 		return true;
 	}
 
@@ -134,6 +166,8 @@ namespace Lime
 		Stage.store(EAsyncLoadStage::Idle);
 		StartNanoseconds.store(0);
 		FinishNanoseconds.store(0);
+		// Cleared with the rest, so an idle loader does not report the phase of the load that just ended.
+		ImportProgress.Reset();
 	}
 
 	void FAsyncGltfLoader::Join()

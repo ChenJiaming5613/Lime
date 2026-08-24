@@ -174,6 +174,13 @@ namespace Lime
 			Result["loading"] = Progress.IsBusy();
 			Result["elapsedSeconds"] = Progress.ElapsedSeconds;
 			Result["file"] = Progress.FileName;
+			Result["phase"] = ToString(Progress.Phase);
+			// Both counters always, rather than only the running phase's: a script asserting that textures
+			// were all processed needs the final counts to still be there once the phase has moved on.
+			Result["texturesDone"] = Progress.TexturesDone;
+			Result["textureCount"] = Progress.TextureCount;
+			Result["meshesDone"] = Progress.MeshesDone;
+			Result["meshCount"] = Progress.MeshCount;
 			return Result;
 		};
 
@@ -393,6 +400,26 @@ namespace Lime
 			EditorContext.bSceneLoading = SceneLoad.IsBusy();
 			EditorContext.SceneLoadSeconds = SceneLoad.ElapsedSeconds;
 			EditorContext.SceneLoadFileName = SceneLoad.FileName;
+			EditorContext.SceneLoadPhase = ToString(SceneLoad.Phase);
+			// Only the counters of the phase that is running, so the panel needs no knowledge of which
+			// phases count what.
+			switch (SceneLoad.Phase)
+			{
+				case EGltfImportPhase::Textures:
+					EditorContext.SceneLoadDone = SceneLoad.TexturesDone;
+					EditorContext.SceneLoadTotal = SceneLoad.TextureCount;
+					break;
+				case EGltfImportPhase::Meshes:
+					EditorContext.SceneLoadDone = SceneLoad.MeshesDone;
+					EditorContext.SceneLoadTotal = SceneLoad.MeshCount;
+					break;
+				default:
+					// Parsing and the bookkeeping phases have nothing to count; zero tells the panel to show
+					// elapsed time instead of a bar.
+					EditorContext.SceneLoadDone = 0;
+					EditorContext.SceneLoadTotal = 0;
+					break;
+			}
 
 			Editor.DrawUI(EditorContext);
 			Editor.EndFrame();

@@ -42,6 +42,10 @@ namespace Lime
 		Failed
 	};
 
+	// Display name of an import phase. Defined next to the enum so a new phase cannot be added without a
+	// name, which is how "Unknown" ends up on screen.
+	const char* ToString(EGltfImportPhase Phase);
+
 	struct FAsyncLoadProgress
 	{
 		EAsyncLoadStage Stage = EAsyncLoadStage::Idle;
@@ -51,7 +55,34 @@ namespace Lime
 		// What is being loaded, for a message naming the file.
 		std::string FileName;
 
+		// Which part of the import is running, and how far through it is.
+		//
+		// Reported per phase rather than as one overall fraction because the phases are not comparable:
+		// parsing cannot report a fraction at all, and the share of the total each one takes varies with
+		// the asset. Rolling them into a single percentage would mean inventing weights that are wrong for
+		// every scene except the one they were measured on.
+		EGltfImportPhase Phase = EGltfImportPhase::Pending;
+		uint32 TexturesDone = 0;
+		uint32 TextureCount = 0;
+		uint32 MeshesDone = 0;
+		uint32 MeshCount = 0;
+
 		bool IsBusy() const { return Stage == EAsyncLoadStage::Importing; }
+
+		// Fraction of the current phase, or -1 when the phase cannot report one. Parsing is the case that
+		// cannot: it is a single call into tinygltf that returns only when it is finished.
+		float GetPhaseFraction() const
+		{
+			switch (Phase)
+			{
+				case EGltfImportPhase::Textures:
+					return TextureCount > 0 ? static_cast<float>(TexturesDone) / static_cast<float>(TextureCount) : -1.0f;
+				case EGltfImportPhase::Meshes:
+					return MeshCount > 0 ? static_cast<float>(MeshesDone) / static_cast<float>(MeshCount) : -1.0f;
+				default:
+					return -1.0f;
+			}
+		}
 	};
 
 	// Runs FGltfImporter on a worker thread. Not copyable or movable: a worker holds a pointer to this
@@ -103,6 +134,9 @@ namespace Lime
 		std::string FileName;
 
 		std::atomic<EAsyncLoadStage> Stage{ EAsyncLoadStage::Idle };
+		// Counters the importer writes while it runs. Held here rather than passed in, so a caller polling
+		// progress needs nothing but this loader.
+		FGltfImportProgress ImportProgress;
 		// Set by the worker before it stops, read by the main thread to decide when to collect. Separate
 		// from Stage because Stage becomes Ready or Failed and both mean "collect me".
 		std::atomic<bool> bFinished{ false };

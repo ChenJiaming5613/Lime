@@ -191,6 +191,75 @@ TEST_CASE("Async load progress is readable while the worker runs", "[Asset][Asyn
 	REQUIRE(Result.bSucceeded);
 }
 
+TEST_CASE("Import phases are reported with their counts", "[Asset][AsyncGltf]")
+{
+	const FTemporaryGltf Document;
+	FAsyncGltfLoader Loader;
+
+	SECTION("A finished load ends on the done phase with every item accounted for")
+	{
+		REQUIRE(Loader.Start(Document.Get()));
+		REQUIRE(WaitForFinish(Loader));
+
+		const FAsyncLoadProgress Progress = Loader.GetProgress();
+		REQUIRE(Progress.Phase == EGltfImportPhase::Done);
+		// The counters are what a bar divides by, so a finished phase must not leave them short of the
+		// total: that would show as a bar stuck at 90% on a load that is over.
+		REQUIRE(Progress.MeshCount == 1);
+		REQUIRE(Progress.MeshesDone == Progress.MeshCount);
+	}
+
+	SECTION("Collecting the result clears the phase")
+	{
+		REQUIRE(Loader.Start(Document.Get()));
+		REQUIRE(WaitForFinish(Loader));
+
+		FGltfImportResult Result;
+		REQUIRE(Loader.TakeResult(Result));
+
+		// An idle loader reporting the phase of the load that just ended would draw a stale overlay.
+		const FAsyncLoadProgress Progress = Loader.GetProgress();
+		REQUIRE(Progress.Phase == EGltfImportPhase::Pending);
+		REQUIRE(Progress.MeshCount == 0);
+		REQUIRE(Progress.TextureCount == 0);
+	}
+
+	SECTION("A phase that cannot be counted reports no fraction")
+	{
+		// Parsing is one call into tinygltf, so there is nothing to divide. Returning -1 rather than 0 is
+		// what lets the caller tell "no progress available" apart from "no progress yet", which decide
+		// between showing elapsed time and showing an empty bar.
+		FAsyncLoadProgress Parsing;
+		Parsing.Phase = EGltfImportPhase::Parsing;
+		REQUIRE(Parsing.GetPhaseFraction() < 0.0f);
+
+		FAsyncLoadProgress Textures;
+		Textures.Phase = EGltfImportPhase::Textures;
+		Textures.TextureCount = 4;
+		Textures.TexturesDone = 1;
+		REQUIRE(Textures.GetPhaseFraction() == 0.25f);
+
+		// A scene with no textures at all must not divide by zero.
+		FAsyncLoadProgress Empty;
+		Empty.Phase = EGltfImportPhase::Textures;
+		REQUIRE(Empty.GetPhaseFraction() < 0.0f);
+	}
+
+	SECTION("Every phase has a display name")
+	{
+		// A missing name shows up as "Unknown" in the viewport, which is worse than useless: it says the
+		// engine does not know what it is doing.
+		const EGltfImportPhase Phases[] = { EGltfImportPhase::Pending, EGltfImportPhase::Parsing,    EGltfImportPhase::Textures,
+		                                    EGltfImportPhase::Meshes,  EGltfImportPhase::Finalizing, EGltfImportPhase::Done };
+		for (const EGltfImportPhase Phase : Phases)
+		{
+			const char* const Name = ToString(Phase);
+			REQUIRE(Name != nullptr);
+			REQUIRE(std::string(Name) != "Unknown");
+		}
+	}
+}
+
 TEST_CASE("An async load can be abandoned safely", "[Asset][AsyncGltf]")
 {
 	const FTemporaryGltf Document;

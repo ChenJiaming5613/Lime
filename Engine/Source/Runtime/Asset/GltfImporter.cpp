@@ -660,7 +660,8 @@ namespace Lime
 
 			// A line naming an image tinygltf could not fetch, where this importer either supplies the data
 			// itself or has a working substitute. Matched on the phrases tinygltf emits at that point.
-			const auto IsExpected = [](const std::string& Line) {
+			const auto IsExpected = [](const std::string& Line)
+			{
 				if (Line.find(DdsDeferralMarker) != std::string::npos)
 				{
 					return true;
@@ -702,12 +703,21 @@ namespace Lime
 			return Kept;
 		}
 
-		FGltfImportResult ConvertModel(const tinygltf::Model& Model, const std::string& Warning, const std::filesystem::path& BaseDirectory)
+		FGltfImportResult ConvertModel(const tinygltf::Model& Model, const std::string& Warning, const std::filesystem::path& BaseDirectory,
+		                               FGltfImportProgress* Progress)
 		{
 			FGltfImportResult Result;
 			Result.Message = StripExpectedImageWarnings(Warning);
 
 			FGltfSceneData& Scene = Result.Scene;
+
+			// The total is published before the loop so a reader never sees a count without a denominator.
+			if (Progress != nullptr)
+			{
+				Progress->TextureCount.store(static_cast<uint32>(Model.images.size()));
+				Progress->TexturesDone.store(0);
+				Progress->Phase.store(EGltfImportPhase::Textures);
+			}
 
 			std::string ImageWarnings;
 			Scene.Images.reserve(Model.images.size());
@@ -723,6 +733,12 @@ namespace Lime
 				}
 
 				Scene.Images.push_back(std::move(Converted));
+
+				// After the push, so the count only ever describes work that is actually finished.
+				if (Progress != nullptr)
+				{
+					Progress->TexturesDone.store(static_cast<uint32>(Scene.Images.size()));
+				}
 			}
 
 			if (!ImageWarnings.empty())
@@ -748,6 +764,13 @@ namespace Lime
 				}
 			}
 
+			if (Progress != nullptr)
+			{
+				Progress->MeshCount.store(static_cast<uint32>(Model.meshes.size()));
+				Progress->MeshesDone.store(0);
+				Progress->Phase.store(EGltfImportPhase::Meshes);
+			}
+
 			Scene.Meshes.reserve(Model.meshes.size());
 			for (const tinygltf::Mesh& Mesh : Model.meshes)
 			{
@@ -759,6 +782,16 @@ namespace Lime
 					return Result;
 				}
 				Scene.Meshes.push_back(std::move(MeshData));
+
+				if (Progress != nullptr)
+				{
+					Progress->MeshesDone.store(static_cast<uint32>(Scene.Meshes.size()));
+				}
+			}
+
+			if (Progress != nullptr)
+			{
+				Progress->Phase.store(EGltfImportPhase::Finalizing);
 			}
 
 			Scene.Nodes.reserve(Model.nodes.size());
@@ -868,7 +901,8 @@ namespace Lime
 		//
 		// Deliberately narrow. Only paths this engine will re-read itself are refused; buffers share these
 		// callbacks, and refusing a .bin would lose the geometry.
-		bool ReadWholeFileSkippingRedundant(std::vector<unsigned char>* Out, std::string* Error, const std::string& FilePath, void* UserData)
+		bool ReadWholeFileSkippingRedundant(std::vector<unsigned char>* Out, std::string* Error, const std::string& FilePath,
+		                                    void* UserData)
 		{
 			if (FDdsLoader::HasDdsExtension(std::filesystem::u8path(FilePath)))
 			{
@@ -888,11 +922,11 @@ namespace Lime
 		tinygltf::FsCallbacks MakeFsCallbacks()
 		{
 			return tinygltf::FsCallbacks{ &tinygltf::FileExists,     &tinygltf::ExpandFilePath,     &ReadWholeFileSkippingRedundant,
-				                          &tinygltf::WriteWholeFile, &tinygltf::GetFileSizeInBytes, nullptr };
+			                              &tinygltf::WriteWholeFile, &tinygltf::GetFileSizeInBytes, nullptr };
 		}
 	} // namespace
 
-	FGltfImportResult FGltfImporter::LoadFromFile(const std::filesystem::path& Path)
+	FGltfImportResult FGltfImporter::LoadFromFile(const std::filesystem::path& Path, FGltfImportProgress* OutProgress)
 	{
 		FGltfImportResult Result;
 
@@ -921,6 +955,13 @@ namespace Lime
 		const std::string FileName = Path.string();
 		const bool bPreferBinary = Extension == ".glb";
 
+		// One opaque call, so this phase can report that it is running but not how far along it is. That is
+		// a property of tinygltf's interface rather than a shortcut: it returns only when finished.
+		if (OutProgress != nullptr)
+		{
+			OutProgress->Phase.store(EGltfImportPhase::Parsing);
+		}
+
 		bool bLoaded = bPreferBinary ? Loader.LoadBinaryFromFile(&Model, &LoadError, &LoadWarning, FileName)
 		                             : Loader.LoadASCIIFromFile(&Model, &LoadError, &LoadWarning, FileName);
 
@@ -944,12 +985,23 @@ namespace Lime
 		if (!bLoaded)
 		{
 			Result.Message = LoadError.empty() ? "tinygltf could not parse " + FileName : LoadError;
+			if (OutProgress != nullptr)
+			{
+				// Marked done even on failure, so a reader waiting for the phase to settle is not left
+				// looking at Parsing forever.
+				OutProgress->Phase.store(EGltfImportPhase::Done);
+			}
 			return Result;
 		}
 
 		// The directory the file sits in, which is what relative image uris resolve against.
-		Result = ConvertModel(Model, LoadWarning, Path.parent_path());
+		Result = ConvertModel(Model, LoadWarning, Path.parent_path(), OutProgress);
 		Result.Scene.SourcePath = FileName;
+
+		if (OutProgress != nullptr)
+		{
+			OutProgress->Phase.store(EGltfImportPhase::Done);
+		}
 		return Result;
 	}
 
@@ -973,6 +1025,6 @@ namespace Lime
 			return Result;
 		}
 
-		return ConvertModel(Model, LoadWarning, BaseDirectory);
+		return ConvertModel(Model, LoadWarning, BaseDirectory, nullptr);
 	}
 } // namespace Lime

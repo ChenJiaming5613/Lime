@@ -31,11 +31,17 @@ namespace Lime
 		// looking broken.
 		//
 		// Copied out as plain fields rather than holding the loader's own progress type. A panel needs to
-		// know that something is loading and for how long, and phrasing it this way keeps the editor from
+		// know what is happening and how far along it is, and phrasing it this way keeps the editor from
 		// depending on the asset module for one label.
 		bool bSceneLoading = false;
 		float SceneLoadSeconds = 0.0f;
 		std::string SceneLoadFileName;
+		// What the importer is doing, already worded for display: "Parsing", "Textures", "Meshes".
+		const char* SceneLoadPhase = "";
+		// Items finished and expected in the current phase. Both zero when the phase does not count items,
+		// which is how parsing reports itself.
+		uint32 SceneLoadDone = 0;
+		uint32 SceneLoadTotal = 0;
 
 		// Convenience wrapper so panels do not need to null check the renderer.
 		template<typename PassType>
