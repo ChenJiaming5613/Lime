@@ -141,6 +141,12 @@ Both `.gltf` and `.glb` load. Node hierarchies, base colour textures and colour 
 normals are honoured; missing normals are generated from the faces. Shading is Blinn-Phong under a
 single directional light, which the scene builder supplies because glTF defines none.
 
+Textures may be PNG, JPEG or DDS. A DDS keeps its block compressed payload all the way to the GPU
+rather than being decoded, so a 4096x4096 BC7 texture occupies 22 MB in video memory instead of the
+89 MB its top level alone would need as RGBA. BC1 through BC7 and full mip chains are supported, for 2D
+textures with the DX10 extension header; anything else is refused with a message saying what to convert
+it with. See `Docs/zh/06-场景与资产.md` for the details.
+
 The camera is placed from the model's world bounds, so a model of any size and position is framed
 without per model configuration.
 

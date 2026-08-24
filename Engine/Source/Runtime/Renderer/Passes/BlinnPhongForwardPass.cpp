@@ -136,6 +136,10 @@ namespace Lime
 
 	void FBlinnPhongForwardPass::Shutdown()
 	{
+		// Before the layout and the resources they reference, so nothing outlives what it points at.
+		MaterialBindingSets.clear();
+		CachedSceneRevision = 0;
+
 		GpuResources.Release();
 		Pipeline = nullptr;
 		BindingLayout = nullptr;
@@ -198,6 +202,34 @@ namespace Lime
 		LIME_UNUSED(Framebuffer);
 	}
 
+	nvrhi::IBindingSet* FBlinnPhongForwardPass::GetOrCreateBindingSet(int32 MaterialIndex)
+	{
+		// -1 means the default material and maps to slot zero; a real index maps to itself plus one. The
+		// addition happens before widening so a negative value cannot wrap into an enormous slot number.
+		const SizeType Slot = MaterialIndex < 0 ? 0 : static_cast<SizeType>(MaterialIndex) + 1;
+		if (Slot >= MaterialBindingSets.size())
+		{
+			MaterialBindingSets.resize(Slot + 1);
+		}
+
+		if (MaterialBindingSets[Slot] != nullptr)
+		{
+			return MaterialBindingSets[Slot].Get();
+		}
+
+		// The draw constant buffer is volatile and rewritten before every draw, so it is bound here by handle
+		// and its contents are not part of what makes a set reusable.
+		const nvrhi::BindingSetDesc Desc =
+		    nvrhi::BindingSetDesc()
+		        .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, FrameConstantBuffer))
+		        .addItem(nvrhi::BindingSetItem::ConstantBuffer(1, DrawConstantBuffer))
+		        .addItem(nvrhi::BindingSetItem::Texture_SRV(0, GpuResources.GetBaseColorTexture(MaterialIndex)))
+		        .addItem(nvrhi::BindingSetItem::Sampler(0, GpuResources.GetSampler()));
+
+		MaterialBindingSets[Slot] = Device->createBindingSet(Desc, BindingLayout);
+		return MaterialBindingSets[Slot].Get();
+	}
+
 	void FBlinnPhongForwardPass::Render(const FFrameContext& Context)
 	{
 		// Silent when there is nothing to draw. A project without a scene is a normal configuration, and
@@ -216,6 +248,14 @@ namespace Lime
 		if (!GpuResources.EnsureUploaded(Device, Context.CommandList, Scene))
 		{
 			return;
+		}
+
+		// Dropped when the scene changes: the cached sets reference that scene's textures, which
+		// EnsureUploaded has just released.
+		if (CachedSceneRevision != Scene.GetAssetRevision())
+		{
+			MaterialBindingSets.clear();
+			CachedSceneRevision = Scene.GetAssetRevision();
 		}
 
 		if (Pipeline == nullptr || CurrentFramebuffer != Context.Framebuffer)
@@ -285,16 +325,10 @@ namespace Lime
 				DrawConstants.SpecularPower = Settings.SpecularPower;
 				Context.CommandList->writeBuffer(DrawConstantBuffer, &DrawConstants, sizeof(DrawConstants));
 
-				const nvrhi::BindingSetDesc BindingSetDesc =
-				    nvrhi::BindingSetDesc()
-				        .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, FrameConstantBuffer))
-				        .addItem(nvrhi::BindingSetItem::ConstantBuffer(1, DrawConstantBuffer))
-				        .addItem(nvrhi::BindingSetItem::Texture_SRV(0, GpuResources.GetBaseColorTexture(Section.MaterialIndex)))
-				        .addItem(nvrhi::BindingSetItem::Sampler(0, GpuResources.GetSampler()));
-
-				// NVRHI caches binding sets internally by descriptor, so building one per draw does not
-				// allocate a new object each frame.
-				const nvrhi::BindingSetHandle BindingSet = Device->createBindingSet(BindingSetDesc, BindingLayout);
+				// Cached by material: createBindingSet allocates descriptors on every call with no caching of
+				// its own, and the D3D12 sampler heap holds at most 2048. Building one per draw exhausts it in
+				// a single frame on a scene of any size.
+				nvrhi::IBindingSet* BindingSet = GetOrCreateBindingSet(Section.MaterialIndex);
 				if (BindingSet == nullptr)
 				{
 					continue;

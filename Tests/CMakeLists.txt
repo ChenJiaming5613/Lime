@@ -17,11 +17,12 @@ endif()
 if(TARGET LimeRenderer)
 	list(APPEND TestDeps LimeRenderer)
 endif()
-# glTF import is pure value logic with no GPU dependency, which is why it is unit tested at all.
+# Asset import is pure value logic with no GPU dependency, which is why it is unit tested at all.
 if(TARGET LimeAsset)
 	list(APPEND TestDeps LimeAsset)
 else()
 	list(REMOVE_ITEM TestSources
+		"${CMAKE_CURRENT_SOURCE_DIR}/Asset/DdsLoaderTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Asset/GltfImporterTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Asset/GltfSampleAssetTests.cpp"
 	)

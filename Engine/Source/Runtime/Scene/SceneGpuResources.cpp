@@ -8,6 +8,63 @@
 
 namespace Lime
 {
+	namespace
+	{
+		// Maps the asset module's format to the RHI's.
+		//
+		// This mapping lives here, at the boundary, because LimeAsset must not depend on the RHI: that is what
+		// lets the loaders be unit tested without a device. An explicit switch rather than a table indexed by
+		// the enum value, so inserting a format upstream cannot silently shift every entry.
+		nvrhi::Format ToNvrhiFormat(EPixelFormat Format)
+		{
+			switch (Format)
+			{
+				// The sRGB variants matter: sampling an already-encoded texture through a linear format washes
+				// the image out, because the hardware then skips the conversion the shader assumes happened.
+				case EPixelFormat::Rgba8Unorm:
+					return nvrhi::Format::RGBA8_UNORM;
+				case EPixelFormat::Rgba8Srgb:
+					return nvrhi::Format::SRGBA8_UNORM;
+				case EPixelFormat::Bgra8Unorm:
+					return nvrhi::Format::BGRA8_UNORM;
+				case EPixelFormat::Bgra8Srgb:
+					return nvrhi::Format::SBGRA8_UNORM;
+
+				case EPixelFormat::Bc1Unorm:
+					return nvrhi::Format::BC1_UNORM;
+				case EPixelFormat::Bc1Srgb:
+					return nvrhi::Format::BC1_UNORM_SRGB;
+				case EPixelFormat::Bc2Unorm:
+					return nvrhi::Format::BC2_UNORM;
+				case EPixelFormat::Bc2Srgb:
+					return nvrhi::Format::BC2_UNORM_SRGB;
+				case EPixelFormat::Bc3Unorm:
+					return nvrhi::Format::BC3_UNORM;
+				case EPixelFormat::Bc3Srgb:
+					return nvrhi::Format::BC3_UNORM_SRGB;
+				case EPixelFormat::Bc4Unorm:
+					return nvrhi::Format::BC4_UNORM;
+				case EPixelFormat::Bc4Snorm:
+					return nvrhi::Format::BC4_SNORM;
+				case EPixelFormat::Bc5Unorm:
+					return nvrhi::Format::BC5_UNORM;
+				case EPixelFormat::Bc5Snorm:
+					return nvrhi::Format::BC5_SNORM;
+				case EPixelFormat::Bc6HUfloat:
+					return nvrhi::Format::BC6H_UFLOAT;
+				case EPixelFormat::Bc6HSfloat:
+					return nvrhi::Format::BC6H_SFLOAT;
+				case EPixelFormat::Bc7Unorm:
+					return nvrhi::Format::BC7_UNORM;
+				case EPixelFormat::Bc7Srgb:
+					return nvrhi::Format::BC7_UNORM_SRGB;
+
+				default:
+					return nvrhi::Format::UNKNOWN;
+			}
+		}
+	} // namespace
+
 	FSceneGpuResources::~FSceneGpuResources()
 	{
 		Release();
@@ -131,14 +188,23 @@ namespace Lime
 				continue;
 			}
 
-			// sRGB for base colour, which is how glTF defines it. Using a linear format would make everything
-			// look washed out, since the shader would treat already-encoded values as linear.
-			const nvrhi::Format Format = Image.bIsSrgb ? nvrhi::Format::SRGBA8_UNORM : nvrhi::Format::RGBA8_UNORM;
+			const nvrhi::Format Format = ToNvrhiFormat(Image.Format);
+			if (Format == nvrhi::Format::UNKNOWN)
+			{
+				// Reached only if a loader produced a format this mapping does not cover, which is a gap in the
+				// engine rather than a problem with the asset. Skipped so the material falls back to white.
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_SCENE, "No RHI format for {} on image '{}'; it will use the fallback texture",
+				                 ToString(Image.Format), Image.Name);
+				continue;
+			}
 
 			const nvrhi::TextureDesc Desc = nvrhi::TextureDesc()
 			                                    .setDimension(nvrhi::TextureDimension::Texture2D)
 			                                    .setWidth(Image.Width)
 			                                    .setHeight(Image.Height)
+			                                    // Mip count comes from the image: a DDS carries its own chain, while a
+			                                    // decoded PNG has exactly one level.
+			                                    .setMipLevels(static_cast<uint32>(Image.Mips.size()))
 			                                    .setFormat(Format)
 			                                    .setInitialState(nvrhi::ResourceStates::ShaderResource)
 			                                    .setKeepInitialState(true)
@@ -147,12 +213,18 @@ namespace Lime
 			Textures[Index] = Device->createTexture(Desc);
 			if (Textures[Index] == nullptr)
 			{
-				LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "createTexture failed for a scene texture ({}x{})", Image.Width, Image.Height);
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "createTexture failed for a scene texture ({}x{} {})", Image.Width, Image.Height,
+				               ToString(Image.Format));
 				return false;
 			}
 
-			// Always 4 channels: the importer widens every image, so the row pitch is uniform.
-			CommandList->writeTexture(Textures[Index], 0, 0, Image.Pixels.data(), static_cast<size_t>(Image.Width) * 4);
+			// Each level is written separately with its own row pitch. For a block compressed format the pitch
+			// is a row of 4x4 blocks, not of pixels, which the loader has already worked out.
+			for (SizeType Level = 0; Level < Image.Mips.size(); ++Level)
+			{
+				const FImageMipLevel& Mip = Image.Mips[Level];
+				CommandList->writeTexture(Textures[Index], 0, static_cast<uint32>(Level), Image.Pixels.data() + Mip.Offset, Mip.RowPitch);
+			}
 		}
 
 		// Resolved once here so that drawing needs no material to image to texture lookup chain, and so that

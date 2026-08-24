@@ -15,6 +15,8 @@
 
 #include "Scene/SceneGpuResources.h"
 
+#include <vector>
+
 namespace Lime
 {
 	// Lighting values worth tuning at runtime. Reflected so the inspector can build controls for them
@@ -63,8 +65,24 @@ namespace Lime
 		FSceneGpuResources GpuResources;
 		FBlinnPhongSettings Settings;
 
+		// Binding sets keyed by material index.
+		//
+		// Necessary rather than an optimisation: nvrhi::IDevice::createBindingSet allocates fresh descriptors
+		// every call with no caching of its own, and the D3D12 sampler heap is capped at 2048 entries. A scene
+		// with a few thousand draws exhausts it within one frame and the device starts failing allocations.
+		// Materials are what the binding set actually varies by, so one entry per material is all that is
+		// needed however many draws reference it.
+		//
+		// -1 keys the default material, which is offset by one to keep the index non negative.
+		std::vector<nvrhi::BindingSetHandle> MaterialBindingSets;
+		// Revision the cache was built for, so it is discarded when the scene changes.
+		uint32 CachedSceneRevision = 0;
+
 		// Cached so the pipeline is only rebuilt when the framebuffer layout actually changes.
 		nvrhi::IFramebuffer* CurrentFramebuffer = nullptr;
+
+		// Returns the binding set for a material, creating it on first use.
+		nvrhi::IBindingSet* GetOrCreateBindingSet(int32 MaterialIndex);
 	};
 
 	// Registers every engine provided pass. Called by FEngine before instantiating the registry, so that

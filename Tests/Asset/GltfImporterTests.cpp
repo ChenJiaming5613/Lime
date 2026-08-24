@@ -12,6 +12,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
+#include <fstream>
+
 using Catch::Approx;
 using namespace Lime;
 
@@ -119,6 +122,41 @@ namespace
   "buffers": [ {
     "byteLength": 36,
     "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/"
+  } ]
+})";
+
+	// A document whose image data is not any format stb can read, standing in for the DDS that a scene
+	// using MSFT_texture_dds lists alongside each PNG.
+	//
+	// tinygltf's own loader reports this as an error, which aborts the whole parse. One unsupported
+	// texture must not cost an entire model, so the importer downgrades it to a warning.
+	constexpr const char* UndecodableImageGltf = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [ { "nodes": [ 0 ] } ],
+  "nodes": [ { "mesh": 0, "name": "Textured" } ],
+  "meshes": [ {
+    "primitives": [ { "attributes": { "POSITION": 1 }, "indices": 0, "material": 0, "mode": 4 } ]
+  } ],
+  "materials": [ {
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [ 0.5, 0.6, 0.7, 1.0 ],
+      "baseColorTexture": { "index": 0 }
+    }
+  } ],
+  "textures": [ { "source": 0 } ],
+  "images": [ { "uri": "data:image/vnd-ms.dds;base64,RERTIHwAAAAHEAAA" } ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5123, "count": 3, "type": "SCALAR" },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3" }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 6 },
+    { "buffer": 0, "byteOffset": 8, "byteLength": 36 }
+  ],
+  "buffers": [ {
+    "byteLength": 44,
+    "uri": "data:application/octet-stream;base64,AAABAAIAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA="
   } ]
 })";
 
@@ -294,6 +332,43 @@ TEST_CASE("Unsupported primitive modes are skipped", "[Asset][Gltf]")
 	REQUIRE(Result.Scene.GetTotalTriangleCount() == 0);
 }
 
+TEST_CASE("An image stb cannot decode does not fail the import", "[Asset][Gltf]")
+{
+	// Found on the RTXDI Bistro scene, which lists a DDS next to every PNG for MSFT_texture_dds. stb
+	// cannot read DDS, and tinygltf treats that as fatal, so a 5900 node model was lost to one texture.
+	const FGltfImportResult Result = Import(UndecodableImageGltf);
+
+	INFO("importer message: " << Result.Message);
+	REQUIRE(Result.bSucceeded);
+
+	SECTION("The geometry survives")
+	{
+		REQUIRE(Result.Scene.Meshes.size() == 1);
+		REQUIRE(Result.Scene.GetTotalTriangleCount() == 1);
+	}
+
+	SECTION("The image is reported as unusable rather than half loaded")
+	{
+		// Zero sized, so the upload path substitutes the white texture instead of reading pixels that are
+		// not there.
+		REQUIRE(Result.Scene.Images.size() == 1);
+		REQUIRE_FALSE(Result.Scene.Images[0].IsValid());
+	}
+
+	SECTION("The material stops referencing it")
+	{
+		// An index left pointing at an image with no pixels would be followed at upload time.
+		REQUIRE(Result.Scene.Materials.size() == 1);
+		REQUIRE(Result.Scene.Materials[0].BaseColorImage == -1);
+	}
+
+	SECTION("The colour factor is still applied")
+	{
+		// Losing the texture must not lose the rest of the material.
+		REQUIRE(IsNearlyEqual(Result.Scene.Materials[0].BaseColorFactor, FVector4{ 0.5f, 0.6f, 0.7f, 1.0f }, 1.0e-3f));
+	}
+}
+
 TEST_CASE("Malformed input fails without crashing", "[Asset][Gltf]")
 {
 	SECTION("Not JSON at all")
@@ -326,6 +401,30 @@ TEST_CASE("A missing file is reported rather than throwing", "[Asset][Gltf]")
 	REQUIRE_FALSE(Result.bSucceeded);
 	REQUIRE(Result.Message.find("does not exist") != std::string::npos);
 	REQUIRE(Result.Scene.IsEmpty());
+}
+
+TEST_CASE("The reported error explains the real failure", "[Asset][Gltf]")
+{
+	// A .gltf that fails to parse is retried as a .glb, which then fails with a container level complaint
+	// ("Invalid magic" for text read as binary). Reporting that instead of the original hides the cause
+	// completely, and cost real time to diagnose on the Bistro scene.
+	const std::filesystem::path Path = std::filesystem::temp_directory_path() / "lime-broken-fixture.gltf";
+
+	{
+		std::ofstream File(Path, std::ios::binary);
+		REQUIRE(File.is_open());
+		// Valid JSON but not a glTF document: the required "asset" property is absent, so the failure comes
+		// from glTF validation rather than from the JSON parser.
+		File << R"({ "hello": "world" })";
+	}
+
+	const FGltfImportResult Result = FGltfImporter::LoadFromFile(Path);
+	std::error_code Error;
+	std::filesystem::remove(Path, Error);
+
+	REQUIRE_FALSE(Result.bSucceeded);
+	REQUIRE_FALSE(Result.Message.empty());
+	REQUIRE(Result.Message.find("Invalid magic") == std::string::npos);
 }
 
 TEST_CASE("Bounding box helpers", "[Asset][Gltf]")

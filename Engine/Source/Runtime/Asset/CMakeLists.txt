@@ -9,6 +9,8 @@ lime_add_module(
 	SOURCES
 		AssetTypes.h
 		AssetTypes.cpp
+		DdsLoader.h
+		DdsLoader.cpp
 		GltfImporter.h
 		GltfImporter.cpp
 	PUBLIC_DEPS

@@ -20,7 +20,7 @@
 		"port": 5614
 	},
 	"scene": {
-		"gltf": "glTF-Sample-Assets/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+		"gltf": "RTXDI-Assets/bistro/bistro.gltf",
 		"cameraFieldOfView": 60.0,
 		"cameraMoveSpeed": 3.0,
 		"lightIntensity": 3.0,

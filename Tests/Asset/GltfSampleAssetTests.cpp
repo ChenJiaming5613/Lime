@@ -8,6 +8,7 @@
 // Every case skips rather than fails when Assets/ is not populated, because fetching a 2 GB dataset is
 // a developer's choice and must not break a fresh checkout or CI.
 
+#include "Asset/DdsLoader.h"
 #include "Asset/GltfImporter.h"
 
 #include <catch2/catch_approx.hpp>
@@ -200,5 +201,81 @@ TEST_CASE("Sample assets import", "[Asset][Gltf][SampleAssets]")
 			REQUIRE(Bounds.bValid);
 			REQUIRE(Bounds.GetLongestEdge() > 0.0f);
 		}
+	}
+}
+
+TEST_CASE("Real DDS textures parse", "[Asset][Dds][SampleAssets]")
+{
+	// The DdsLoaderTests build headers by hand, which proves the layout maths but not that the maths matches
+	// what a real encoder writes. These run against files produced by NVIDIA's texture tools.
+	//
+	// The RTXDI assets are a separate download from the Khronos samples, so this skips independently.
+	const std::filesystem::path Root =
+	    std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "Assets" / "RTXDI-Assets" / "bistro";
+
+	std::error_code Error;
+	if (!std::filesystem::exists(Root, Error))
+	{
+		SKIP("RTXDI-Assets is not present");
+	}
+
+	// The first .dds found, so the test does not depend on one particular file surviving an asset update.
+	std::filesystem::path Found;
+	for (const std::filesystem::directory_entry& Entry : std::filesystem::recursive_directory_iterator(Root, Error))
+	{
+		if (Entry.is_regular_file(Error) && FDdsLoader::HasDdsExtension(Entry.path()))
+		{
+			Found = Entry.path();
+			break;
+		}
+	}
+
+	if (Found.empty())
+	{
+		SKIP("no .dds files found under RTXDI-Assets");
+	}
+
+	const FDdsLoadResult Result = FDdsLoader::LoadFromFile(Found);
+	INFO("file: " << Found.string());
+	INFO("loader message: " << Result.Message);
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.Image.IsValid());
+
+	SECTION("It is block compressed, so no CPU decode happened")
+	{
+		// The whole point of the loader: a texture that stayed compressed all the way through. Decoding it
+		// would quadruple the memory it occupies.
+		REQUIRE(IsBlockCompressed(Result.Image.Format));
+	}
+
+	SECTION("The mip chain is complete and contiguous")
+	{
+		REQUIRE(Result.Image.Mips.size() > 1);
+
+		uint64 Expected = 0;
+		for (const FImageMipLevel& Mip : Result.Image.Mips)
+		{
+			REQUIRE(Mip.Offset == Expected);
+			REQUIRE(Mip.Size > 0);
+			Expected += Mip.Size;
+		}
+
+		// The payload accounts for every level with nothing missing and nothing spare, which is the check
+		// that the computed layout agrees with what the encoder actually wrote.
+		REQUIRE(Result.Image.Pixels.size() == Expected);
+	}
+
+	SECTION("The chain runs down to a single pixel")
+	{
+		// A full chain is what makes minification look right; stopping early shows as shimmering at distance.
+		const FImageMipLevel& Smallest = Result.Image.Mips.back();
+		REQUIRE(Smallest.Width == 1);
+		REQUIRE(Smallest.Height == 1);
+	}
+
+	SECTION("Level zero matches the declared image size")
+	{
+		REQUIRE(Result.Image.Mips[0].Width == Result.Image.Width);
+		REQUIRE(Result.Image.Mips[0].Height == Result.Image.Height);
 	}
 }

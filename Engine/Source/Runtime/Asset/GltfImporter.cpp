@@ -2,6 +2,8 @@
 
 #include "Core/Logging/LogManager.h"
 
+#include "Asset/DdsLoader.h"
+
 // tinygltf pulls in stb and defines its implementation in the vendored tiny_gltf.cc, so this
 // translation unit only needs the declarations.
 #include <tiny_gltf.h>
@@ -191,19 +193,17 @@ namespace Lime
 
 		FImageData ConvertImage(const tinygltf::Image& Source)
 		{
-			FImageData Result;
-			Result.Name = Source.name;
-			Result.Width = static_cast<uint32>(std::max(Source.width, 0));
-			Result.Height = static_cast<uint32>(std::max(Source.height, 0));
+			const uint32 Width = static_cast<uint32>(std::max(Source.width, 0));
+			const uint32 Height = static_cast<uint32>(std::max(Source.height, 0));
 
 			// 16 bit sources are rare and would need a different upload format, so they are skipped rather
 			// than silently truncated to something that looks wrong.
-			if (Result.Width == 0 || Result.Height == 0 || Source.component <= 0 || Source.bits != 8)
+			if (Width == 0 || Height == 0 || Source.component <= 0 || Source.bits != 8)
 			{
 				return {};
 			}
 
-			const size_t PixelCount = static_cast<size_t>(Result.Width) * Result.Height;
+			const size_t PixelCount = static_cast<size_t>(Width) * Height;
 			const size_t SourceChannels = static_cast<size_t>(Source.component);
 			if (Source.image.size() < PixelCount * SourceChannels)
 			{
@@ -211,11 +211,11 @@ namespace Lime
 			}
 
 			// Always widened to RGBA. A 1 or 3 channel texture would otherwise need its own shader path.
-			Result.Pixels.resize(PixelCount * 4);
+			std::vector<uint8> Pixels(PixelCount * 4);
 			for (size_t Pixel = 0; Pixel < PixelCount; ++Pixel)
 			{
 				const uint8* In = Source.image.data() + Pixel * SourceChannels;
-				uint8* Out = Result.Pixels.data() + Pixel * 4;
+				uint8* Out = Pixels.data() + Pixel * 4;
 
 				switch (SourceChannels)
 				{
@@ -247,7 +247,57 @@ namespace Lime
 				}
 			}
 
+			FImageData Result;
+			Result.Name = Source.name;
+			// Base colour textures are authored in sRGB by definition, and this path only feeds base colour.
+			Result.SetSingleLevel(Width, Height, EPixelFormat::Rgba8Srgb, std::move(Pixels));
 			return Result;
+		}
+
+		// Loads a DDS that tinygltf left alone.
+		//
+		// tinygltf hands image loading to stb, which does not know DDS, so those images arrive empty. The
+		// file is read here instead, keeping the block compressed payload intact all the way to the GPU.
+		FImageData LoadDdsImage(const tinygltf::Image& Source, const std::filesystem::path& BaseDirectory, std::string& OutWarning)
+		{
+			if (Source.uri.empty() || BaseDirectory.empty())
+			{
+				// An embedded DDS would have to arrive as a data uri, which tinygltf decodes into Source.image;
+				// that case is handled by the caller before reaching here.
+				return {};
+			}
+
+			const std::filesystem::path Path = BaseDirectory / std::filesystem::u8path(Source.uri);
+			const FDdsLoadResult Loaded = FDdsLoader::LoadFromFile(Path);
+			if (!Loaded.bSucceeded)
+			{
+				// A warning rather than a failure: one texture that cannot be read should cost that texture,
+				// not the whole scene. The material falls back to a white texture at upload.
+				OutWarning += Loaded.Message + "; ";
+				return {};
+			}
+
+			return Loaded.Image;
+		}
+
+		// Resolves the image a texture actually refers to.
+		//
+		// MSFT_texture_dds points at a DDS while texture.source keeps a PNG for readers that do not
+		// understand the extension. In the RTXDI assets those PNGs are not shipped at all, so following
+		// source alone finds nothing: the extension has to be preferred where present.
+		int GetTextureImageIndex(const tinygltf::Texture& Texture)
+		{
+			const auto Extension = Texture.extensions.find("MSFT_texture_dds");
+			if (Extension != Texture.extensions.end() && Extension->second.Has("source"))
+			{
+				const tinygltf::Value& SourceValue = Extension->second.Get("source");
+				if (SourceValue.IsInt())
+				{
+					return SourceValue.Get<int>();
+				}
+			}
+
+			return Texture.source;
 		}
 
 		bool ConvertMesh(const tinygltf::Model& Model, const tinygltf::Mesh& Source, FMeshData& OutMesh)
@@ -412,7 +462,7 @@ namespace Lime
 			const int TextureIndex = Source.pbrMetallicRoughness.baseColorTexture.index;
 			if (TextureIndex >= 0 && TextureIndex < static_cast<int>(Model.textures.size()))
 			{
-				const int ImageIndex = Model.textures[TextureIndex].source;
+				const int ImageIndex = GetTextureImageIndex(Model.textures[TextureIndex]);
 				if (ImageIndex >= 0 && ImageIndex < static_cast<int>(Model.images.size()))
 				{
 					Result.BaseColorImage = ImageIndex;
@@ -494,17 +544,34 @@ namespace Lime
 			return Result;
 		}
 
-		FGltfImportResult ConvertModel(const tinygltf::Model& Model, const std::string& Warning)
+		FGltfImportResult ConvertModel(const tinygltf::Model& Model, const std::string& Warning, const std::filesystem::path& BaseDirectory)
 		{
 			FGltfImportResult Result;
 			Result.Message = Warning;
 
 			FGltfSceneData& Scene = Result.Scene;
 
+			std::string ImageWarnings;
 			Scene.Images.reserve(Model.images.size());
 			for (const tinygltf::Image& Image : Model.images)
 			{
-				Scene.Images.push_back(ConvertImage(Image));
+				FImageData Converted = ConvertImage(Image);
+
+				// An image tinygltf could not decode arrives empty. When the uri names a DDS that is expected,
+				// since stb does not know the format, so it is read here instead.
+				if (!Converted.IsValid() && FDdsLoader::HasDdsExtension(std::filesystem::u8path(Image.uri)))
+				{
+					Converted = LoadDdsImage(Image, BaseDirectory, ImageWarnings);
+				}
+
+				Scene.Images.push_back(std::move(Converted));
+			}
+
+			if (!ImageWarnings.empty())
+			{
+				// Appended rather than replacing, so a tinygltf warning is not lost. Kept as one message
+				// because a scene can reference hundreds of textures and each would otherwise be its own line.
+				Result.Message += (Result.Message.empty() ? "" : " ") + ImageWarnings;
 			}
 
 			Scene.Materials.reserve(Model.materials.size());
@@ -593,6 +660,42 @@ namespace Lime
 			Result.bSucceeded = true;
 			return Result;
 		}
+
+		// Decodes an image, treating anything stb cannot read as absent rather than as a failure.
+		//
+		// tinygltf's built-in loader reports an undecodable image as an error, which aborts the whole parse.
+		// That is too strict for real assets: a scene using MSFT_texture_dds lists a DDS alongside each PNG,
+		// and stb cannot read DDS at all, so one unsupported texture would cost the entire model. The upload
+		// path already substitutes a white texture for an image that did not decode, so losing one texture
+		// degrades the material rather than the scene.
+		bool LoadImageLenient(tinygltf::Image* Image, const int ImageIndex, std::string* Error, std::string* Warning, int RequiredWidth,
+		                      int RequiredHeight, const unsigned char* Bytes, int Size, void* UserData)
+		{
+			LIME_UNUSED(UserData);
+
+			// Errors are deliberately swallowed: tinygltf propagates whatever lands in Error, and the point
+			// here is that an image problem must not fail the import. A local buffer keeps the reason
+			// available so it can be downgraded to a warning.
+			std::string DecodeError;
+			if (tinygltf::LoadImageData(Image, ImageIndex, &DecodeError, Warning, RequiredWidth, RequiredHeight, Bytes, Size, nullptr))
+			{
+				return true;
+			}
+
+			if (Warning != nullptr)
+			{
+				*Warning += "image[" + std::to_string(ImageIndex) + "] could not be decoded and will be ignored: " + DecodeError;
+			}
+			LIME_UNUSED(Error);
+
+			// Cleared so nothing downstream mistakes it for a usable image; FImageData::IsValid then reports
+			// false and the material falls back to the white texture.
+			Image->width = 0;
+			Image->height = 0;
+			Image->component = 0;
+			Image->image.clear();
+			return true;
+		}
 	} // namespace
 
 	FGltfImportResult FGltfImporter::LoadFromFile(const std::filesystem::path& Path)
@@ -611,6 +714,9 @@ namespace Lime
 		std::string LoadError;
 		std::string LoadWarning;
 
+		// Installed so an image stb cannot decode does not fail the whole import; see LoadImageLenient.
+		Loader.SetImageLoader(&LoadImageLenient, nullptr);
+
 		// The extension picks the container, but a mislabelled file is common enough that the other form is
 		// tried as well before giving up.
 		std::string Extension = Path.extension().string();
@@ -618,23 +724,25 @@ namespace Lime
 		               [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
 
 		const std::string FileName = Path.string();
-		bool bLoaded = false;
-		if (Extension == ".glb")
+		const bool bPreferBinary = Extension == ".glb";
+
+		bool bLoaded = bPreferBinary ? Loader.LoadBinaryFromFile(&Model, &LoadError, &LoadWarning, FileName)
+		                             : Loader.LoadASCIIFromFile(&Model, &LoadError, &LoadWarning, FileName);
+
+		if (!bLoaded)
 		{
-			bLoaded = Loader.LoadBinaryFromFile(&Model, &LoadError, &LoadWarning, FileName);
+			// Kept, because it is the error that actually explains the failure. The fallback below almost
+			// always fails with a container level complaint ("Invalid magic" for a JSON file read as binary),
+			// and reporting that instead would hide the real reason entirely.
+			const std::string PrimaryError = LoadError;
+
+			LoadError.clear();
+			bLoaded = bPreferBinary ? Loader.LoadASCIIFromFile(&Model, &LoadError, &LoadWarning, FileName)
+			                        : Loader.LoadBinaryFromFile(&Model, &LoadError, &LoadWarning, FileName);
+
 			if (!bLoaded)
 			{
-				LoadError.clear();
-				bLoaded = Loader.LoadASCIIFromFile(&Model, &LoadError, &LoadWarning, FileName);
-			}
-		}
-		else
-		{
-			bLoaded = Loader.LoadASCIIFromFile(&Model, &LoadError, &LoadWarning, FileName);
-			if (!bLoaded)
-			{
-				LoadError.clear();
-				bLoaded = Loader.LoadBinaryFromFile(&Model, &LoadError, &LoadWarning, FileName);
+				LoadError = PrimaryError.empty() ? LoadError : PrimaryError;
 			}
 		}
 
@@ -644,7 +752,8 @@ namespace Lime
 			return Result;
 		}
 
-		Result = ConvertModel(Model, LoadWarning);
+		// The directory the file sits in, which is what relative image uris resolve against.
+		Result = ConvertModel(Model, LoadWarning, Path.parent_path());
 		Result.Scene.SourcePath = FileName;
 		return Result;
 	}
@@ -658,6 +767,9 @@ namespace Lime
 		std::string LoadError;
 		std::string LoadWarning;
 
+		// Same leniency as the file path, so a document exercised in a test behaves like one on disk.
+		Loader.SetImageLoader(&LoadImageLenient, nullptr);
+
 		if (!Loader.LoadASCIIFromString(&Model, &LoadError, &LoadWarning, Json.c_str(), static_cast<unsigned int>(Json.size()),
 		                                BaseDirectory.string()))
 		{
@@ -665,6 +777,6 @@ namespace Lime
 			return Result;
 		}
 
-		return ConvertModel(Model, LoadWarning);
+		return ConvertModel(Model, LoadWarning, BaseDirectory);
 	}
 } // namespace Lime

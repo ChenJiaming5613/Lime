@@ -75,19 +75,96 @@ namespace Lime
 		bool bDoubleSided = false;
 	};
 
-	// Decoded pixels, always expanded to 4 channels. glTF images may be 1 to 4 channels, and widening
-	// them here keeps the upload path and the shader free of per-image special cases; the cost is
-	// paid once at load rather than per draw.
+	// Pixel formats an image can arrive in.
+	//
+	// Declared here rather than reusing nvrhi::Format because this module must not depend on the RHI: that
+	// is what lets the loaders be unit tested without a device. The mapping to nvrhi lives at the upload
+	// site, where the two meet.
+	//
+	// Block compressed entries are carried through to the GPU as-is. Decompressing them on the CPU would
+	// throw away the memory and bandwidth saving they exist for, and every backend this engine targets
+	// supports them natively.
+	//
+	// Named in the engine's convention rather than DXGI's, with the DXGI equivalent in a comment where the
+	// two differ in more than case. The mapping tables in DdsLoader.cpp and SceneGpuResources.cpp are the
+	// places to check when adding one.
+	enum class EPixelFormat : uint8
+	{
+		Unknown,
+
+		// Uncompressed, 4 bytes per pixel. What the stb path produces after widening.
+		Rgba8Unorm,
+		Rgba8Srgb,
+		Bgra8Unorm,
+		Bgra8Srgb,
+
+		// Block compressed, 4x4 blocks. BC1 and BC4 pack a block into 8 bytes, the rest into 16.
+		Bc1Unorm,
+		Bc1Srgb,
+		Bc2Unorm,
+		Bc2Srgb,
+		Bc3Unorm,
+		Bc3Srgb,
+		Bc4Unorm,
+		Bc4Snorm,
+		Bc5Unorm,
+		Bc5Snorm,
+		// DXGI calls these BC6H_UF16 and BC6H_SF16.
+		Bc6HUfloat,
+		Bc6HSfloat,
+		Bc7Unorm,
+		Bc7Srgb,
+	};
+
+	// True for the 4x4 block compressed formats, whose row pitch is measured in blocks rather than pixels.
+	bool IsBlockCompressed(EPixelFormat Format);
+
+	// Bytes per 4x4 block for a compressed format, or bytes per pixel for an uncompressed one.
+	uint32 GetFormatBlockSize(EPixelFormat Format);
+
+	// True when the format carries an sRGB transfer function, which the shader must not decode a second
+	// time.
+	bool IsSrgbFormat(EPixelFormat Format);
+
+	const char* ToString(EPixelFormat Format);
+
+	// One mip level's slice of an image's byte array.
+	//
+	// Offsets rather than separate allocations, so an image is one contiguous buffer however many levels
+	// it has. That is also the shape writeTexture wants.
+	struct FImageMipLevel
+	{
+		uint32 Width = 0;
+		uint32 Height = 0;
+		// Byte offset into FImageData::Pixels.
+		uint64 Offset = 0;
+		uint64 Size = 0;
+		// Bytes per row of pixels, or per row of blocks for a compressed format.
+		uint32 RowPitch = 0;
+	};
+
+	// An image's raw bytes plus the layout needed to interpret them.
+	//
+	// The stb path produces a single RGBA8 level: glTF images may be 1 to 4 channels, and widening them at
+	// load keeps the upload path and the shader free of per-image special cases. The DDS path produces the
+	// levels the file already contains, in whatever block compressed format it was authored in.
 	struct FImageData
 	{
 		std::string Name;
 		uint32 Width = 0;
 		uint32 Height = 0;
+		EPixelFormat Format = EPixelFormat::Rgba8Srgb;
+		// Raw bytes of every mip level, concatenated. Interpreted through Mips.
 		std::vector<uint8> Pixels;
-		// True when the source was authored in sRGB, which base colour textures are by definition.
-		bool bIsSrgb = true;
+		// Always at least one entry for a valid image. Level 0 covers the full size.
+		std::vector<FImageMipLevel> Mips;
 
-		bool IsValid() const { return Width > 0 && Height > 0 && !Pixels.empty(); }
+		bool IsValid() const { return Width > 0 && Height > 0 && !Pixels.empty() && !Mips.empty(); }
+		bool IsSrgb() const { return IsSrgbFormat(Format); }
+
+		// Fills Mips with the single level an uncompressed image has. Used by the stb path, which decodes
+		// one level and knows nothing about mips.
+		void SetSingleLevel(uint32 InWidth, uint32 InHeight, EPixelFormat InFormat, std::vector<uint8> InPixels);
 	};
 
 	// A node of the glTF hierarchy. Children are indices into the flat node array rather than pointers,
