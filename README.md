@@ -163,18 +163,20 @@ the tree stays visible.
 
 ## A project with no code
 
-A directory containing only `ProjectSettings.json` is a complete project. `Projects/CMakeLists.txt`
-generates the CMake glue it needs into `<Project>/Intermediate/Generated/`, which is git ignored, so
-nothing is written by hand and nothing lands in the source tree.
+C++ sources are optional. A project that only configures existing engine features needs just two files:
+`ProjectSettings.json` and a `CMakeLists.txt` holding the same single `lime_add_project()` call every
+project has.
 
-`Projects/GltfViewer/` is exactly that: one settings file, no sources, no `CMakeLists.txt`. It builds
-into its own executable and renders the configured model. Adding a `CMakeLists.txt` later takes
-precedence over the generated stub, so growing such a project into one with code needs no migration.
+`Projects/GltfViewer/` is exactly that: no sources, no shaders, no automation scripts. It builds into
+its own executable and renders the configured model, because the pass that draws it and the shader it
+uses are both built into the engine.
 
-The stub exists because `add_subdirectory(<source> <binary>)` is the only way to give a project its own
-binary directory — CMake does not allow overriding where a target's object files go. Calling
-`lime_add_project` directly from the `Projects` scope would scatter a code-free project's intermediates
-across the shared build tree.
+Configure reports which form a project took:
+
+```
+-- Project GltfViewer: no sources, engine features only -> .../Binaries/<Config>
+-- Project HelloTriangle: 6 source(s) -> .../Binaries/<Config>
+```
 
 ## Writing a project
 
@@ -184,9 +186,9 @@ never lists files in CMake and never calls into the engine to register anything.
 ```
 Projects/<Name>/
   CMakeLists.txt        One call to lime_add_project()
-  ProjectSettings.json  Name, window, RHI and automation configuration
+  ProjectSettings.json  Name, window, RHI, scene and automation configuration
   EditorSettings.json   Editor appearance. Optional, defaults apply when absent
-  Source/               Render passes and editor panels, globbed by CMake
+  Source/               Render passes and editor panels, globbed by CMake. Optional
   Shaders/              HLSL plus a ShaderMake .cfg
   Automation/           Python test scripts, discovered by name
   Content/              Optional assets, copied next to the executable

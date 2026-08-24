@@ -305,25 +305,26 @@ class TestSceneRendering:
         assert (width, height) == (info["viewportWidth"], info["viewportHeight"])
 
 
-class TestZeroCodeProject:
-    """GltfViewer is the proof that a project needs nothing but configuration.
+class TestCodeFreeProject:
+    """GltfViewer is the proof that a project needs no C++ of its own.
 
     Asserted from the file system rather than from the engine, because the property being protected is a
-    build time one: the moment someone adds a CMakeLists.txt or a source file here, the generated stub
-    path stops being exercised and could rot without anyone noticing.
+    build time one: the moment someone adds a source file here, the "engine features only" path stops
+    being exercised and could rot without anyone noticing.
     """
 
     PROJECT_DIR = Path(__file__).resolve().parents[3] / "Projects" / "GltfViewer"
 
-    def test_the_project_has_no_build_script(self) -> None:
-        assert not (self.PROJECT_DIR / "CMakeLists.txt").exists(), (
-            "GltfViewer gained a CMakeLists.txt, so the generated stub path is no longer covered"
+    def test_the_project_has_no_sources(self) -> None:
+        assert not (self.PROJECT_DIR / "Source").exists(), (
+            "GltfViewer gained a Source directory, so the code-free path is no longer covered"
         )
 
-    def test_the_project_has_no_sources(self) -> None:
-        assert not (self.PROJECT_DIR / "Source").exists()
+    def test_the_project_has_no_shaders(self) -> None:
+        """The pass that draws the scene is built in, so its shader comes from the engine too."""
+        assert not (self.PROJECT_DIR / "Shaders").exists()
 
-    def test_settings_are_the_only_authored_file(self) -> None:
+    def test_only_the_build_script_and_settings_are_authored(self) -> None:
         # Intermediate and Binaries are build outputs and are git ignored, so they do not count.
         authored = {
             entry.name
@@ -331,7 +332,19 @@ class TestZeroCodeProject:
             if entry.name not in ("Intermediate", "Binaries")
         }
 
-        assert authored == {"ProjectSettings.json"}, f"unexpected files in GltfViewer: {sorted(authored)}"
+        assert authored == {"CMakeLists.txt", "ProjectSettings.json"}, (
+            f"unexpected files in GltfViewer: {sorted(authored)}"
+        )
+
+    def test_the_build_script_is_a_single_call(self) -> None:
+        """A project's CMakeLists is one call with no arguments; everything else is derived."""
+        lines = [
+            line.strip()
+            for line in (self.PROJECT_DIR / "CMakeLists.txt").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+        assert lines == ["lime_add_project()"]
 
     def test_it_still_builds_and_runs(self, scene: LimeClient) -> None:
         """The whole point: no code, yet a window, a device and a rendered scene."""
