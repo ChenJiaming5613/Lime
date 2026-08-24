@@ -12,6 +12,7 @@
 #include <array>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Lime
@@ -303,6 +304,32 @@ namespace Lime
 			return Texture.source;
 		}
 
+		// glTF is right handed, this engine is left handed, so imported data has to be converted or every
+		// scene renders mirrored. The symptom is subtle enough to miss on a symmetric model and obvious on
+		// anything with text: lettering reads backwards, and an object authored to the right appears left.
+		//
+		// Negating Z is the conversion that keeps the up axis and the ground plane where the author put
+		// them. Negating X would mirror just as correctly in the mathematical sense but would swap left and
+		// right in the scene, which is wrong for anything built around a facing direction.
+		//
+		// This is a single reflection, so it also reverses which way a triangle winds. Every place that
+		// consumes the flipped positions has to account for that, or back faces end up front and the
+		// lighting inverts with them.
+		FVector3 ConvertPosition(float X, float Y, float Z)
+		{
+			return { X, Y, -Z };
+		}
+
+		// A rotation is mirrored by negating the components that pair with the reflected axis.
+		//
+		// For a reflection through Z that is x and y, leaving z and w: the axis reflects like a position
+		// while the angle reverses, and the two sign changes cancel on the z term. Applying the position
+		// rule to all four components instead would tilt every rotated node.
+		FQuat ConvertRotation(float X, float Y, float Z, float W)
+		{
+			return FQuat(-X, -Y, Z, W);
+		}
+
 		bool ConvertMesh(const tinygltf::Model& Model, const tinygltf::Mesh& Source, FMeshData& OutMesh)
 		{
 			OutMesh.Name = Source.name;
@@ -366,14 +393,16 @@ namespace Lime
 					{
 						return false;
 					}
-					Vertex.Position = { Position[0], Position[1], Position[2] };
+					Vertex.Position = ConvertPosition(Position[0], Position[1], Position[2]);
 
 					if (NormalAccessor != nullptr)
 					{
 						float Normal[3] = { 0.0f, 0.0f, 0.0f };
 						if (ReadAccessorAsFloats(Model, *NormalAccessor, Index, Normal, 3))
 						{
-							Vertex.Normal = { Normal[0], Normal[1], Normal[2] };
+							// Same reflection as the positions: a normal that kept its original Z would point
+							// through the surface it belongs to.
+							Vertex.Normal = ConvertPosition(Normal[0], Normal[1], Normal[2]);
 						}
 					}
 
@@ -418,6 +447,19 @@ namespace Lime
 					continue;
 				}
 
+				// Reversed because negating Z mirrored the geometry, and a mirrored triangle winds the other
+				// way. Without this every face would be inside out: with culling on they would disappear,
+				// and with culling off, as here, they light as though lit from behind.
+				//
+				// Done after the multiple-of-three check, so a malformed primitive is discarded rather than
+				// having its indices shuffled across triangle boundaries.
+				for (uint32 Triangle = FirstIndex; Triangle + 2 < FirstIndex + IndexCount; Triangle += 3)
+				{
+					std::swap(OutMesh.Indices[Triangle], OutMesh.Indices[Triangle + 2]);
+				}
+
+				// After the winding fix, so the generated normals face the same way as the triangles they
+				// are derived from.
 				if (NormalAccessor == nullptr)
 				{
 					GenerateFlatNormals(OutMesh.Vertices, OutMesh.Indices, FirstIndex, IndexCount);
@@ -567,13 +609,17 @@ namespace Lime
 			Result.Name = Source.name;
 			Result.MeshIndex = Source.mesh;
 
+			// Node transforms are converted from right handed to left handed the same way the geometry is.
+			// Decomposing first and converting the parts is valid because the reflection distributes over
+			// translation, rotation and scale: scale is unaffected, being diagonal.
+
 			// glTF gives a node either a 4x4 matrix or separate TRS components, never both.
 			if (Source.matrix.size() == 16)
 			{
 				// Decomposed rather than kept as a matrix, so the editor can show and edit meaningful values.
 				// Column major in the file: translation sits in elements 12 to 14.
-				Result.Translation = { static_cast<float>(Source.matrix[12]), static_cast<float>(Source.matrix[13]),
-				                       static_cast<float>(Source.matrix[14]) };
+				Result.Translation = ConvertPosition(static_cast<float>(Source.matrix[12]), static_cast<float>(Source.matrix[13]),
+				                                     static_cast<float>(Source.matrix[14]));
 
 				FVector3 Columns[3];
 				for (int32 Column = 0; Column < 3; ++Column)
@@ -598,21 +644,23 @@ namespace Lime
 						Rotation.M[1][Column] = Columns[Column].Y * Inverse;
 						Rotation.M[2][Column] = Columns[Column].Z * Inverse;
 					}
-					Result.Rotation = FQuat::FromRotationMatrix(Rotation);
+					const FQuat Extracted = FQuat::FromRotationMatrix(Rotation);
+					Result.Rotation = ConvertRotation(Extracted.X, Extracted.Y, Extracted.Z, Extracted.W);
 				}
 			}
 			else
 			{
 				if (Source.translation.size() >= 3)
 				{
-					Result.Translation = { static_cast<float>(Source.translation[0]), static_cast<float>(Source.translation[1]),
-					                       static_cast<float>(Source.translation[2]) };
+					Result.Translation =
+					    ConvertPosition(static_cast<float>(Source.translation[0]), static_cast<float>(Source.translation[1]),
+						                static_cast<float>(Source.translation[2]));
 				}
 				if (Source.rotation.size() >= 4)
 				{
 					// glTF stores quaternions as xyzw, the same order as FQuat.
-					Result.Rotation = FQuat(static_cast<float>(Source.rotation[0]), static_cast<float>(Source.rotation[1]),
-					                        static_cast<float>(Source.rotation[2]), static_cast<float>(Source.rotation[3]))
+					Result.Rotation = ConvertRotation(static_cast<float>(Source.rotation[0]), static_cast<float>(Source.rotation[1]),
+					                                  static_cast<float>(Source.rotation[2]), static_cast<float>(Source.rotation[3]))
 					                      .GetNormalized();
 				}
 				if (Source.scale.size() >= 3)

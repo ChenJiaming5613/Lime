@@ -200,7 +200,10 @@ TEST_CASE("Importing a triangle yields the expected geometry", "[Asset][Gltf]")
 	{
 		for (const FMeshVertex& Vertex : Mesh.Vertices)
 		{
-			REQUIRE(IsNearlyEqual(Vertex.Normal, FVector3::UnitZ(), 1.0e-4f));
+			// Authored as +Z, and -Z after import: glTF is right handed and this engine is left handed, so
+			// the importer reflects Z. A normal that came through unchanged would point through its own
+			// surface once the positions had been flipped.
+			REQUIRE(IsNearlyEqual(Vertex.Normal, -FVector3::UnitZ(), 1.0e-4f));
 		}
 	}
 
@@ -262,6 +265,55 @@ TEST_CASE("Missing normals are generated", "[Asset][Gltf]")
 	}
 }
 
+TEST_CASE("Right handed glTF data is converted to the engine's left handed space", "[Asset][Gltf]")
+{
+	// The defect this guards against renders every scene mirrored. It is easy to miss, because a symmetric
+	// model looks correct and only lettering or a known layout gives it away, and it is easy to reintroduce,
+	// because each piece of the conversion looks optional on its own.
+	const FGltfImportResult Result = Import(TriangleGltf);
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.Scene.Meshes.size() == 1);
+
+	const FMeshData& Mesh = Result.Scene.Meshes[0];
+
+	SECTION("Winding is reversed to match the reflected geometry")
+	{
+		// Authored as 0,1,2. Reflecting one axis reverses which way a triangle turns, so the importer has
+		// to reverse the indices to match: otherwise every face is inside out, and with backface culling
+		// enabled the model would disappear entirely.
+		REQUIRE(Mesh.Indices[0] == 2);
+		REQUIRE(Mesh.Indices[1] == 1);
+		REQUIRE(Mesh.Indices[2] == 0);
+	}
+
+	SECTION("The triangle keeps the same shape it was authored with")
+	{
+		// A reflection preserves distances, so a conversion that got the signs wrong but stayed
+		// self consistent would still fail here.
+		const FVector3 A = Mesh.Vertices[0].Position;
+		const FVector3 B = Mesh.Vertices[1].Position;
+		const FVector3 C = Mesh.Vertices[2].Position;
+
+		REQUIRE((B - A).Length() == Catch::Approx(1.0f).margin(1.0e-4f));
+		REQUIRE((C - A).Length() == Catch::Approx(1.0f).margin(1.0e-4f));
+	}
+
+	SECTION("Normals stay consistent with the winding they belong to")
+	{
+		// The two have to agree. A conversion that flipped the normals but left the winding, or the other
+		// way round, would light the surface as though it faced away from the camera.
+		const FVector3 A = Mesh.Vertices[Mesh.Indices[0]].Position;
+		const FVector3 B = Mesh.Vertices[Mesh.Indices[1]].Position;
+		const FVector3 C = Mesh.Vertices[Mesh.Indices[2]].Position;
+
+		// Left handed winding: the cross product of the edges points along the face normal.
+		const FVector3 GeometricNormal = Cross(B - A, C - A).GetNormalized();
+		const FVector3 Authored = Mesh.Vertices[0].Normal;
+
+		REQUIRE(Dot(GeometricNormal, Authored) == Catch::Approx(1.0f).margin(1.0e-3f));
+	}
+}
+
 TEST_CASE("Node hierarchy and transforms survive import", "[Asset][Gltf]")
 {
 	const FGltfImportResult Result = Import(HierarchyGltf);
@@ -276,7 +328,8 @@ TEST_CASE("Node hierarchy and transforms survive import", "[Asset][Gltf]")
 	REQUIRE(Parent.Name == "Parent");
 	REQUIRE(Parent.Children.size() == 1);
 	REQUIRE(Parent.Children[0] == 1);
-	REQUIRE(IsNearlyEqual(Parent.Translation, FVector3{ 1.0f, 2.0f, 3.0f }));
+	// Authored at (1, 2, 3); Z is negated because glTF is right handed and this engine is not.
+	REQUIRE(IsNearlyEqual(Parent.Translation, FVector3{ 1.0f, 2.0f, -3.0f }));
 
 	REQUIRE(Child.Name == "Child");
 	REQUIRE(Child.Children.empty());
@@ -285,7 +338,11 @@ TEST_CASE("Node hierarchy and transforms survive import", "[Asset][Gltf]")
 	SECTION("A quarter turn about Y is read from the xyzw quaternion")
 	{
 		// glTF and FQuat use the same component order, so a mismatch here would show up as a wrong axis.
-		REQUIRE(IsNearlyEqual(Child.Rotation, FQuat::FromAxisAngle(FVector3::UnitY(), HalfPi), 1.0e-4f));
+		//
+		// The authored turn is about +Y; it comes through as a turn about -Y because reflecting Z reverses
+		// the direction of any rotation whose axis lies in the reflection plane. Verified against S*R*S,
+		// which is what the conversion has to reproduce for the mirrored scene to stay self consistent.
+		REQUIRE(IsNearlyEqual(Child.Rotation, FQuat::FromAxisAngle(-FVector3::UnitY(), HalfPi), 1.0e-4f));
 	}
 
 	SECTION("Nodes without a mesh are marked as such")
@@ -315,8 +372,9 @@ TEST_CASE("A matrix node is decomposed into components", "[Asset][Gltf]")
 		const FMatrix4x4 Recomposed = MakeTransform(Node.Translation, Node.Rotation, Node.Scale);
 		const FVector3 Point{ 1.0f, 0.0f, 0.0f };
 
-		// The authored matrix maps +X onto -Z, scaled by 2 and offset by 5 along X.
-		REQUIRE(IsNearlyEqual(Recomposed.TransformPosition(Point), FVector3{ 5.0f, 0.0f, -2.0f }, 1.0e-3f));
+		// The authored matrix maps +X onto -Z, scaled by 2 and offset by 5 along X. The importer reflects Z
+		// on the way in, so the point that would have landed at -2 along Z lands at +2.
+		REQUIRE(IsNearlyEqual(Recomposed.TransformPosition(Point), FVector3{ 5.0f, 0.0f, 2.0f }, 1.0e-3f));
 	}
 }
 
