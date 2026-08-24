@@ -55,6 +55,24 @@
 			"preLaunchTask": "Build (Debug)"
 		},
 		{
+			"name": "GltfViewer (D3D12)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Projects/GltfViewer/Binaries/Debug/GltfViewer.exe",
+			"cwd": "${workspaceFolder}/Projects/GltfViewer/Binaries/Debug",
+			"args": [],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
+			"name": "GltfViewer (Vulkan)",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/Projects/GltfViewer/Binaries/Debug/GltfViewer.exe",
+			"cwd": "${workspaceFolder}/Projects/GltfViewer/Binaries/Debug",
+			"args": ["--rhi=vulkan"],
+			"preLaunchTask": "Build (Debug)"
+		},
+		{
 			"name": "LimeTests (all)",
 			"type": "lldb",
 			"request": "launch",
