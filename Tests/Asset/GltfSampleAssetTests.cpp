@@ -279,3 +279,39 @@ TEST_CASE("Real DDS textures parse", "[Asset][Dds][SampleAssets]")
 		REQUIRE(Result.Image.Mips[0].Height == Result.Image.Height);
 	}
 }
+
+TEST_CASE("Specular-glossiness materials get their base colour", "[Asset][Gltf][SampleAssets]")
+{
+	// KHR_materials_pbrSpecularGlossiness replaces pbrMetallicRoughness instead of extending it, so a reader
+	// that only looks at baseColorTexture finds nothing and every surface draws white. This asset exists to
+	// compare the two workflows and holds materials of both kinds, which is what makes it the right one here:
+	// it proves the extension is read without regressing the standard path.
+	const std::filesystem::path Path = FindModel("SpecGlossVsMetalRough/glTF/SpecGlossVsMetalRough.gltf");
+	if (Path.empty())
+	{
+		SKIP("glTF-Sample-Assets is not present");
+	}
+
+	const FGltfImportResult Result = FGltfImporter::LoadFromFile(Path);
+	INFO("importer message: " << Result.Message);
+	REQUIRE(Result.bSucceeded);
+	REQUIRE_FALSE(Result.Scene.Materials.empty());
+
+	SECTION("Every material resolves to a real image")
+	{
+		// Before the extension was read this count was zero for the specular-glossiness half of the file,
+		// which is exactly what the white model looked like.
+		SizeType WithBaseColor = 0;
+		for (const FMaterialData& Material : Result.Scene.Materials)
+		{
+			if (Material.BaseColorImage >= 0)
+			{
+				REQUIRE(static_cast<SizeType>(Material.BaseColorImage) < Result.Scene.Images.size());
+				REQUIRE(Result.Scene.Images[static_cast<SizeType>(Material.BaseColorImage)].IsValid());
+				++WithBaseColor;
+			}
+		}
+
+		REQUIRE(WithBaseColor == Result.Scene.Materials.size());
+	}
+}

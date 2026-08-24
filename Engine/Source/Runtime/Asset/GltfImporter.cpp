@@ -9,7 +9,10 @@
 #include <tiny_gltf.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace Lime
 {
@@ -439,6 +442,88 @@ namespace Lime
 			return true;
 		}
 
+		// Reads the base colour a KHR_materials_pbrSpecularGlossiness material carries.
+		//
+		// The extension replaces pbrMetallicRoughness rather than adding to it, so a material using it leaves
+		// baseColorTexture unset and a reader that only looks there finds nothing: every surface then draws
+		// with the fallback white texture. Bistro is entirely authored this way, 234 of its 254 materials.
+		//
+		// diffuse is mapped onto base colour rather than the extension being implemented properly. That is
+		// exact for the diffuse term, which is all this renderer has: shading is Blinn-Phong, with no
+		// metallic or roughness of its own, so there is nothing for specular and glossiness to feed. Taking
+		// the diffuse map is what makes the surface show its texture at all; the alternative is white.
+		//
+		// The extension is archived and superseded by metallic-roughness, but assets predating that are
+		// common enough to matter: it stays worth reading, not worth emulating.
+		void ApplySpecularGlossiness(const tinygltf::Model& Model, const tinygltf::Material& Source, FMaterialData& OutMaterial)
+		{
+			const auto Extension = Source.extensions.find("KHR_materials_pbrSpecularGlossiness");
+			if (Extension == Source.extensions.end())
+			{
+				return;
+			}
+
+			const tinygltf::Value& SpecularGlossiness = Extension->second;
+
+			// Plays the part of baseColorFactor, so an untextured material still gets its authored colour.
+			if (SpecularGlossiness.Has("diffuseFactor"))
+			{
+				const tinygltf::Value& Factor = SpecularGlossiness.Get("diffuseFactor");
+				if (Factor.IsArray() && Factor.ArrayLen() >= 4)
+				{
+					bool bComplete = true;
+					std::array<float, 4> Components{};
+					for (int Component = 0; Component < 4; ++Component)
+					{
+						const tinygltf::Value& Entry = Factor.Get(Component);
+						// A malformed entry leaves the default rather than a zero, which would render black.
+						if (!Entry.IsNumber())
+						{
+							bComplete = false;
+							break;
+						}
+						Components[static_cast<size_t>(Component)] = static_cast<float>(Entry.GetNumberAsDouble());
+					}
+
+					if (bComplete)
+					{
+						OutMaterial.BaseColorFactor = { Components[0], Components[1], Components[2], Components[3] };
+					}
+				}
+			}
+
+			if (!SpecularGlossiness.Has("diffuseTexture"))
+			{
+				return;
+			}
+
+			const tinygltf::Value& DiffuseTexture = SpecularGlossiness.Get("diffuseTexture");
+			if (!DiffuseTexture.Has("index"))
+			{
+				return;
+			}
+
+			const tinygltf::Value& IndexValue = DiffuseTexture.Get("index");
+			if (!IndexValue.IsInt())
+			{
+				return;
+			}
+
+			const int TextureIndex = IndexValue.Get<int>();
+			if (TextureIndex < 0 || TextureIndex >= static_cast<int>(Model.textures.size()))
+			{
+				return;
+			}
+
+			// Routed through the same resolver as the standard path, so MSFT_texture_dds is honoured here too.
+			// Bistro needs both at once: specular-glossiness materials pointing at DDS images.
+			const int ImageIndex = GetTextureImageIndex(Model.textures[static_cast<size_t>(TextureIndex)]);
+			if (ImageIndex >= 0 && ImageIndex < static_cast<int>(Model.images.size()))
+			{
+				OutMaterial.BaseColorImage = ImageIndex;
+			}
+		}
+
 		FMaterialData ConvertMaterial(const tinygltf::Model& Model, const tinygltf::Material& Source)
 		{
 			FMaterialData Result;
@@ -468,6 +553,10 @@ namespace Lime
 					Result.BaseColorImage = ImageIndex;
 				}
 			}
+
+			// After the standard path, because the extension is what the material is actually authored
+			// against: where both are present the extension is the one describing the intended appearance.
+			ApplySpecularGlossiness(Model, Source, Result);
 
 			return Result;
 		}
@@ -544,10 +633,79 @@ namespace Lime
 			return Result;
 		}
 
+		// Marks a read the DDS loader will perform itself, because tinygltf reports a refused read only as a
+		// warning string and this is the one way to recognise it again afterwards. Deliberately distinctive so
+		// the match cannot collide with a genuine filesystem error.
+		constexpr const char* DdsDeferralMarker = "read deferred to the DDS loader";
+
+		// Drops the lines of a tinygltf warning that describe things this importer expects and handles.
+		//
+		// An asset using MSFT_texture_dds lists an ordinary image beside every DDS purely so a reader without
+		// the extension has something to fall back on, and the RTXDI assets ship none of those: 343 of
+		// Bistro's 686 images are absent by design, and the placeholders are not even all one format, being
+		// 341 PNG and 2 JPEG. Each missing file produced a "File not found" line and each deferred DDS read
+		// another, burying anything genuinely wrong in several hundred lines that all describe correct
+		// behaviour.
+		//
+		// Matched on the shape of the message rather than on a list of extensions, because keying on ".png"
+		// silently lets the JPEG pair through and the next asset would bring some third format. Every line
+		// dropped here concerns an image, so a missing buffer or a malformed accessor is unaffected, and the
+		// filter runs line by line so a real image problem in the same import still comes through.
+		std::string StripExpectedImageWarnings(const std::string& Warning)
+		{
+			if (Warning.empty())
+			{
+				return Warning;
+			}
+
+			// A line naming an image tinygltf could not fetch, where this importer either supplies the data
+			// itself or has a working substitute. Matched on the phrases tinygltf emits at that point.
+			const auto IsExpected = [](const std::string& Line) {
+				if (Line.find(DdsDeferralMarker) != std::string::npos)
+				{
+					return true;
+				}
+
+				// tinygltf reports the failure across two lines: the path it looked for, then the image it
+				// belonged to. Only the second names an image, so the first is recognised by its own wording.
+				if (Line.find("File not found") != std::string::npos || Line.find("File read error") != std::string::npos)
+				{
+					return true;
+				}
+
+				const bool bMentionsImage = Line.find("for image[") != std::string::npos || Line.find("image[") == 0;
+				return bMentionsImage && (Line.find("Failed to load external") != std::string::npos ||
+				                          Line.find("could not be decoded and will be ignored") != std::string::npos);
+			};
+
+			std::string Kept;
+			SizeType LineStart = 0;
+			while (LineStart <= Warning.size())
+			{
+				const SizeType LineEnd = Warning.find('\n', LineStart);
+				const SizeType Length = LineEnd == std::string::npos ? Warning.size() - LineStart : LineEnd - LineStart;
+				const std::string Line = Warning.substr(LineStart, Length);
+
+				if (!Line.empty() && !IsExpected(Line))
+				{
+					Kept += Line;
+					Kept += '\n';
+				}
+
+				if (LineEnd == std::string::npos)
+				{
+					break;
+				}
+				LineStart = LineEnd + 1;
+			}
+
+			return Kept;
+		}
+
 		FGltfImportResult ConvertModel(const tinygltf::Model& Model, const std::string& Warning, const std::filesystem::path& BaseDirectory)
 		{
 			FGltfImportResult Result;
-			Result.Message = Warning;
+			Result.Message = StripExpectedImageWarnings(Warning);
 
 			FGltfSceneData& Scene = Result.Scene;
 
@@ -696,6 +854,42 @@ namespace Lime
 			Image->image.clear();
 			return true;
 		}
+
+		// Skips reading a file whose contents cannot be used, so the bytes are never fetched at all.
+		//
+		// tinygltf reads an external image in full before handing it to the decode callback, and a DDS is
+		// then discarded because stb cannot read it, only to be read again from disk by LoadDdsImage. On
+		// Bistro that is 2.2 GB of block compressed texture transferred twice for one scene, which is the
+		// bulk of its load time and happens with no indication that anything is progressing.
+		//
+		// Refusing the read here removes the wasted copy. Returning false is a supported outcome rather than
+		// a trick: ParseImage treats an image it could not load as non-fatal, keeps image->uri, and carries
+		// on, which is exactly the state LoadDdsImage needs to do the real read.
+		//
+		// Deliberately narrow. Only paths this engine will re-read itself are refused; buffers share these
+		// callbacks, and refusing a .bin would lose the geometry.
+		bool ReadWholeFileSkippingRedundant(std::vector<unsigned char>* Out, std::string* Error, const std::string& FilePath, void* UserData)
+		{
+			if (FDdsLoader::HasDdsExtension(std::filesystem::u8path(FilePath)))
+			{
+				if (Error != nullptr)
+				{
+					*Error = DdsDeferralMarker;
+				}
+				return false;
+			}
+
+			return tinygltf::ReadWholeFile(Out, Error, FilePath, UserData);
+		}
+
+		// Filesystem callbacks with the redundant image read removed; see ReadWholeFileSkippingRedundant.
+		//
+		// tinygltf requires every callback to be set when any is, so the defaults are named explicitly.
+		tinygltf::FsCallbacks MakeFsCallbacks()
+		{
+			return tinygltf::FsCallbacks{ &tinygltf::FileExists,     &tinygltf::ExpandFilePath,     &ReadWholeFileSkippingRedundant,
+				                          &tinygltf::WriteWholeFile, &tinygltf::GetFileSizeInBytes, nullptr };
+		}
 	} // namespace
 
 	FGltfImportResult FGltfImporter::LoadFromFile(const std::filesystem::path& Path)
@@ -716,6 +910,7 @@ namespace Lime
 
 		// Installed so an image stb cannot decode does not fail the whole import; see LoadImageLenient.
 		Loader.SetImageLoader(&LoadImageLenient, nullptr);
+		Loader.SetFsCallbacks(MakeFsCallbacks());
 
 		// The extension picks the container, but a mislabelled file is common enough that the other form is
 		// tried as well before giving up.
@@ -769,6 +964,7 @@ namespace Lime
 
 		// Same leniency as the file path, so a document exercised in a test behaves like one on disk.
 		Loader.SetImageLoader(&LoadImageLenient, nullptr);
+		Loader.SetFsCallbacks(MakeFsCallbacks());
 
 		if (!Loader.LoadASCIIFromString(&Model, &LoadError, &LoadWarning, Json.c_str(), static_cast<unsigned int>(Json.size()),
 		                                BaseDirectory.string()))
