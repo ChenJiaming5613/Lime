@@ -138,27 +138,55 @@ function(lime_add_project)
 		VERBATIM
 	)
 
-	# Settings and content are copied next to the executable so it runs without the source tree.
+	# Settings are copied next to the executable so it runs without the source tree.
+	#
+	# Driven by a file level dependency rather than POST_BUILD. A POST_BUILD command only runs when the
+	# target itself is relinked, and editing a settings file changes nothing the compiler or linker cares
+	# about, so the copy would simply never happen: the source tree would say one thing and the running
+	# executable another. Declaring the copied file as an output instead puts it in the build graph, and
+	# the build then reruns exactly when its input is newer.
+	set(StagedFiles "")
+
 	if(EXISTS "${SettingsFile}")
-		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				"${SettingsFile}" "${ProjectOutputDir}/ProjectSettings.json"
-			COMMENT "Copying ProjectSettings.json"
+		set(StagedSettings "${ProjectOutputDir}/ProjectSettings.json")
+		add_custom_command(
+			OUTPUT "${StagedSettings}"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SettingsFile}" "${StagedSettings}"
+			DEPENDS "${SettingsFile}"
+			COMMENT "Staging ProjectSettings.json for ${LIME_PROJ_NAME}"
 			VERBATIM
 		)
+		list(APPEND StagedFiles "${StagedSettings}")
 	endif()
 
 	# Editor appearance. Optional: the engine falls back to built-in defaults, so a project only
 	# ships this file when it wants something else.
 	if(EXISTS "${EditorSettingsFile}")
-		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				"${EditorSettingsFile}" "${ProjectOutputDir}/EditorSettings.json"
-			COMMENT "Copying EditorSettings.json"
+		set(StagedEditorSettings "${ProjectOutputDir}/EditorSettings.json")
+		add_custom_command(
+			OUTPUT "${StagedEditorSettings}"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${EditorSettingsFile}" "${StagedEditorSettings}"
+			DEPENDS "${EditorSettingsFile}"
+			COMMENT "Staging EditorSettings.json for ${LIME_PROJ_NAME}"
 			VERBATIM
 		)
+		list(APPEND StagedFiles "${StagedEditorSettings}")
 	endif()
 
+	# A separate target owns the staged files because a custom command's outputs are only built when
+	# something depends on them, and the executable cannot depend on a file it does not consume.
+	if(StagedFiles)
+		add_custom_target(${LIME_PROJ_NAME}Settings DEPENDS ${StagedFiles})
+		set_target_properties(${LIME_PROJ_NAME}Settings PROPERTIES FOLDER "Projects")
+		add_dependencies(${LIME_PROJ_NAME} ${LIME_PROJ_NAME}Settings)
+	endif()
+
+	# Project content, if any.
+	#
+	# Still POST_BUILD, which means adding a file here does not trigger a copy on its own; a rebuild of the
+	# executable does. Left as is because a directory cannot be expressed as a custom command output the way
+	# a single file can, and no project currently ships content. Worth revisiting with a stamp file when one
+	# does.
 	if(EXISTS "${ProjectDir}/Content")
 		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_directory
