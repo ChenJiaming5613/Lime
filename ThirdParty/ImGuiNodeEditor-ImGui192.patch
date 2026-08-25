@@ -1,0 +1,87 @@
+diff --git a/imgui_extra_math.h b/imgui_extra_math.h
+index 3df615a..86661d0 100644
+--- a/imgui_extra_math.h
++++ b/imgui_extra_math.h
+@@ -34,7 +34,13 @@ struct ImLine
+ inline bool operator==(const ImVec2& lhs, const ImVec2& rhs);
+ inline bool operator!=(const ImVec2& lhs, const ImVec2& rhs);
+ # endif
++// LOCAL PATCH: guarded for 19268, where Dear ImGui added this operator itself (commit 3c78afbbb,
++// "Added missing ImVec2/ImVec4 operators"). Upstream declares it unconditionally, which redefines
++// ImGui's own and fails to compile on 1.92. The surrounding declarations are already version gated
++// the same way; this one was simply missed.
++# if IMGUI_VERSION_NUM < 19268
+ inline ImVec2 operator*(const float lhs, const ImVec2& rhs);
++# endif
+ # if IMGUI_VERSION_NUM < 18955
+ inline ImVec2 operator-(const ImVec2& lhs);
+ # endif
+diff --git a/imgui_extra_math.inl b/imgui_extra_math.inl
+index 8e2347f..56d5ee1 100644
+--- a/imgui_extra_math.inl
++++ b/imgui_extra_math.inl
+@@ -31,10 +31,13 @@ inline bool operator!=(const ImVec2& lhs, const ImVec2& rhs)
+ }
+ # endif
+ 
++// LOCAL PATCH: see imgui_extra_math.h. Dear ImGui defines this itself from 19268 on.
++# if IMGUI_VERSION_NUM < 19268
+ inline ImVec2 operator*(const float lhs, const ImVec2& rhs)
+ {
+     return ImVec2(lhs * rhs.x, lhs * rhs.y);
+ }
++# endif
+ 
+ # if IMGUI_VERSION_NUM < 18955
+ inline ImVec2 operator-(const ImVec2& lhs)
+diff --git a/imgui_node_editor.cpp b/imgui_node_editor.cpp
+index 3ca9eb3..d1d1453 100644
+--- a/imgui_node_editor.cpp
++++ b/imgui_node_editor.cpp
+@@ -560,7 +560,9 @@ static void ImDrawList_AddBezierWithArrows(ImDrawList* drawList, const ImCubicBe
+ 
+         ImDrawList_PathBezierOffset(drawList, half_thickness, curve.P3, curve.P2, curve.P1, curve.P0);
+ 
+-        drawList->PathStroke(color, true, strokeThickness);
++        // LOCAL PATCH: thickness and flags swapped in Dear ImGui 1.92.8. The original passed true for
++        // flags, which is ImDrawFlags_Closed; naming it keeps the intent readable.
++        drawList->PathStroke(color, strokeThickness, ImDrawFlags_Closed);
+     }
+ }
+ 
+@@ -584,8 +586,10 @@ void ed::Pin::Draw(ImDrawList* drawList, DrawFlags flags)
+         if (m_BorderWidth > 0.0f)
+         {
+             FringeScaleScope fringe(1.0f);
++            // LOCAL PATCH: thickness and flags swapped in Dear ImGui 1.92.8; the old order is = delete
++            // under IMGUI_DISABLE_OBSOLETE_FUNCTIONS, which this build sets.
+             drawList->AddRect(m_Bounds.Min, m_Bounds.Max,
+-                m_BorderColor, m_Rounding, m_Corners, m_BorderWidth);
++                m_BorderColor, m_Rounding, m_BorderWidth, m_Corners);
+         }
+ 
+         if (!Editor->IsSelected(m_Node))
+@@ -683,10 +687,11 @@ void ed::Node::Draw(ImDrawList* drawList, DrawFlags flags)
+             {
+                 FringeScaleScope fringe(1.0f);
+ 
++                // LOCAL PATCH: thickness and flags swapped in Dear ImGui 1.92.8.
+                 drawList->AddRect(
+                     m_GroupBounds.Min,
+                     m_GroupBounds.Max,
+-                    m_GroupBorderColor, m_GroupRounding, c_AllRoundCornersFlags, m_GroupBorderWidth);
++                    m_GroupBorderColor, m_GroupRounding, m_GroupBorderWidth, c_AllRoundCornersFlags);
+             }
+         }
+ 
+@@ -738,8 +743,9 @@ void ed::Node::DrawBorder(ImDrawList* drawList, ImU32 color, float thickness, fl
+     {
+         const ImVec2 extraOffset = ImVec2(offset, offset);
+ 
++        // LOCAL PATCH: thickness and flags swapped in Dear ImGui 1.92.8.
+         drawList->AddRect(m_Bounds.Min - extraOffset, m_Bounds.Max + extraOffset,
+-            color, ImMax(0.0f, m_Rounding + offset), c_AllRoundCornersFlags, thickness);
++            color, ImMax(0.0f, m_Rounding + offset), thickness, c_AllRoundCornersFlags);
+     }
+ }
+ 

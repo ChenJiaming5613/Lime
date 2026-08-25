@@ -41,3 +41,6 @@
 [submodule "ThirdParty/ImGuiTestEngine"]
 	path = ThirdParty/ImGuiTestEngine
 	url = https://github.com/ocornut/imgui_test_engine.git
+[submodule "ThirdParty/ImGuiNodeEditor"]
+	path = ThirdParty/ImGuiNodeEditor
+	url = https://github.com/thedmd/imgui-node-editor.git

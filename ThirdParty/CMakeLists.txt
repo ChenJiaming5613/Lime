@@ -240,6 +240,78 @@ if(LIME_BUILD_AUTOMATION)
 endif()
 
 # ---------------------------------------------------------------------------------------
+# imgui-node-editor. Node graph editing widget, shown through the editor's node graph panel.
+#
+# Only the library is built. The upstream examples ship their own Application framework with
+# DX11 and OpenGL backends and their own window handling, none of which is usable here: this
+# engine owns the window, the ImGui context and the renderer, and draws through NVRHI. The
+# panel supplies a small stand-in for that framework instead.
+#
+# crude_json.cpp is part of the library rather than a sample: the editor uses it to serialise
+# node positions, so leaving it out fails at link time.
+#
+# LOCAL PATCHES: the library has not caught up with Dear ImGui 1.92, so three files carry small
+# fixes. They are applied at configure time from ImGuiNodeEditor-ImGui192.patch, because a change
+# inside a submodule is not part of this repository's history: a fresh clone would check out the
+# unpatched upstream and fail to compile with errors that say nothing about why.
+#
+# Applied with --reverse --check first to see whether the patch is already in place, so re-running
+# configure is harmless. A failure here is reported and left alone rather than retried, since the
+# likely cause is the submodule having moved and the patch needing to be rebuilt by hand.
+# ---------------------------------------------------------------------------------------
+if(LIME_BUILD_NODE_EDITOR)
+	set(NodeEditorPatch "${CMAKE_CURRENT_SOURCE_DIR}/ImGuiNodeEditor-ImGui192.patch")
+	# Only needed for this, so it is looked up here rather than at the top level.
+	find_package(Git QUIET)
+	if(NOT Git_FOUND)
+		message(WARNING "Git was not found, so the ImGuiNodeEditor compatibility patch cannot be applied; "
+		                "the node editor will not compile against Dear ImGui 1.92.")
+	else()
+		execute_process(
+			COMMAND ${GIT_EXECUTABLE} apply --reverse --check "${NodeEditorPatch}"
+			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ImGuiNodeEditor"
+			RESULT_VARIABLE NodeEditorPatchApplied
+			OUTPUT_QUIET
+			ERROR_QUIET
+		)
+		if(NOT NodeEditorPatchApplied EQUAL 0)
+			execute_process(
+				COMMAND ${GIT_EXECUTABLE} apply "${NodeEditorPatch}"
+				WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ImGuiNodeEditor"
+				RESULT_VARIABLE NodeEditorPatchResult
+				ERROR_VARIABLE NodeEditorPatchError
+			)
+			if(NodeEditorPatchResult EQUAL 0)
+				message(STATUS "Applied the Dear ImGui 1.92 compatibility patch to ImGuiNodeEditor")
+			else()
+				message(WARNING "Could not patch ImGuiNodeEditor for Dear ImGui 1.92; it will not compile. "
+				                "The submodule may have moved and the patch may need rebuilding. ${NodeEditorPatchError}")
+			endif()
+		endif()
+	endif()
+
+	add_library(imgui_node_editor STATIC
+		ImGuiNodeEditor/crude_json.cpp
+		ImGuiNodeEditor/crude_json.h
+		ImGuiNodeEditor/imgui_canvas.cpp
+		ImGuiNodeEditor/imgui_canvas.h
+		ImGuiNodeEditor/imgui_node_editor.cpp
+		ImGuiNodeEditor/imgui_node_editor.h
+		ImGuiNodeEditor/imgui_node_editor_api.cpp
+		ImGuiNodeEditor/imgui_node_editor_internal.h
+		ImGuiNodeEditor/imgui_node_editor_internal.inl
+	)
+	target_include_directories(imgui_node_editor SYSTEM PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/ImGuiNodeEditor
+	)
+	target_link_libraries(imgui_node_editor PUBLIC imgui)
+	if(MSVC)
+		# The library predates several warnings this build treats as errors and is not ours to fix.
+		target_compile_options(imgui_node_editor PRIVATE /W0)
+	endif()
+endif()
+
+# ---------------------------------------------------------------------------------------
 # Catch2.
 # ---------------------------------------------------------------------------------------
 if(LIME_BUILD_TESTS)
@@ -257,10 +329,10 @@ endif()
 # Both helpers skip targets that do not exist, so the optional ones can be listed here
 # unconditionally.
 # ---------------------------------------------------------------------------------------
-lime_mark_system_includes(nvrhi nvrhi_d3d12 nvrhi_vk glfw spdlog imgui imgui_test_engine tinygltf ShaderMakeBlob)
+lime_mark_system_includes(nvrhi nvrhi_d3d12 nvrhi_vk glfw spdlog imgui imgui_test_engine imgui_node_editor tinygltf ShaderMakeBlob)
 lime_set_third_party_folder(
 	nvrhi nvrhi_d3d12 nvrhi_vk
-	glfw spdlog imgui imgui_test_engine tinygltf
+	glfw spdlog imgui imgui_test_engine imgui_node_editor tinygltf
 	ShaderMake ShaderMakeBlob
 	DirectX-Headers DirectX-Guids
 	Catch2 Catch2WithMain

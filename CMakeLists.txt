@@ -31,6 +31,9 @@ option(LIME_BUILD_AUTOMATION "Build the automation server used by external test 
 # Drives editor widgets by injecting input events, so a test clicks and drags the way a user would.
 # NOTE: ThirdParty/ImGuiTestEngine/imgui_test_engine is not MIT licensed. See its LICENSE.txt.
 option(LIME_BUILD_IMGUI_TEST_ENGINE "Build the Dear ImGui test engine used for UI automation" ON)
+# Node graph editing widget plus the upstream blueprint sample, shown as an editor panel. Depends on
+# the editor, since the panel is where it lives.
+option(LIME_BUILD_NODE_EDITOR "Build the node editor panel and its blueprint sample" ON)
 option(LIME_ENABLE_RHI_D3D12 "Enable the Direct3D 12 backend" ON)
 option(LIME_ENABLE_RHI_VULKAN "Enable the Vulkan backend" ON)
 
@@ -43,6 +46,19 @@ endif()
 if(LIME_BUILD_IMGUI_TEST_ENGINE AND NOT LIME_BUILD_EDITOR)
 	message(STATUS "LIME_BUILD_EDITOR is off, so the ImGui test engine is disabled with it")
 	set(LIME_BUILD_IMGUI_TEST_ENGINE OFF)
+endif()
+
+# The panel is part of the editor module, so there is nowhere to put it without one.
+if(LIME_BUILD_NODE_EDITOR AND NOT LIME_BUILD_EDITOR)
+	message(STATUS "LIME_BUILD_EDITOR is off, so the node editor panel is disabled with it")
+	set(LIME_BUILD_NODE_EDITOR OFF)
+endif()
+
+# Same reasoning as the test engine: a missing checkout should say so here rather than surface as an
+# unresolved include several minutes into the build.
+if(LIME_BUILD_NODE_EDITOR AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/ImGuiNodeEditor/imgui_node_editor.cpp")
+	message(STATUS "ThirdParty/ImGuiNodeEditor is not checked out; run 'git submodule update --init'. Disabling the node editor panel.")
+	set(LIME_BUILD_NODE_EDITOR OFF)
 endif()
 
 # The submodule is optional in a fresh clone, so a missing checkout should explain itself rather than

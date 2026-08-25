@@ -7,6 +7,10 @@
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/StatsPanel.h"
+
+#if LIME_WITH_NODE_EDITOR
+#include "Editor/NodeEditor/NodeEditorPanel.h"
+#endif
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
 #include "RHI/DeviceManager.h"
@@ -173,6 +177,16 @@ namespace Lime
 		auto AppearancePanel = std::make_shared<FEditorSettingsPanel>();
 		AppearancePanel->Initialize(Settings);
 		Panels.push_back(std::move(AppearancePanel));
+
+#if LIME_WITH_NODE_EDITOR
+		// Constructed here rather than through the panel registry.
+		//
+		// The registry works by static initialization, which the linker is free to discard for an object
+		// file in a static library that nothing else references. That is fine for project panels, which
+		// are compiled straight into an executable, but a panel living in this module would simply never
+		// appear. Naming the type is what keeps its object file.
+		Panels.push_back(std::make_shared<FNodeEditorPanel>());
+#endif
 
 		for (std::shared_ptr<IEditorPanel>& Panel : FEditorPanelRegistry::Get().InstantiateAll())
 		{
