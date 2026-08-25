@@ -40,8 +40,13 @@ if(LIME_BUILD_NODE_EDITOR)
 		NodeEditor/Shim/application.h
 		NodeEditor/NodeEditorPanel.h
 		NodeEditor/NodeEditorPanel.cpp
+		FrameGraph/FrameGraphNodeView.h
+		FrameGraph/FrameGraphNodeView.cpp
+		FrameGraph/FrameGraphPanel.h
+		FrameGraph/FrameGraphPanel.cpp
 	)
-	list(APPEND EditorPublicDeps imgui_node_editor)
+	# LimeFrameGraph is the data the panel draws; the node widget is how it draws it.
+	list(APPEND EditorPublicDeps imgui_node_editor LimeFrameGraph)
 endif()
 
 # UI automation. Kept out of the source list entirely when disabled, so the module carries no trace

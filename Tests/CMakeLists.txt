@@ -28,6 +28,19 @@ else()
 		"${CMAKE_CURRENT_SOURCE_DIR}/Asset/GltfSampleAssetTests.cpp"
 	)
 endif()
+# The frame graph is plain data with no GPU or UI dependency, so the model, its JSON form and the
+# layering algorithm are all covered here. LimeFrameGraph is always built, but the guard keeps the
+# pattern uniform and would catch the module being made optional later.
+if(TARGET LimeFrameGraph)
+	list(APPEND TestDeps LimeFrameGraph)
+else()
+	list(REMOVE_ITEM TestSources
+		"${CMAKE_CURRENT_SOURCE_DIR}/FrameGraph/FrameGraphDescTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/FrameGraph/FrameGraphExampleTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/FrameGraph/FrameGraphJsonTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/FrameGraph/FrameGraphLayoutTests.cpp"
+	)
+endif()
 # The scene graph itself holds no GPU objects, so the hierarchy and transform logic is testable here.
 # Guarded because LimeScene depends on LimeRenderer, which only exists when an RHI backend is enabled.
 if(TARGET LimeScene)

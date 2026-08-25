@@ -16,6 +16,10 @@
 #include "Editor/TestEngine/EditorTestEngine.h"
 #endif
 
+#if LIME_WITH_NODE_EDITOR
+#include "Editor/FrameGraph/FrameGraphPanel.h"
+#endif
+
 #include <imgui.h>
 
 #include <memory>
@@ -76,6 +80,12 @@ namespace Lime
 		IEditorPanel* FindPanel(const char* Name) const;
 		const std::vector<std::shared_ptr<IEditorPanel>>& GetPanels() const { return Panels; }
 
+#if LIME_WITH_NODE_EDITOR
+		// Null when the editor has not created its panels yet. The automation commands need the concrete
+		// type to load and save graphs, which FindPanel cannot give them.
+		FFrameGraphPanel* GetFrameGraphPanel() const { return FrameGraphPanel.get(); }
+#endif
+
 		// Appearance this session is running with. Loaded during Initialize and never changed
 		// afterwards, so it always describes what is actually on screen.
 		const FEditorSettings& GetSettings() const { return Settings; }
@@ -103,6 +113,11 @@ namespace Lime
 
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
 		std::shared_ptr<FViewportPanel> ViewportPanel;
+#if LIME_WITH_NODE_EDITOR
+		// Held by concrete type so the automation commands can load and save through it. Also in Panels,
+		// which is what draws it; this is a second reference, not a second panel.
+		std::shared_ptr<FFrameGraphPanel> FrameGraphPanel;
+#endif
 		// Owned here so it survives the per frame rebuild of FEditorContext; panels receive a pointer.
 		FEditorSelection Selection;
 		FRenderer* Renderer = nullptr;

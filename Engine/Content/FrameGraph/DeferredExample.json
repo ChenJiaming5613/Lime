@@ -1,0 +1,22 @@
+{
+	"name": "Deferred Example",
+	"passes": [
+		{ "name": "ShadowCaster", "type": "ShadowCaster" },
+		{ "name": "DepthPrepass", "type": "DepthPrepass" },
+		{ "name": "ForwardLit", "type": "ForwardLit" },
+		{ "name": "Bloom", "type": "PostProcess" },
+		{ "name": "ToneMap", "type": "ToneMap" },
+		{ "name": "Present", "type": "Present" }
+	],
+	"edges": [
+		{ "from": "ShadowCaster.depth", "to": "ForwardLit.shadowDepth" },
+		{ "from": "DepthPrepass.depth", "to": "ForwardLit.sceneDepth" },
+		{ "from": "ForwardLit.color", "to": "Bloom.input" },
+		{ "from": "Bloom.output", "to": "ToneMap.hdr" },
+		{ "from": "ToneMap.ldr", "to": "Present.image" },
+		{ "from": "DepthPrepass", "to": "ShadowCaster", "kind": "execution" }
+	],
+	"graphOutputs": [
+		"ToneMap.ldr"
+	]
+}

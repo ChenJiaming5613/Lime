@@ -10,6 +10,7 @@ namespace Lime
 	void RegisterCoreAutomationCommands();
 	void RegisterRenderPassAutomationCommands();
 	void RegisterEditorAutomationCommands();
+	void RegisterFrameGraphAutomationCommands();
 	void RegisterSceneAutomationCommands();
 	void RegisterSettingsAutomationCommands();
 	void RegisterScriptAutomationCommands();
@@ -23,6 +24,7 @@ namespace Lime
 			RegisterCoreAutomationCommands();
 			RegisterRenderPassAutomationCommands();
 			RegisterEditorAutomationCommands();
+			RegisterFrameGraphAutomationCommands();
 			RegisterSceneAutomationCommands();
 			RegisterSettingsAutomationCommands();
 			RegisterScriptAutomationCommands();
