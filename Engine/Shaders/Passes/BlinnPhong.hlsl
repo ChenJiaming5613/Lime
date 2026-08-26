@@ -22,6 +22,13 @@ cbuffer FSceneFrameConstants : register(b0)
 	// would be pure black and the model would read as a silhouette.
 	float3 AmbientColor;
 	float AmbientPadding;
+	// World to the shadow caster's clip space. Must be the matrix that pass rendered with, or the lookup
+	// samples the wrong texel.
+	row_major float4x4 LightViewProjection;
+	// 0 when no shadow map is connected, in which case the lookup is skipped entirely and everything is
+	// lit. The graph makes that input optional, so this is a supported configuration.
+	float ShadowStrength;
+	float ShadowPadding[3];
 };
 
 // Per draw.
@@ -41,6 +48,14 @@ cbuffer FSceneDrawConstants : register(b1)
 Texture2D BaseColorTexture : register(t0);
 SamplerState BaseColorSampler : register(s0);
 
+// Always bound, because a shader cannot have an optional resource: when no shadow caster is connected the
+// pass binds a dummy and sets ShadowStrength to 0, so nothing here reads it.
+Texture2D ShadowDepthTexture : register(t1);
+// A comparison sampler rather than a plain one. SampleCmpLevelZero tests the depth and filters the
+// results, which gives four-tap smoothing from one instruction; filtering the depths themselves and then
+// comparing would be wrong, since an average depth is not the average of the comparisons.
+SamplerComparisonState ShadowSampler : register(s1);
+
 struct FVertexInput
 {
 	float3 Position : POSITION;
@@ -55,6 +70,40 @@ struct FVertexOutput
 	float3 Normal : NORMAL;
 	float2 TexCoord : TEXCOORD0;
 };
+
+// How much of the light reaches this point: 1 lit, 0 fully shadowed.
+float SampleShadow(float3 WorldPosition)
+{
+	if (ShadowStrength <= 0.0f)
+	{
+		return 1.0f;
+	}
+
+	const float4 LightClip = mul(LightViewProjection, float4(WorldPosition, 1.0f));
+	if (LightClip.w <= 0.0f)
+	{
+		// Behind the light's near plane, so it was never rendered into the map.
+		return 1.0f;
+	}
+
+	const float3 Projected = LightClip.xyz / LightClip.w;
+
+	// Clip space is [-1, 1] in x and y with y upwards; texture coordinates are [0, 1] with y downwards.
+	float2 ShadowUV = Projected.xy * float2(0.5f, -0.5f) + 0.5f;
+
+	// Outside the map means outside the fitted frustum, which is geometry the caster never saw. Treated as
+	// lit rather than shadowed, so a scene larger than the frustum does not gain a hard shadow edge at the
+	// boundary.
+	if (any(ShadowUV < 0.0f) || any(ShadowUV > 1.0f) || Projected.z > 1.0f)
+	{
+		return 1.0f;
+	}
+
+	const float Visibility = ShadowDepthTexture.SampleCmpLevelZero(ShadowSampler, ShadowUV, Projected.z);
+
+	// Scaled rather than used directly, so the strength can soften the shadow instead of only switching it.
+	return lerp(1.0f, Visibility, ShadowStrength);
+}
 
 FVertexOutput MainVS(FVertexInput Input)
 {
@@ -106,5 +155,9 @@ float4 MainPS(FVertexOutput Input) : SV_Target0
 	const float3 SpecularTerm = LightColor * (Specular * LightIntensity * 0.25f);
 	const float3 Ambient = BaseColor.rgb * AmbientColor;
 
-	return float4(Ambient + Diffuse + SpecularTerm, BaseColor.a);
+	// Applied to the direct terms only. Ambient stands in for light arriving from everywhere, which a
+	// single shadow map says nothing about, so darkening it too would make shadowed areas read as holes.
+	const float Visibility = SampleShadow(Input.WorldPosition);
+
+	return float4(Ambient + (Diffuse + SpecularTerm) * Visibility, BaseColor.a);
 }

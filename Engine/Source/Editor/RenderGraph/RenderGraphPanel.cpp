@@ -5,6 +5,9 @@
 
 #include <imgui_node_editor.h>
 
+// For FormatToString, so the inspector names a format the same way the RHI does.
+#include <nvrhi/utils.h>
+
 // SetFontRasterizerDensity lives in the internal header in 1.92. It is the supported way to ask for
 // glyphs baked at a different pixel density, and the node editor needs it to keep zoomed text sharp.
 #include <imgui_internal.h>
@@ -106,7 +109,9 @@ namespace Lime
 
 	FRenderGraphPanel::FRenderGraphPanel()
 	{
-		SetTextBuffer(PathBuffer, sizeof(PathBuffer), (GetDefaultLoadDirectory() / "DeferredExample.json").string());
+		// The graph the engine itself runs, so opening the panel shows what is actually rendering rather than
+		// an unrelated sample.
+		SetTextBuffer(PathBuffer, sizeof(PathBuffer), (GetDefaultLoadDirectory() / "DefaultGraph.json").string());
 	}
 
 	FRenderGraphPanel::~FRenderGraphPanel()
@@ -798,11 +803,16 @@ namespace Lime
 				const FRenderGraphResourceRef Ref{ Pass->Name, Output.Name };
 
 				// One string for the whole row, because the format used to be appended with SameLine and a
-				// separate call, which cannot wrap and left "(D32_FLOAT)" running off the panel.
+				// separate call, which cannot wrap and left "(D32)" running off the panel.
+				//
+				// UNKNOWN is left unwritten rather than shown: it means the pass did not care and the graph
+				// decides, so naming it would suggest a format that is not the one actually used.
 				std::string Line = Output.Name;
-				if (!Output.Format.empty())
+				if (Output.Format != nvrhi::Format::UNKNOWN)
 				{
-					Line += " (" + Output.Format + ")";
+					Line += " (";
+					Line += nvrhi::utils::FormatToString(Output.Format);
+					Line += ")";
 				}
 
 				// The slot is what a viewport would be bound to, so it is named rather than implied.

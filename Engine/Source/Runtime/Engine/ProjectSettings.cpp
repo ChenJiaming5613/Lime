@@ -171,8 +171,8 @@ namespace Lime
 		       WindowHeight == Other.WindowHeight && Backend == Other.Backend && BackBufferCount == Other.BackBufferCount &&
 		       bVSync == Other.bVSync && Validation == Other.Validation && bEnableEditor == Other.bEnableEditor &&
 		       bEnableAutomation == Other.bEnableAutomation && AutomationPort == Other.AutomationPort && ScenePath == Other.ScenePath &&
-		       CameraFieldOfView == Other.CameraFieldOfView && CameraMoveSpeed == Other.CameraMoveSpeed &&
-		       LightIntensity == Other.LightIntensity && AmbientStrength == Other.AmbientStrength;
+		       RenderGraphPath == Other.RenderGraphPath && CameraFieldOfView == Other.CameraFieldOfView &&
+		       CameraMoveSpeed == Other.CameraMoveSpeed && LightIntensity == Other.LightIntensity && AmbientStrength == Other.AmbientStrength;
 	}
 
 	std::filesystem::path FProjectSettings::ResolveSettingsPath()
@@ -293,10 +293,12 @@ namespace Lime
 
 		if (const FJson* Scene = FJsonUtils::Find(Root, "scene"))
 		{
-			FJsonUtils::WarnUnknownKeys(*Scene, { "gltf", "cameraFieldOfView", "cameraMoveSpeed", "lightIntensity", "ambientStrength" },
-			                            "scene", LogContext);
+			FJsonUtils::WarnUnknownKeys(
+			    *Scene, { "gltf", "renderGraph", "cameraFieldOfView", "cameraMoveSpeed", "lightIntensity", "ambientStrength" }, "scene",
+			    LogContext);
 
 			ScenePath = FJsonUtils::ReadOr<std::string>(Root, "scene.gltf", ScenePath, LogContext);
+			RenderGraphPath = FJsonUtils::ReadOr<std::string>(Root, "scene.renderGraph", RenderGraphPath, LogContext);
 
 			// Each value is clamped rather than rejected: a hand edited file carrying an out of range number
 			// should still start, and a silently corrected value is easier to diagnose than a refusal to run.
@@ -337,6 +339,7 @@ namespace Lime
 
 		FJson& Scene = Root["scene"] = FJson::object();
 		Scene["gltf"] = ScenePath;
+		Scene["renderGraph"] = RenderGraphPath;
 		Scene["cameraFieldOfView"] = CameraFieldOfView;
 		Scene["cameraMoveSpeed"] = CameraMoveSpeed;
 		Scene["lightIntensity"] = LightIntensity;
@@ -443,6 +446,7 @@ namespace Lime
 		    !ReadUInt("rhi.backBufferCount", 2, 8, Candidate.BackBufferCount) || !ReadBool("rhi.vsync", Candidate.bVSync) ||
 		    !ReadBool("editor.enabled", Candidate.bEnableEditor) || !ReadBool("automation.enabled", Candidate.bEnableAutomation) ||
 		    !ReadUInt("automation.port", 0, 65535, Candidate.AutomationPort) || !ReadString("scene.gltf", Candidate.ScenePath) ||
+		    !ReadString("scene.renderGraph", Candidate.RenderGraphPath) ||
 		    !ReadFloat("scene.cameraFieldOfView", 1.0f, 179.0f, Candidate.CameraFieldOfView) ||
 		    !ReadFloat("scene.cameraMoveSpeed", 0.01f, 1000.0f, Candidate.CameraMoveSpeed) ||
 		    !ReadFloat("scene.lightIntensity", 0.0f, 100.0f, Candidate.LightIntensity) ||

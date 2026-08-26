@@ -5,6 +5,7 @@
 #include "Core/Math/Vector.h"
 #include "Core/Reflection/Reflection.h"
 #include "RHI/RHITypes.h"
+#include "RenderGraph/RenderGraphPassType.h"
 
 namespace Lime
 {
@@ -15,6 +16,27 @@ namespace Lime
 	// Likewise forward declared. Only a pointer travels through the frame context, so LimeRenderer needs
 	// no link dependency on the camera module; the passes that dereference it already have one.
 	class ICamera;
+
+	// What a pass sees of the resources the graph allocated for it.
+	//
+	// Looked up by the pass's own field name, not by the name it has in the graph. That is deliberate: a
+	// pass asking for "shadowDepth" works the same whether the graph calls the instance "ShadowCaster" or
+	// something else, which is what allows one pass type to appear in a graph more than once.
+	//
+	// An unconnected optional input returns null, and a pass that declared one is expected to check.
+	class FRenderGraphPassResources
+	{
+	public:
+		virtual ~FRenderGraphPassResources() = default;
+
+		virtual nvrhi::ITexture* FindTexture(std::string_view FieldName) const = 0;
+		// The framebuffer built from this pass's outputs, or null when it declared none.
+		virtual nvrhi::IFramebuffer* GetFramebuffer() const = 0;
+		// Size of the graph's default target, which is what a pass uses to set its viewport when it did not
+		// pin its own dimensions.
+		virtual uint32 GetWidth() const = 0;
+		virtual uint32 GetHeight() const = 0;
+	};
 
 	// Explicit ordering, so a pass ends up in the right place regardless of when it registers.
 	// Passes are sorted by this value and ties keep registration order.
@@ -73,6 +95,9 @@ namespace Lime
 		// True when the scene renders into the editor viewport instead of the swap chain. Passes only
 		// need this if they care about the distinction; the framebuffer and size already differ.
 		bool bIsOffscreen = false;
+		// The resources the graph allocated for the pass being executed, or null when the pass is running
+		// outside a graph. Set per pass rather than per frame, since each sees only its own fields.
+		const FRenderGraphPassResources* Resources = nullptr;
 
 		float GetAspectRatio() const
 		{
@@ -94,11 +119,17 @@ namespace Lime
 	};
 
 	// A unit of rendering work. Resources are created once in Initialize and reused every frame.
+	//
+	// Also the base class for everything the render graph executes. A pass declares what it reads and
+	// writes through Reflect, is given the negotiated sizes and formats through Compile, and reaches its
+	// resources by field name during Render. A pass that does none of that still works: it simply draws
+	// into whatever target the graph hands it, which is how the editor UI pass behaves.
 	class IRenderPass
 	{
 	public:
 		virtual ~IRenderPass() = default;
 
+		// The instance name, used in logs and in the inspector.
 		virtual const char* GetName() const = 0;
 		// Identifies the concrete class. TRenderPass supplies this automatically.
 		virtual FRenderPassTypeId GetTypeId() const = 0;
@@ -106,8 +137,35 @@ namespace Lime
 		// static Priority member, so a pass declares it in exactly one place.
 		virtual ERenderPassPriority GetPriority() const = 0;
 
+		// The type name a render graph file refers to this pass by.
+		//
+		// Defaults to the instance name because for a built-in pass the two are the same. They are distinct
+		// concepts: a graph may hold several instances of one type, each with its own name, so a pass that
+		// can be instantiated more than once overrides this.
+		virtual const char* GetTypeName() const { return GetName(); }
+
+		// Describes the resources this pass reads and writes.
+		//
+		// Called while the graph is compiled, possibly more than once, so it must stay cheap: no device
+		// calls, no allocation beyond the description itself. A pass that declares nothing takes part in
+		// the graph purely for its ordering, drawing into whatever it is given.
+		virtual void Reflect(FRenderGraphPassTypeDesc& OutType) const { LIME_UNUSED(OutType); }
+
 		virtual bool Initialize(FRenderer& Renderer) = 0;
 		virtual void Shutdown() = 0;
+
+		// Called once per compile, after the graph has resolved every size and format this pass will see.
+		//
+		// This is where a pass builds anything that depends on those: a pipeline is compiled against a
+		// framebuffer's formats, so it cannot be created before the graph has decided them. Returning false
+		// fails the compile, which puts the engine into its fallback rather than rendering incorrectly.
+		virtual bool Compile(FRenderer& Renderer, const FRenderGraphPassResources& Resources)
+		{
+			LIME_UNUSED(Renderer);
+			LIME_UNUSED(Resources);
+			return true;
+		}
+
 		// Runs before the render targets are cleared, so a pass can update renderer wide state such as
 		// the clear colour. Doing that from Render would be one frame late.
 		virtual void OnBeginFrame(FRenderer& Renderer, const FFrameContext& Context)

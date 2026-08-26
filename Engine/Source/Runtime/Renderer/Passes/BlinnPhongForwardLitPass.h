@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "Core/Math/Matrix.h"
 #include "Core/Reflection/Reflection.h"
 #include "Renderer/RenderTypes.h"
 
@@ -32,15 +33,21 @@ namespace Lime
 		bool bEnabled = true;
 	};
 
-	class FBlinnPhongForwardPass final : public TRenderPass<FBlinnPhongForwardPass>
+	class FBlinnPhongForwardLitPass final : public TRenderPass<FBlinnPhongForwardLitPass>
 	{
 	public:
 		static constexpr ERenderPassPriority Priority = ERenderPassPriority::Scene;
 
-		const char* GetName() const override { return "BlinnPhongForward"; }
+		const char* GetName() const override { return "BlinnPhongForwardLit"; }
+
+		void Reflect(FRenderGraphPassTypeDesc& OutType) const override;
 
 		bool Initialize(FRenderer& Renderer) override;
 		void Shutdown() override;
+		bool Compile(FRenderer& Renderer, const FRenderGraphPassResources& Resources) override;
+		// Reads the shadow caster's matrix for this frame. Done here rather than in Render, because Render is
+		// given no renderer to look the caster up through.
+		void OnBeginFrame(FRenderer& Renderer, const FFrameContext& Context) override;
 		void Render(const FFrameContext& Context) override;
 		void OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer) override;
 
@@ -81,13 +88,24 @@ namespace Lime
 		// Cached so the pipeline is only rebuilt when the framebuffer layout actually changes.
 		nvrhi::IFramebuffer* CurrentFramebuffer = nullptr;
 
+		// The graph's shadow map, or null when no caster is connected. Not owned: the graph allocated it.
+		nvrhi::ITexture* ShadowTexture = nullptr;
+		// Bound in place of the shadow map when none is connected. A shader cannot declare a resource
+		// conditionally, so the binding has to point at something valid; the shader is told to skip the
+		// lookup instead.
+		nvrhi::TextureHandle FallbackShadowTexture;
+		// A comparison sampler, which is what makes SampleCmpLevelZero filter the test results rather than
+		// the depths.
+		nvrhi::SamplerHandle ShadowSampler;
+		// How strongly the lookup darkens, passed to the shader. Zero when nothing is connected.
+		float ShadowStrength = 0.0f;
+		// The matrix the caster rendered with. Read from the caster rather than recomputed, so the two cannot
+		// disagree about where the light was.
+		FMatrix4x4 ShadowViewProjection = FMatrix4x4::Identity();
+
 		// Returns the binding set for a material, creating it on first use.
 		nvrhi::IBindingSet* GetOrCreateBindingSet(int32 MaterialIndex);
 	};
-
-	// Registers every engine provided pass. Called by FEngine before instantiating the registry, so that
-	// built-in and project passes end up in one ordered list.
-	void RegisterBuiltinRenderPasses();
 } // namespace Lime
 
 // Reflection must be declared at global scope, so it sits outside the namespace and names the type in

@@ -1,16 +1,23 @@
 // Frame orchestration.
 //
-// The frame runs in two stages so the editor can show the scene inside a viewport panel:
-//   Scene stage:     passes below ERenderPassPriority::EditorUI draw into the viewport target when
-//                    the editor is enabled, or straight into the back buffer otherwise. In-world UI
-//                    belongs here.
-//   EditorUI stage:  passes at ERenderPassPriority::EditorUI or above always draw into the back
-//                    buffer, so the editor chrome is never part of the scene image.
-// Passes themselves only read FFrameContext, so they are unaware of which mode is active.
+// The scene is drawn by a compiled render graph: what runs, in what order, and into which textures all
+// come from the graph a project ships rather than from the order passes happened to register in. A graph
+// that fails to compile leaves the scene plan empty, and the frame renders only the editor UI. That is
+// the deliberate fallback: rendering nothing is obvious, whereas rendering a partially built graph looks
+// like a bug in whatever it drew.
+//
+// The frame still runs in two stages, because they are two submissions rather than two orderings:
+//   Scene stage:     the compiled graph, drawing into its own textures. Its marked output is copied into
+//                    the viewport target the editor samples.
+//   EditorUI stage:  the editor's own pass, always into the back buffer, so editor chrome is never part
+//                    of the scene image. Submitted separately because it samples what the scene wrote.
 
 #pragma once
 
 #include "RHI/ShaderLibrary.h"
+#include "RenderGraph/RenderGraphCompiler.h"
+#include "Renderer/RenderGraphExecutor.h"
+#include "Renderer/RenderGraphResources.h"
 #include "Renderer/RenderTypes.h"
 #include "Renderer/ViewportTarget.h"
 
@@ -54,9 +61,20 @@ namespace Lime
 
 		const std::vector<std::shared_ptr<IRenderPass>>& GetPasses() const { return Passes; }
 
+		// Adopts a compiled graph as the scene plan, matching each compiled entry to a registered pass.
+		//
+		// Fails when the graph names a pass this build does not have, which leaves the previous plan in
+		// place rather than half replacing it. A caller that has nothing to fall back to calls
+		// ClearRenderGraph, which is the state that renders only the editor UI.
+		bool SetRenderGraph(FRenderGraphCompileResult Compiled);
+		void ClearRenderGraph();
+		bool HasRenderGraph() const { return SceneGraphPlan.IsRunnable(); }
+		const FRenderGraphCompileResult& GetRenderGraphResult() const { return SceneGraphPlan.Compiled; }
+
 		// Applies a pending viewport resize and prepares per frame state. Call before the stages.
 		bool BeginFrame(float DeltaSeconds, double TotalSeconds);
-		// Clears the scene target and runs the passes below the EditorUI priority.
+		// Runs the compiled scene graph, then copies its marked output into the viewport target. Does
+		// nothing when no graph is loaded.
 		void RenderScene();
 		// Clears the back buffer and runs the editor UI passes. Separate command list submission,
 		// because the editor samples the scene target.
@@ -95,12 +113,28 @@ namespace Lime
 		void NotifySceneFramebuffer(nvrhi::IFramebuffer* Framebuffer);
 		void NotifyEditorUIFramebuffer(nvrhi::IFramebuffer* Framebuffer);
 
+		// Allocates the graph's textures at the current target size and gives each pass its Compile call.
+		// Re-run after a resize, since the resources that follow the graph's size have to be rebuilt.
+		bool AllocateRenderGraphResources();
+		// Copies the graph's first marked output into the viewport target, which is what the editor samples.
+		// A blit rather than rendering straight into the target, because the graph's own output may be a
+		// different format and the pass that produced it does not know what the editor wants.
+		void PresentRenderGraphOutput();
+
 		IDeviceManager* DeviceManager = nullptr;
 		nvrhi::IDevice* Device = nullptr;
 		// Reused across frames; NVRHI object creation is not cheap enough to do per frame.
 		nvrhi::CommandListHandle CommandList;
 		FShaderLibrary ShaderLibrary;
 		std::vector<std::shared_ptr<IRenderPass>> Passes;
+
+		// The scene as a compiled graph. Empty when no graph loaded or one failed to compile, in which case
+		// the scene stage does nothing at all.
+		FRenderGraphPlan SceneGraphPlan;
+		FRenderGraphResources SceneGraphResources;
+		// Size the resources were built for, so a resize is noticed without asking the device.
+		uint32 GraphResourceWidth = 0;
+		uint32 GraphResourceHeight = 0;
 
 		FViewportTarget ViewportTarget;
 		FViewportResizedDelegate ViewportResizedDelegate;

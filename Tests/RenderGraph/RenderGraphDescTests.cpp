@@ -16,26 +16,26 @@ using namespace Lime;
 namespace
 {
 	// A registry with just enough shape for the cases below: a producer, a consumer that also produces,
-	// and a sink. Deliberately not the built-in set, so these tests do not break when the built-ins change.
+	// and a sink. Declared here rather than taken from the renderer's real passes, so these tests do not
+	// break when a pass changes what it reads or writes.
 	FRenderGraphPassTypeRegistry MakeTestRegistry()
 	{
 		FRenderGraphPassTypeRegistry Registry;
-		Registry.Clear();
 
 		FRenderGraphPassTypeDesc Source;
 		Source.Name = "Source";
-		Source.Outputs.push_back(FRenderGraphResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Source.Outputs.push_back(MakeTextureResource("out", ERenderGraphResourceVisibility::Output, nvrhi::Format::RGBA8_UNORM));
 		Registry.Register(std::move(Source));
 
 		FRenderGraphPassTypeDesc Filter;
 		Filter.Name = "Filter";
-		Filter.Inputs.push_back(FRenderGraphResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
-		Filter.Outputs.push_back(FRenderGraphResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Filter.Inputs.push_back(MakeTextureResource("in", ERenderGraphResourceVisibility::Input, nvrhi::Format::RGBA8_UNORM));
+		Filter.Outputs.push_back(MakeTextureResource("out", ERenderGraphResourceVisibility::Output, nvrhi::Format::RGBA8_UNORM));
 		Registry.Register(std::move(Filter));
 
 		FRenderGraphPassTypeDesc Sink;
 		Sink.Name = "Sink";
-		Sink.Inputs.push_back(FRenderGraphResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Sink.Inputs.push_back(MakeTextureResource("in", ERenderGraphResourceVisibility::Input, nvrhi::Format::RGBA8_UNORM));
 		Registry.Register(std::move(Sink));
 
 		return Registry;

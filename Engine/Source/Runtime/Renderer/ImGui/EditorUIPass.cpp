@@ -1,4 +1,4 @@
-#include "Renderer/ImGui/ImGuiRenderer.h"
+#include "Renderer/ImGui/EditorUIPass.h"
 
 #include "Core/Logging/LogManager.h"
 #include "Core/Math/Matrix.h"
@@ -29,12 +29,12 @@ namespace Lime
 		}
 	} // namespace
 
-	bool FImGuiRenderer::Initialize(FRenderer& Renderer)
+	bool FEditorUIPass::Initialize(FRenderer& Renderer)
 	{
 		Device = Renderer.GetDevice();
 		if (Device == nullptr || ImGui::GetCurrentContext() == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "FImGuiRenderer requires a device and an active ImGui context");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "FEditorUIPass requires a device and an active ImGui context");
 			return false;
 		}
 
@@ -107,7 +107,7 @@ namespace Lime
 		return true;
 	}
 
-	void FImGuiRenderer::Shutdown()
+	void FEditorUIPass::Shutdown()
 	{
 		if (ImGui::GetCurrentContext() != nullptr)
 		{
@@ -143,7 +143,7 @@ namespace Lime
 		IndexCapacity = 0;
 	}
 
-	bool FImGuiRenderer::CreatePipeline(nvrhi::IFramebuffer* Framebuffer)
+	bool FEditorUIPass::CreatePipeline(nvrhi::IFramebuffer* Framebuffer)
 	{
 		if (Framebuffer == nullptr)
 		{
@@ -184,13 +184,13 @@ namespace Lime
 		return true;
 	}
 
-	void FImGuiRenderer::OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer)
+	void FEditorUIPass::OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer)
 	{
 		Pipeline = nullptr;
 		CreatePipeline(Framebuffer);
 	}
 
-	bool FImGuiRenderer::EnsureGeometryCapacity(uint32 RequiredVertexCount, uint32 RequiredIndexCount)
+	bool FEditorUIPass::EnsureGeometryCapacity(uint32 RequiredVertexCount, uint32 RequiredIndexCount)
 	{
 		if (RequiredVertexCount > VertexCapacity || VertexBuffer == nullptr)
 		{
@@ -232,7 +232,7 @@ namespace Lime
 		return true;
 	}
 
-	ImTextureID FImGuiRenderer::RegisterTexture(nvrhi::ITexture* Texture, ImTextureID ExistingId)
+	ImTextureID FEditorUIPass::RegisterTexture(nvrhi::ITexture* Texture, ImTextureID ExistingId)
 	{
 		if (Device == nullptr || Texture == nullptr || BindingLayout == nullptr)
 		{
@@ -260,7 +260,7 @@ namespace Lime
 		return TextureId;
 	}
 
-	void FImGuiRenderer::UnregisterTexture(ImTextureID TextureId)
+	void FEditorUIPass::UnregisterTexture(ImTextureID TextureId)
 	{
 		if (TextureId != ImTextureID_Invalid)
 		{
@@ -268,7 +268,7 @@ namespace Lime
 		}
 	}
 
-	void FImGuiRenderer::CreateTexture(nvrhi::ICommandList* CommandList, ImTextureData* TextureData)
+	void FEditorUIPass::CreateTexture(nvrhi::ICommandList* CommandList, ImTextureData* TextureData)
 	{
 		const nvrhi::TextureDesc Desc = nvrhi::TextureDesc()
 		                                    .setDimension(nvrhi::TextureDimension::Texture2D)
@@ -306,7 +306,7 @@ namespace Lime
 		UploadTexture(CommandList, TextureData, true);
 	}
 
-	void FImGuiRenderer::UploadTexture(nvrhi::ICommandList* CommandList, ImTextureData* TextureData, bool bFullUpload)
+	void FEditorUIPass::UploadTexture(nvrhi::ICommandList* CommandList, ImTextureData* TextureData, bool bFullUpload)
 	{
 		const auto Entry = Textures.find(TextureData->GetTexID());
 		if (Entry == Textures.end())
@@ -343,7 +343,7 @@ namespace Lime
 		CommandList->writeTexture(Entry->second.Texture, 0, 0, TextureData->GetPixels(), static_cast<size_t>(Pitch));
 	}
 
-	void FImGuiRenderer::DestroyTexture(ImTextureData* TextureData)
+	void FEditorUIPass::DestroyTexture(ImTextureData* TextureData)
 	{
 		const ImTextureID TextureId = TextureData->GetTexID();
 		if (TextureId != ImTextureID_Invalid)
@@ -355,7 +355,7 @@ namespace Lime
 		TextureData->SetStatus(ImTextureStatus_Destroyed);
 	}
 
-	void FImGuiRenderer::UpdateTextures(nvrhi::ICommandList* CommandList, ImDrawData* DrawData)
+	void FEditorUIPass::UpdateTextures(nvrhi::ICommandList* CommandList, ImDrawData* DrawData)
 	{
 		if (DrawData->Textures == nullptr)
 		{
@@ -392,13 +392,13 @@ namespace Lime
 		}
 	}
 
-	nvrhi::IBindingSet* FImGuiRenderer::GetBindingSetForTexture(ImTextureID TextureId)
+	nvrhi::IBindingSet* FEditorUIPass::GetBindingSetForTexture(ImTextureID TextureId)
 	{
 		const auto Entry = Textures.find(TextureId);
 		return Entry != Textures.end() ? Entry->second.BindingSet.Get() : nullptr;
 	}
 
-	void FImGuiRenderer::Render(const FFrameContext& Context)
+	void FEditorUIPass::Render(const FFrameContext& Context)
 	{
 		ImDrawData* DrawData = ImGui::GetDrawData();
 		if (DrawData == nullptr || Context.CommandList == nullptr)

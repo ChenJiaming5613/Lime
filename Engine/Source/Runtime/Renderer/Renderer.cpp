@@ -46,6 +46,10 @@ namespace Lime
 			return;
 		}
 
+		// Released before the passes, since the plan holds the same pass instances and its views hold
+		// textures the passes may still be bound to.
+		ClearRenderGraph();
+
 		// Passes are torn down before the command list so their handles are released first.
 		for (auto Iterator = Passes.rbegin(); Iterator != Passes.rend(); ++Iterator)
 		{
@@ -136,6 +140,64 @@ namespace Lime
 
 		Passes.push_back(std::move(Pass));
 		return true;
+	}
+
+	bool FRenderer::SetRenderGraph(FRenderGraphCompileResult Compiled)
+	{
+		if (!Compiled.bSucceeded)
+		{
+			return false;
+		}
+
+		// Resolved against the passes this build actually has. A compiled graph proves the file was
+		// consistent with the reflected types, not that an instance exists to run each entry, and those can
+		// differ: a pass whose Initialize failed was never added.
+		std::vector<std::shared_ptr<IRenderPass>> Resolved;
+		Resolved.reserve(Compiled.ExecutionOrder.size());
+
+		for (const FCompiledPass& CompiledPass : Compiled.ExecutionOrder)
+		{
+			std::shared_ptr<IRenderPass> Match;
+			for (const std::shared_ptr<IRenderPass>& Candidate : Passes)
+			{
+				if (CompiledPass.TypeName == Candidate->GetTypeName())
+				{
+					Match = Candidate;
+					break;
+				}
+			}
+
+			if (Match == nullptr)
+			{
+				// The previous plan is left alone. Replacing half of it would leave the renderer executing a
+				// graph that matches neither what was asked for nor what it had.
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph names pass type '{}', which this build has no instance of",
+				               CompiledPass.TypeName);
+				return false;
+			}
+
+			Resolved.push_back(std::move(Match));
+		}
+
+		SceneGraphPlan.Compiled = std::move(Compiled);
+		SceneGraphPlan.Passes = std::move(Resolved);
+
+		// Forces a rebuild on the next frame, when the target size is known. Allocating here would need a
+		// size that BeginFrame has not settled yet.
+		SceneGraphResources.Release();
+		GraphResourceWidth = 0;
+		GraphResourceHeight = 0;
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Render graph set with {} pass(es)", SceneGraphPlan.Passes.size());
+		return true;
+	}
+
+	void FRenderer::ClearRenderGraph()
+	{
+		SceneGraphPlan.Reset();
+		SceneGraphResources.Release();
+		GraphResourceWidth = 0;
+		GraphResourceHeight = 0;
 	}
 
 	IRenderPass* FRenderer::FindPassByTypeId(FRenderPassTypeId TypeId) const
@@ -242,31 +304,118 @@ namespace Lime
 
 	void FRenderer::RenderScene()
 	{
-		if (!bFrameOpen || SceneContext.Framebuffer == nullptr)
+		if (!bFrameOpen)
 		{
 			return;
 		}
 
-		CommandList->open();
-		nvrhi::utils::ClearColorAttachment(CommandList, SceneContext.Framebuffer, 0,
-		                                   nvrhi::Color(ClearColor.X, ClearColor.Y, ClearColor.Z, ClearColor.W));
-
-		// Depth is cleared to the far plane. 1.0 matches the [0, 1] range PerspectiveFovLH produces and
-		// the clearValue the depth textures were created with, which is what keeps D3D12 on its fast
-		// clear path. ClearDepthStencilAttachment is a no-op when the framebuffer has no depth, so this
-		// stays correct if a target is ever built without one.
-		nvrhi::utils::ClearDepthStencilAttachment(CommandList, SceneContext.Framebuffer, 1.0f, 0);
-
-		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
+		// Without a compiled graph the viewport is cleared and nothing else happens. Clearing rather than
+		// leaving it is what makes the fallback state unambiguous: a stale image would look like a frozen
+		// scene, where black is obviously nothing at all.
+		if (!SceneGraphPlan.IsRunnable())
 		{
-			if (!IsEditorUIPass(*Pass))
+			if (SceneContext.Framebuffer != nullptr)
 			{
-				Pass->Render(SceneContext);
+				CommandList->open();
+				nvrhi::utils::ClearColorAttachment(CommandList, SceneContext.Framebuffer, 0, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+				CommandList->close();
+				Device->executeCommandList(CommandList);
+			}
+			return;
+		}
+
+		// The resources follow the target size, so a resize has to rebuild them before anything is drawn
+		// into them. Done here rather than in BeginFrame because it depends on the size that stage settles.
+		const uint32 TargetWidth = SceneContext.ViewportWidth;
+		const uint32 TargetHeight = SceneContext.ViewportHeight;
+		if (!SceneGraphResources.IsValid() || GraphResourceWidth != TargetWidth || GraphResourceHeight != TargetHeight)
+		{
+			if (!AllocateRenderGraphResources())
+			{
+				return;
 			}
 		}
 
+		CommandList->open();
+
+		// Clears happen per pass inside the executor, against each pass's own attachments. A single clear
+		// here would only cover one of the graph's targets.
+		ExecuteRenderGraph(SceneGraphPlan, SceneGraphResources, SceneContext, ClearColor);
+
+		PresentRenderGraphOutput();
+
 		CommandList->close();
 		Device->executeCommandList(CommandList);
+	}
+
+	bool FRenderer::AllocateRenderGraphResources()
+	{
+		if (!SceneGraphPlan.IsRunnable())
+		{
+			return false;
+		}
+
+		const uint32 TargetWidth = SceneContext.ViewportWidth;
+		const uint32 TargetHeight = SceneContext.ViewportHeight;
+		if (!SceneGraphResources.Allocate(Device, SceneGraphPlan.Compiled, TargetWidth, TargetHeight))
+		{
+			return false;
+		}
+
+		GraphResourceWidth = TargetWidth;
+		GraphResourceHeight = TargetHeight;
+
+		// Each pass is compiled against the resources it will actually see, which is the only point at which
+		// the formats and sizes are known. A pass failing here drops the whole graph rather than running with
+		// one pass unable to draw: a silently missing pass is harder to notice than a blank viewport.
+		for (SizeType Index = 0; Index < SceneGraphPlan.Passes.size(); ++Index)
+		{
+			const FRenderGraphPassView* View = SceneGraphResources.FindView(Index);
+			if (View == nullptr)
+			{
+				continue;
+			}
+
+			if (!SceneGraphPlan.Passes[Index]->Compile(*this, *View))
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph pass '{}' failed to compile; the scene graph is disabled",
+				               SceneGraphPlan.Compiled.ExecutionOrder[Index].PassName);
+				ClearRenderGraph();
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	void FRenderer::PresentRenderGraphOutput()
+	{
+		// Only meaningful offscreen: when the scene renders straight to the back buffer there is no viewport
+		// texture for the editor to sample.
+		if (!bOffscreenEnabled || !ViewportTarget.IsValid())
+		{
+			return;
+		}
+
+		nvrhi::ITexture* Output = SceneGraphResources.FindOutputTexture(0);
+		nvrhi::ITexture* Destination = ViewportTarget.GetTexture();
+		if (Output == nullptr || Destination == nullptr)
+		{
+			return;
+		}
+
+		// A copy needs both sides to agree on format and size. They can disagree legitimately: the graph may
+		// end in a float target while the viewport is 8 bit, and the sizes differ for a frame after a
+		// resize. Skipped rather than converted, since a conversion is a pass and belongs in the graph.
+		const nvrhi::TextureDesc& SourceDesc = Output->getDesc();
+		const nvrhi::TextureDesc& DestinationDesc = Destination->getDesc();
+		if (SourceDesc.format != DestinationDesc.format || SourceDesc.width != DestinationDesc.width ||
+		    SourceDesc.height != DestinationDesc.height)
+		{
+			return;
+		}
+
+		CommandList->copyTexture(Destination, nvrhi::TextureSlice(), Output, nvrhi::TextureSlice());
 	}
 
 	void FRenderer::RenderEditorUI()

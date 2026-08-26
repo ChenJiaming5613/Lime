@@ -1,6 +1,7 @@
-#include "Renderer/Passes/BlinnPhongForwardPass.h"
+#include "Renderer/Passes/BlinnPhongForwardLitPass.h"
 
 #include "Core/Logging/LogManager.h"
+#include "Renderer/Passes/ShadowCasterPass.h"
 #include "Renderer/RenderPassRegistry.h"
 #include "Renderer/Renderer.h"
 
@@ -38,6 +39,10 @@ namespace Lime
 			float LightColorPadding = 0.0f;
 			FVector3 AmbientColor;
 			float AmbientPadding = 0.0f;
+			FMatrix4x4 LightViewProjection = FMatrix4x4::Identity();
+			// 0 disables the lookup in the shader, which is how an unconnected shadow map is handled.
+			float ShadowStrength = 0.0f;
+			float ShadowPadding[3] = { 0.0f, 0.0f, 0.0f };
 		};
 
 		// Must match FSceneDrawConstants in BlinnPhong.hlsl.
@@ -63,12 +68,37 @@ namespace Lime
 		}
 	} // namespace
 
-	bool FBlinnPhongForwardPass::Initialize(FRenderer& Renderer)
+	void FBlinnPhongForwardLitPass::Reflect(FRenderGraphPassTypeDesc& OutType) const
+	{
+		OutType.Description = "Shades the scene with Blinn-Phong lighting, optionally sampling a shadow map.";
+
+		// Optional, so the pass compiles into a graph with no shadow caster and simply draws unshadowed.
+		// Making it required would mean every graph had to include a caster to render at all.
+		FRenderGraphResourceDesc ShadowDepth =
+		    MakeTextureResource("shadowDepth", ERenderGraphResourceVisibility::Input, nvrhi::Format::D32);
+		ShadowDepth.bOptional = true;
+		ShadowDepth.Description = "Depth from the light's point of view. Unconnected means no shadows.";
+		OutType.Inputs.push_back(std::move(ShadowDepth));
+
+		// Left at the graph's size and format: this pass draws whatever it is given, so pinning either
+		// would stop it being reused between the viewport and a smaller offscreen target.
+		FRenderGraphResourceDesc Colour = MakeTextureResource("color", ERenderGraphResourceVisibility::Output);
+		Colour.Description = "Shaded scene colour.";
+		OutType.Outputs.push_back(std::move(Colour));
+
+		// Written as well as the colour, because the depth test needs somewhere to write and a later pass
+		// may want to read it. The format is pinned: it has to match what the pipeline is compiled against.
+		FRenderGraphResourceDesc Depth = MakeTextureResource("depth", ERenderGraphResourceVisibility::Output, nvrhi::Format::D32);
+		Depth.Description = "Scene depth produced while shading.";
+		OutType.Outputs.push_back(std::move(Depth));
+	}
+
+	bool FBlinnPhongForwardLitPass::Initialize(FRenderer& Renderer)
 	{
 		Device = Renderer.GetDevice();
 		if (Device == nullptr)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "FBlinnPhongForwardPass requires a device");
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "FBlinnPhongForwardLitPass requires a device");
 			return false;
 		}
 
@@ -118,11 +148,17 @@ namespace Lime
 
 		// Built through the helper so the Vulkan binding offsets are applied and one layout works on both
 		// backends.
+		//
+		// The shadow map and its comparison sampler are always in the layout, because a shader cannot declare
+		// a resource conditionally. When no caster is connected the pass binds a 1x1 stand-in and tells the
+		// shader to skip the lookup.
 		const nvrhi::BindingLayoutDesc LayoutDesc = MakeBindingLayoutDesc(nvrhi::ShaderType::All)
 		                                                .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
 		                                                .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(1))
 		                                                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
-		                                                .addItem(nvrhi::BindingLayoutItem::Sampler(0));
+		                                                .addItem(nvrhi::BindingLayoutItem::Sampler(0))
+		                                                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1))
+		                                                .addItem(nvrhi::BindingLayoutItem::Sampler(1));
 
 		BindingLayout = Device->createBindingLayout(LayoutDesc);
 		if (BindingLayout == nullptr)
@@ -131,10 +167,56 @@ namespace Lime
 			return false;
 		}
 
+		// Comparison filtering, which is what makes SampleCmpLevelZero average the depth test results rather
+		// than the depths. Averaging depths first and then comparing would give one hard edge instead of a
+		// soft one.
+		//
+		// The comparison itself is chosen by the shader's SampleCmp call, so the sampler only has to be marked
+		// as a comparison sampler; nvrhi's SamplerDesc carries no comparison function of its own.
+		//
+		// Clamped so a lookup just outside the map reads its edge rather than wrapping to the far side, which
+		// would put a stripe of shadow along the opposite boundary.
+		const nvrhi::SamplerDesc ShadowSamplerDesc = nvrhi::SamplerDesc()
+		                                                 .setAllFilters(true)
+		                                                 .setAllAddressModes(nvrhi::SamplerAddressMode::ClampToEdge)
+		                                                 .setReductionType(nvrhi::SamplerReductionType::Comparison);
+		ShadowSampler = Device->createSampler(ShadowSamplerDesc);
+		if (ShadowSampler == nullptr)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createSampler failed for the Blinn-Phong shadow sampler");
+			return false;
+		}
+
+		// A 1x1 depth texture standing in for an unconnected shadow map.
+		//
+		// Needed because the binding layout always includes the shadow slot: a shader cannot declare a
+		// resource conditionally, and leaving the binding empty is invalid. Its contents never matter, since
+		// the shader is told to skip the lookup, but it has to be a real depth texture so the descriptor
+		// matches what the layout expects.
+		const nvrhi::TextureDesc FallbackDesc = nvrhi::TextureDesc()
+		                                            .setDimension(nvrhi::TextureDimension::Texture2D)
+		                                            .setWidth(1)
+		                                            .setHeight(1)
+		                                            .setFormat(nvrhi::Format::D32)
+		                                            .setIsRenderTarget(true)
+		                                            // Typeless, for the same reason the viewport's depth target
+		                                            // is: D3D12 needs the typeless form to build both a depth
+		                                            // view and a shader resource view over one texture.
+		                                            .setIsTypeless(true)
+		                                            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+		                                            .setKeepInitialState(true)
+		                                            .setDebugName("BlinnPhongFallbackShadow");
+		FallbackShadowTexture = Device->createTexture(FallbackDesc);
+		if (FallbackShadowTexture == nullptr)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Failed to create the Blinn-Phong fallback shadow texture");
+			return false;
+		}
+
 		return true;
 	}
 
-	void FBlinnPhongForwardPass::Shutdown()
+	void FBlinnPhongForwardLitPass::Shutdown()
 	{
 		// Before the layout and the resources they reference, so nothing outlives what it points at.
 		MaterialBindingSets.clear();
@@ -149,10 +231,41 @@ namespace Lime
 		PixelShader = nullptr;
 		VertexShader = nullptr;
 		CurrentFramebuffer = nullptr;
+		ShadowTexture = nullptr;
+		FallbackShadowTexture = nullptr;
+		ShadowSampler = nullptr;
+		ShadowStrength = 0.0f;
 		Device = nullptr;
 	}
 
-	bool FBlinnPhongForwardPass::CreatePipeline(nvrhi::IFramebuffer* Framebuffer)
+	bool FBlinnPhongForwardLitPass::Compile(FRenderer& Renderer, const FRenderGraphPassResources& Resources)
+	{
+		LIME_UNUSED(Renderer);
+
+		nvrhi::IFramebuffer* Framebuffer = Resources.GetFramebuffer();
+		if (Framebuffer == nullptr)
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "The Blinn-Phong pass has no framebuffer, so its colour output is not connected");
+			return false;
+		}
+
+		// Null when the graph has no shadow caster feeding this pass, which the reflection allows. The
+		// fallback texture is bound in its place and the shader skips the lookup.
+		nvrhi::ITexture* NewShadowTexture = Resources.FindTexture("shadowDepth");
+		ShadowStrength = NewShadowTexture != nullptr ? 1.0f : 0.0f;
+
+		if (NewShadowTexture != ShadowTexture)
+		{
+			ShadowTexture = NewShadowTexture;
+			// The material sets name the shadow texture, so they describe the old one now. Dropping them here
+			// rather than checking per draw keeps the hot path free of the comparison.
+			MaterialBindingSets.clear();
+		}
+
+		return CreatePipeline(Framebuffer);
+	}
+
+	bool FBlinnPhongForwardLitPass::CreatePipeline(nvrhi::IFramebuffer* Framebuffer)
 	{
 		if (Framebuffer == nullptr)
 		{
@@ -193,7 +306,7 @@ namespace Lime
 		return true;
 	}
 
-	void FBlinnPhongForwardPass::OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer)
+	void FBlinnPhongForwardLitPass::OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer)
 	{
 		// Dropped rather than rebuilt here: the pass may be notified while no command list is open, and the
 		// next Render recreates it against whatever framebuffer is current then.
@@ -202,7 +315,7 @@ namespace Lime
 		LIME_UNUSED(Framebuffer);
 	}
 
-	nvrhi::IBindingSet* FBlinnPhongForwardPass::GetOrCreateBindingSet(int32 MaterialIndex)
+	nvrhi::IBindingSet* FBlinnPhongForwardLitPass::GetOrCreateBindingSet(int32 MaterialIndex)
 	{
 		// -1 means the default material and maps to slot zero; a real index maps to itself plus one. The
 		// addition happens before widening so a negative value cannot wrap into an enormous slot number.
@@ -224,13 +337,29 @@ namespace Lime
 		        .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, FrameConstantBuffer))
 		        .addItem(nvrhi::BindingSetItem::ConstantBuffer(1, DrawConstantBuffer))
 		        .addItem(nvrhi::BindingSetItem::Texture_SRV(0, GpuResources.GetBaseColorTexture(MaterialIndex)))
-		        .addItem(nvrhi::BindingSetItem::Sampler(0, GpuResources.GetSampler()));
+		        .addItem(nvrhi::BindingSetItem::Sampler(0, GpuResources.GetSampler()))
+		        // The graph's shadow map when one is connected, otherwise the stand-in. Either way the binding
+		        // is present, because the layout requires it.
+		        .addItem(nvrhi::BindingSetItem::Texture_SRV(1, ShadowTexture != nullptr ? ShadowTexture : FallbackShadowTexture.Get()))
+		        .addItem(nvrhi::BindingSetItem::Sampler(1, ShadowSampler));
 
 		MaterialBindingSets[Slot] = Device->createBindingSet(Desc, BindingLayout);
 		return MaterialBindingSets[Slot].Get();
 	}
 
-	void FBlinnPhongForwardPass::Render(const FFrameContext& Context)
+	void FBlinnPhongForwardLitPass::OnBeginFrame(FRenderer& Renderer, const FFrameContext& Context)
+	{
+		LIME_UNUSED(Context);
+
+		// Taken from the caster rather than recomputed here. Both would have to fit the same frustum to the
+		// same bounds, and any difference between them would show up as shadows landing in the wrong place.
+		if (const FShadowCasterPass* Caster = Renderer.FindPass<FShadowCasterPass>())
+		{
+			ShadowViewProjection = Caster->GetLightViewProjection();
+		}
+	}
+
+	void FBlinnPhongForwardLitPass::Render(const FFrameContext& Context)
 	{
 		// Silent when there is nothing to draw. A project without a scene is a normal configuration, and
 		// logging here would flood the log at frame rate.
@@ -258,9 +387,17 @@ namespace Lime
 			CachedSceneRevision = Scene.GetAssetRevision();
 		}
 
-		if (Pipeline == nullptr || CurrentFramebuffer != Context.Framebuffer)
+		// The graph's target when one is driving this pass, otherwise whatever the renderer set up. Compile
+		// already built the pipeline for the graph's framebuffer, so this only rebuilds outside a graph.
+		nvrhi::IFramebuffer* Framebuffer = Context.Resources != nullptr ? Context.Resources->GetFramebuffer() : Context.Framebuffer;
+		if (Framebuffer == nullptr)
 		{
-			if (!CreatePipeline(Context.Framebuffer))
+			return;
+		}
+
+		if (Pipeline == nullptr || CurrentFramebuffer != Framebuffer)
+		{
+			if (!CreatePipeline(Framebuffer))
 			{
 				return;
 			}
@@ -284,6 +421,8 @@ namespace Lime
 		FrameConstants.LightIntensity = Settings.LightIntensity;
 		FrameConstants.LightColor = LightColor;
 		FrameConstants.AmbientColor = FVector3::One() * Settings.AmbientStrength;
+		FrameConstants.LightViewProjection = ShadowViewProjection;
+		FrameConstants.ShadowStrength = ShadowStrength;
 		Context.CommandList->writeBuffer(FrameConstantBuffer, &FrameConstants, sizeof(FrameConstants));
 
 		const nvrhi::ViewportState ViewportState = nvrhi::ViewportState().addViewportAndScissorRect(
@@ -336,7 +475,7 @@ namespace Lime
 
 				nvrhi::GraphicsState GraphicsState;
 				GraphicsState.pipeline = Pipeline;
-				GraphicsState.framebuffer = Context.Framebuffer;
+				GraphicsState.framebuffer = Framebuffer;
 				GraphicsState.viewport = ViewportState;
 				GraphicsState.addBindingSet(BindingSet);
 				GraphicsState.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(MeshGpu->VertexBuffer).setSlot(0));
@@ -350,18 +489,5 @@ namespace Lime
 				Context.CommandList->drawIndexed(DrawArguments);
 			}
 		}
-	}
-
-	void RegisterBuiltinRenderPasses()
-	{
-		// Registration replaces by name, so running twice is harmless.
-		static const bool bRegistered = []
-		{
-			FRenderPassRegistry::Get().Register(
-			    "FBlinnPhongForwardPass", FBlinnPhongForwardPass::Priority,
-			    [] { return std::static_pointer_cast<IRenderPass>(std::make_shared<FBlinnPhongForwardPass>()); });
-			return true;
-		}();
-		LIME_UNUSED(bRegistered);
 	}
 } // namespace Lime

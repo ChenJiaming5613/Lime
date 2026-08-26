@@ -15,7 +15,7 @@ import pytest
 from lime_automation import CommandError, LimeClient
 
 # Ships in Engine/Content/RenderGraph and is copied next to the executable by the build.
-EXAMPLE = "DeferredExample.json"
+EXAMPLE = "DefaultGraph.json"
 
 
 @pytest.fixture

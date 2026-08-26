@@ -14,7 +14,7 @@
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
 #include "RHI/DeviceManager.h"
-#include "Renderer/ImGui/ImGuiRenderer.h"
+#include "Renderer/ImGui/EditorUIPass.h"
 #include "Renderer/RenderPassRegistry.h"
 #include "Renderer/Renderer.h"
 
@@ -83,7 +83,7 @@ namespace Lime
 		// Registered rather than added directly so it is ordered by priority together with the
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
 		// the linker would be free to discard a translation unit that only registers.
-		FRenderPassRegistry::Get().Register("ImGui", FImGuiRenderer::Priority, [] { return std::make_shared<FImGuiRenderer>(); });
+		FRenderPassRegistry::Get().Register("EditorUI", FEditorUIPass::Priority, [] { return std::make_shared<FEditorUIPass>(); });
 
 		// The scene goes to an offscreen target so it can be shown inside the viewport panel. The
 		// initial size is the back buffer; the panel corrects it on the first frame it is drawn.
@@ -118,7 +118,7 @@ namespace Lime
 			return;
 		}
 
-		FImGuiRenderer* ImGuiPass = Renderer->FindPass<FImGuiRenderer>();
+		FEditorUIPass* ImGuiPass = Renderer->FindPass<FEditorUIPass>();
 		if (ImGuiPass == nullptr)
 		{
 			// The pass is created after Initialize, so the first call is expected to find nothing.
@@ -239,7 +239,7 @@ namespace Lime
 		{
 			Renderer->SetViewportResizedDelegate(nullptr);
 			// The binding set references the viewport texture, so it goes before the target does.
-			if (FImGuiRenderer* ImGuiPass = Renderer->FindPass<FImGuiRenderer>())
+			if (FEditorUIPass* ImGuiPass = Renderer->FindPass<FEditorUIPass>())
 			{
 				ImGuiPass->UnregisterTexture(ViewportTextureId);
 			}

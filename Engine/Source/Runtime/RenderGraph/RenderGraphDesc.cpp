@@ -321,7 +321,9 @@ namespace Lime
 		}
 
 		// Unreachable inputs are worth mentioning but not fatal: a pass reading an unconnected input is a
-		// graph still being assembled, which is the normal state while editing.
+		// graph still being assembled, which is the normal state while editing. An input the pass declared
+		// optional is silent, because leaving it unconnected is a supported configuration rather than an
+		// omission.
 		for (const FRenderGraphPassInstance& Pass : Passes)
 		{
 			const FRenderGraphPassTypeDesc* Type = Types.Find(Pass.TypeName);
@@ -332,6 +334,11 @@ namespace Lime
 
 			for (const FRenderGraphResourceDesc& Input : Type->Inputs)
 			{
+				if (Input.bOptional)
+				{
+					continue;
+				}
+
 				const FRenderGraphResourceRef Ref{ Pass.Name, Input.Name };
 				const bool bConnected =
 				    std::any_of(Edges.begin(), Edges.end(), [&Ref](const FRenderGraphEdge& Edge) { return Edge.To == Ref; });
@@ -340,6 +347,39 @@ namespace Lime
 					Issues.push_back(
 					    MakeIssue(FRenderGraphIssue::ESeverity::Warning, "'" + Ref.ToString() + "' has nothing connected to it."));
 				}
+			}
+		}
+
+		// Format and size disagreements across an edge. Reported here as well as during compilation so the
+		// editor can show them while the graph is being assembled, rather than only at startup.
+		for (const FRenderGraphEdge& Edge : Edges)
+		{
+			const FRenderGraphPassInstance* FromPass = FindPass(Edge.From.PassName);
+			const FRenderGraphPassInstance* ToPass = FindPass(Edge.To.PassName);
+			if (FromPass == nullptr || ToPass == nullptr)
+			{
+				continue;
+			}
+
+			const FRenderGraphPassTypeDesc* FromType = Types.Find(FromPass->TypeName);
+			const FRenderGraphPassTypeDesc* ToType = Types.Find(ToPass->TypeName);
+			if (FromType == nullptr || ToType == nullptr)
+			{
+				continue;
+			}
+
+			const FRenderGraphResourceDesc* Produced = FromType->FindOutput(Edge.From.ResourceName);
+			const FRenderGraphResourceDesc* Consumed = ToType->FindInput(Edge.To.ResourceName);
+			if (Produced == nullptr || Consumed == nullptr)
+			{
+				continue;
+			}
+
+			FRenderGraphResourceDesc Merged = *Produced;
+			FRenderGraphIssue MergeIssue;
+			if (!MergeResourceDesc(Merged, *Consumed, Edge.From.ToString(), MergeIssue))
+			{
+				Issues.push_back(std::move(MergeIssue));
 			}
 		}
 

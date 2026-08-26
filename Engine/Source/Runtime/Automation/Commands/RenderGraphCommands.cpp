@@ -40,7 +40,7 @@ namespace Lime
 		}
 
 		// A relative path is resolved against the default directory for the operation, so a script can say
-		// "DeferredExample.json" without knowing where the engine keeps its content.
+		// "DefaultGraph.json" without knowing where the engine keeps its content.
 		std::filesystem::path ResolvePath(const std::string& Text, const std::filesystem::path& DefaultDirectory)
 		{
 			const std::filesystem::path Path(Text);

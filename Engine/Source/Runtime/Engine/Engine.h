@@ -65,6 +65,13 @@ namespace Lime
 		void Shutdown();
 		void Tick();
 
+		// Loads and compiles the configured render graph, then hands it to the renderer.
+		//
+		// Returns false when the project has no usable graph, which the caller treats as a warning rather
+		// than a failed startup: the engine then draws only the editor UI, and every reason is in the log.
+		// That is far more useful than refusing to open a window over a mistyped resource name.
+		bool BuildConfiguredRenderGraph();
+
 		// Applies the configured camera and lighting, then starts the glTF import on a worker thread.
 		// Never fails the startup: a bad path is reported once here and the engine continues with an empty
 		// scene, which is far more useful than refusing to open a window.

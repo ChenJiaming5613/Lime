@@ -1,0 +1,12 @@
+{
+	"passes": [
+		{ "name": "ShadowCaster", "type": "ShadowCaster" },
+		{ "name": "ForwardLit", "type": "BlinnPhongForwardLit" },
+		{ "name": "PostProcess", "type": "PostProcess" }
+	],
+	"edges": [
+		{ "from": "ShadowCaster.shadowDepth", "to": "ForwardLit.shadowDepth" },
+		{ "from": "ForwardLit.color", "to": "PostProcess.sceneColor" }
+	],
+	"graphOutputs": [ "PostProcess.color" ]
+}

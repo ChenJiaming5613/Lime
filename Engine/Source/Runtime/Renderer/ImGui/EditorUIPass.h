@@ -1,7 +1,13 @@
-// Dear ImGui draw list renderer on top of NVRHI, shared by every backend.
+// The editor UI as a render pass: Dear ImGui draw lists on top of NVRHI, shared by every backend.
 //
 // Only imgui_impl_glfw is reused for platform input; drawing lives here so D3D12 and Vulkan run the
 // same code path. Implements the 1.92 texture protocol (ImGuiBackendFlags_RendererHasTextures).
+//
+// A render pass like any other, but not one the scene graph executes. It draws into the swap chain and
+// samples what the graph produced, so it has to run after the graph's submission has completed; the
+// renderer keeps it as a separate stage for that reason rather than because it is special in kind.
+// It declares no graph resources: the target it draws into is the back buffer, which the graph does not
+// own.
 
 #pragma once
 
@@ -13,13 +19,13 @@
 
 namespace Lime
 {
-	class FImGuiRenderer final : public TRenderPass<FImGuiRenderer>
+	class FEditorUIPass final : public TRenderPass<FEditorUIPass>
 	{
 	public:
 		// Always drawn last, into the swap chain rather than the scene target.
 		static constexpr ERenderPassPriority Priority = ERenderPassPriority::EditorUI;
 
-		const char* GetName() const override { return "ImGui"; }
+		const char* GetName() const override { return "EditorUI"; }
 
 		bool Initialize(FRenderer& Renderer) override;
 		void Shutdown() override;

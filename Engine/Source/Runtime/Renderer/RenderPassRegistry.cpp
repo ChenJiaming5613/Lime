@@ -99,4 +99,31 @@ namespace Lime
 		                 [](const FRenderPassRegistration& Left, const FRenderPassRegistration& Right)
 		                 { return static_cast<int32>(Left.Priority) < static_cast<int32>(Right.Priority); });
 	}
+
+	FRenderGraphPassTypeRegistry FRenderPassRegistry::BuildPassTypes() const
+	{
+		FRenderGraphPassTypeRegistry Types;
+
+		for (const FRenderPassRegistration& Registration : Registrations)
+		{
+			// Constructed only to be asked what it reads and writes, then discarded. Reflect is required to
+			// be cheap and free of device calls precisely so this is safe before a device exists.
+			const std::shared_ptr<IRenderPass> Pass = Registration.Factory();
+			if (Pass == nullptr)
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Factory for '{}' returned null while reflecting pass types", Registration.Name);
+				continue;
+			}
+
+			FRenderGraphPassTypeDesc Type;
+			Type.Name = Pass->GetTypeName();
+			Pass->Reflect(Type);
+
+			// A pass that declares nothing is still registered as a type, so a graph can name it for its
+			// ordering alone. Dropping it here would make the file look like it referred to a missing pass.
+			Types.Register(std::move(Type));
+		}
+
+		return Types;
+	}
 } // namespace Lime

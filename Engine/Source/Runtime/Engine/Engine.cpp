@@ -3,7 +3,10 @@
 #include "Core/Logging/LogManager.h"
 #include "Core/Math/MathUtils.h"
 #include "Platform/PlatformPaths.h"
-#include "Renderer/Passes/BlinnPhongForwardPass.h"
+#include "RenderGraph/RenderGraphCompiler.h"
+#include "RenderGraph/RenderGraphJson.h"
+#include "Renderer/Passes/BlinnPhongForwardLitPass.h"
+#include "Renderer/Passes/BuiltinPasses.h"
 #include "Renderer/RenderPassRegistry.h"
 
 #include "Asset/GltfImporter.h"
@@ -103,6 +106,14 @@ namespace Lime
 		// registration site. The editor's ImGui pass is registered the same way and sorts last.
 		FRenderPassRegistry::Get().InstantiateAll(Renderer);
 
+		// After the passes exist, because the graph is compiled against what they declare and executed by
+		// the instances themselves. A failure here is not fatal: the engine runs with no scene graph, which
+		// renders only the editor UI, and the reason is in the log.
+		if (!BuildConfiguredRenderGraph())
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "No render graph is active, so only the editor UI will be drawn");
+		}
+
 		// After the passes exist, so the scene pass picks the data up on the frame the import lands.
 		BeginLoadConfiguredScene();
 
@@ -190,6 +201,89 @@ namespace Lime
 	}
 #endif
 
+	bool FEngine::BuildConfiguredRenderGraph()
+	{
+		Renderer.ClearRenderGraph();
+
+		if (Settings.RenderGraphPath.empty())
+		{
+			// Not an error worth a stack of diagnostics: a project may deliberately ship without one. It
+			// still means nothing draws the scene, which the caller reports.
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_RENDERER, "No render graph is configured");
+			return false;
+		}
+
+		// Reflected from the passes that were just instantiated, so the graph is validated against what this
+		// build can actually run rather than against a list maintained by hand.
+		const FRenderGraphPassTypeRegistry PassTypes = FRenderPassRegistry::Get().BuildPassTypes();
+		if (PassTypes.IsEmpty())
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "No render passes are registered, so no render graph can be built");
+			return false;
+		}
+
+		std::filesystem::path Path = Settings.RenderGraphPath;
+		if (Path.is_relative())
+		{
+			Path = FPlatformPaths::GetContentDirectory() / "RenderGraph" / Path;
+		}
+
+		if (!std::filesystem::exists(Path))
+		{
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}' was not found at '{}'", Settings.RenderGraphPath, Path.string());
+			return false;
+		}
+
+		FRenderGraphDesc Graph;
+		const FRenderGraphLoadResult LoadResult = FRenderGraphJson::LoadFromFile(Path, PassTypes, Graph);
+
+		// Warnings from loading mean elements were dropped, which usually explains a later compile failure,
+		// so they are reported even when the load itself succeeded.
+		for (const FRenderGraphIssue& Issue : LoadResult.Issues)
+		{
+			if (Issue.IsError())
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}': {}", Settings.RenderGraphPath, Issue.Message);
+			}
+			else
+			{
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}': {}", Settings.RenderGraphPath, Issue.Message);
+			}
+		}
+
+		if (!LoadResult.bSucceeded)
+		{
+			return false;
+		}
+
+		const FRenderGraphCompileResult Compiled = CompileRenderGraph(Graph, PassTypes);
+		for (const FRenderGraphIssue& Issue : Compiled.Issues)
+		{
+			if (Issue.IsError())
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}': {}", Settings.RenderGraphPath, Issue.Message);
+			}
+			else
+			{
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}': {}", Settings.RenderGraphPath, Issue.Message);
+			}
+		}
+
+		if (!Compiled.bSucceeded)
+		{
+			return false;
+		}
+
+		if (!Renderer.SetRenderGraph(Compiled))
+		{
+			return false;
+		}
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}' compiled: {} pass(es), {} resource(s)", Settings.RenderGraphPath,
+		              Compiled.ExecutionOrder.size(), Compiled.Resources.size());
+		return true;
+	}
+
 	void FEngine::BeginLoadConfiguredScene()
 	{
 		// Applied whether or not a scene loads, so a project drawing through its own passes still gets the
@@ -203,7 +297,7 @@ namespace Lime
 		Renderer.SetScene(&Scene);
 		Renderer.SetCamera(&Camera);
 
-		if (FBlinnPhongForwardPass* Pass = Renderer.FindPass<FBlinnPhongForwardPass>())
+		if (FBlinnPhongForwardLitPass* Pass = Renderer.FindPass<FBlinnPhongForwardLitPass>())
 		{
 			Pass->GetSettings().LightIntensity = Settings.LightIntensity;
 			Pass->GetSettings().AmbientStrength = Settings.AmbientStrength;

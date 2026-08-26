@@ -53,6 +53,14 @@ namespace Lime
 		// Relative paths are resolved against the project directory and then the shared Assets directory,
 		// so a settings file can reference the sample assets without an absolute path.
 		std::string ScenePath;
+
+		// Render graph describing how the scene is drawn: which passes run, in what order, and into which
+		// resources. Resolved against the project's Content/RenderGraph directory and then the engine's.
+		//
+		// The graph is what drives the frame, so a project that cannot supply a valid one renders only the
+		// editor UI. Empty means the same: without a graph there is nothing to draw the scene with.
+		std::string RenderGraphPath = "DefaultGraph.json";
+
 		// Vertical field of view in degrees. Degrees rather than radians because this is hand edited.
 		float CameraFieldOfView = 60.0f;
 		// Units per second the fly camera moves at before any scroll adjustment.

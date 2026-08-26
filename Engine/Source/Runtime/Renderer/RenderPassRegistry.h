@@ -44,6 +44,14 @@ namespace Lime
 		// Sorted copy used both by InstantiateAll and by tests.
 		std::vector<FRenderPassRegistration> GetSortedRegistrations() const;
 
+		// The pass types a render graph can refer to, reflected from the registered passes.
+		//
+		// Built by instantiating each registration and asking it to describe itself, which is why it costs
+		// a construction per pass and is only done at startup. The alternative was a hand written table,
+		// and a graph validated against a table that had drifted from the passes would report a file as
+		// good and then fail to run it.
+		FRenderGraphPassTypeRegistry BuildPassTypes() const;
+
 	private:
 		FRenderPassRegistry() = default;
 
