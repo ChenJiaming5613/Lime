@@ -10,11 +10,12 @@
 
 #pragma once
 
-#include "FrameGraph/FrameGraphLayout.h"
+#include "RenderGraph/RenderGraphLayout.h"
 
 #include <imgui.h>
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -25,51 +26,51 @@ namespace Lime
 	// The widget needs one id space shared by nodes and pins, so both come from a single counter. Two
 	// counters would eventually hand out the same number for a node and a pin, and the widget would treat
 	// one as the other.
-	class FFrameGraphIdMap
+	class FRenderGraphIdMap
 	{
 	public:
 		void Reset();
 
 		// Assigns ids for every pass and every pin it has, in the graph's pass order. Deterministic, so a
 		// reload of the same file produces the same ids and a saved screenshot still matches.
-		void Build(const FFrameGraphDesc& Graph, const FFramePassTypeRegistry& Types);
+		void Build(const FRenderGraphDesc& Graph, const FRenderGraphPassTypeRegistry& Types);
 
 		int32 GetNodeId(const std::string& PassName) const;
-		int32 GetPinId(const FFrameGraphResourceRef& Ref) const;
-		// The unlabelled pin an execution edge connects to. Every pass has one.
-		int32 GetExecutionInputId(const std::string& PassName) const;
-		int32 GetExecutionOutputId(const std::string& PassName) const;
+		int32 GetPinId(const FRenderGraphResourceRef& Ref) const;
 
 		// Reverse lookups, for turning what the widget reports back into graph terms.
 		const std::string* FindPassByNodeId(int32 NodeId) const;
-		const FFrameGraphResourceRef* FindResourceByPinId(int32 PinId) const;
-		// True when the pin is one of the unlabelled execution pins rather than a resource.
-		bool IsExecutionPin(int32 PinId) const;
-		const std::string* FindPassByExecutionPinId(int32 PinId) const;
+		const FRenderGraphResourceRef* FindResourceByPinId(int32 PinId) const;
 
 	private:
-		int32 Next = 1;
+		// Claims an id, stepping past a hash collision. Also keeps item ids below LinkIdBase so they cannot
+		// meet a link id.
+		int32 ClaimId(int32 Preferred);
+
+		std::set<int32> UsedIds;
 		std::map<std::string, int32> NodeIds;
 		std::map<std::string, int32> PinIds;
-		std::map<std::string, int32> ExecutionInputIds;
-		std::map<std::string, int32> ExecutionOutputIds;
 
 		std::map<int32, std::string> PassByNode;
-		std::map<int32, FFrameGraphResourceRef> ResourceByPin;
-		std::map<int32, std::string> PassByExecutionPin;
+		std::map<int32, FRenderGraphResourceRef> ResourceByPin;
+
+	public:
+		// Links share the widget's id space with nodes and pins, so they are numbered from a base that
+		// item ids never reach. Public because the panel numbers the links it draws.
+		static constexpr int32 LinkIdBase = 1000000;
 	};
 
 	// Which resource the mouse is over, so the panel can offer the graph output toggle. Empty pass name
 	// means nothing is hovered.
-	struct FFrameGraphHoverState
+	struct FRenderGraphHoverState
 	{
-		FFrameGraphResourceRef HoveredOutput;
+		FRenderGraphResourceRef HoveredOutput;
 		bool bValid = false;
 	};
 
 	// Draws every pass in the graph. Positions come from the layout, applied only when bApplyPositions is
 	// set: after that the widget owns them, so a drag is not undone on the next frame.
-	void DrawFrameGraphNodes(const FFrameGraphDesc& Graph, const FFramePassTypeRegistry& Types, const FFrameGraphIdMap& Ids,
-	                         const std::vector<FFrameGraphNodePlacement>& Placements, bool bApplyPositions, const std::string& SelectedPass,
-	                         FFrameGraphHoverState& OutHover);
+	void DrawRenderGraphNodes(const FRenderGraphDesc& Graph, const FRenderGraphPassTypeRegistry& Types, const FRenderGraphIdMap& Ids,
+	                         const std::vector<FRenderGraphNodePlacement>& Placements, bool bApplyPositions, const std::string& SelectedPass,
+	                         FRenderGraphHoverState& OutHover);
 } // namespace Lime

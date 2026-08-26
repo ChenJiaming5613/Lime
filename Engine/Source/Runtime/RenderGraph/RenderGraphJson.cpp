@@ -1,4 +1,4 @@
-#include "FrameGraph/FrameGraphJson.h"
+#include "RenderGraph/RenderGraphJson.h"
 
 #include "Core/Json/JsonUtils.h"
 #include "Core/Logging/LogManager.h"
@@ -10,9 +10,9 @@ namespace Lime
 {
 	namespace
 	{
-		FFrameGraphIssue MakeIssue(FFrameGraphIssue::ESeverity Severity, std::string Message)
+		FRenderGraphIssue MakeIssue(FRenderGraphIssue::ESeverity Severity, std::string Message)
 		{
-			FFrameGraphIssue Issue;
+			FRenderGraphIssue Issue;
 			Issue.Severity = Severity;
 			Issue.Message = std::move(Message);
 			return Issue;
@@ -23,9 +23,9 @@ namespace Lime
 		//
 		// Splits at the first dot rather than the last: a pass name cannot contain one, so anything after
 		// the first belongs to the resource, and a resource name with a dot in it stays intact.
-		FFrameGraphResourceRef ParseRef(const std::string& Text)
+		FRenderGraphResourceRef ParseRef(const std::string& Text)
 		{
-			FFrameGraphResourceRef Ref;
+			FRenderGraphResourceRef Ref;
 			const SizeType Dot = Text.find('.');
 			if (Dot == std::string::npos)
 			{
@@ -36,11 +36,6 @@ namespace Lime
 			Ref.PassName = Text.substr(0, Dot);
 			Ref.ResourceName = Text.substr(Dot + 1);
 			return Ref;
-		}
-
-		const char* ToString(EFrameEdgeKind Kind)
-		{
-			return Kind == EFrameEdgeKind::Execution ? "execution" : "data";
 		}
 
 		// Reads a string field, reporting rather than throwing on the wrong type. Returns false when the
@@ -61,13 +56,13 @@ namespace Lime
 		//
 		// Deliberately writes no layout: positions are recomputed on load, and a file that carried them
 		// would disagree with the computed placement as soon as either changed.
-		FJson BuildDocument(const FFrameGraphDesc& Graph)
+		FJson BuildDocument(const FRenderGraphDesc& Graph)
 		{
 			FJson Document;
 			Document["name"] = Graph.GetName();
 
 			FJson Passes = FJson::array();
-			for (const FFramePassInstance& Pass : Graph.GetPasses())
+			for (const FRenderGraphPassInstance& Pass : Graph.GetPasses())
 			{
 				FJson Entry;
 				Entry["name"] = Pass.Name;
@@ -77,23 +72,17 @@ namespace Lime
 			Document["passes"] = std::move(Passes);
 
 			FJson Edges = FJson::array();
-			for (const FFrameGraphEdge& Edge : Graph.GetEdges())
+			for (const FRenderGraphEdge& Edge : Graph.GetEdges())
 			{
 				FJson Entry;
 				Entry["from"] = Edge.From.ToString();
 				Entry["to"] = Edge.To.ToString();
-				// Written only for execution edges. A data edge is recognisable from its endpoints naming
-				// resources, so spelling it out on every edge would be redundant.
-				if (Edge.Kind == EFrameEdgeKind::Execution)
-				{
-					Entry["kind"] = ToString(Edge.Kind);
-				}
 				Edges.push_back(std::move(Entry));
 			}
 			Document["edges"] = std::move(Edges);
 
 			FJson Outputs = FJson::array();
-			for (const FFrameGraphResourceRef& Output : Graph.GetGraphOutputs())
+			for (const FRenderGraphResourceRef& Output : Graph.GetGraphOutputs())
 			{
 				Outputs.push_back(Output.ToString());
 			}
@@ -103,35 +92,35 @@ namespace Lime
 		}
 	} // namespace
 
-	SizeType FFrameGraphLoadResult::CountErrors() const
+	SizeType FRenderGraphLoadResult::CountErrors() const
 	{
 		return static_cast<SizeType>(
-		    std::count_if(Issues.begin(), Issues.end(), [](const FFrameGraphIssue& Issue) { return Issue.IsError(); }));
+		    std::count_if(Issues.begin(), Issues.end(), [](const FRenderGraphIssue& Issue) { return Issue.IsError(); }));
 	}
 
-	FFrameGraphLoadResult FFrameGraphJson::LoadFromFile(const std::filesystem::path& Path, const FFramePassTypeRegistry& Types,
-	                                                    FFrameGraphDesc& OutGraph)
+	FRenderGraphLoadResult FRenderGraphJson::LoadFromFile(const std::filesystem::path& Path, const FRenderGraphPassTypeRegistry& Types,
+	                                                    FRenderGraphDesc& OutGraph)
 	{
 		FJson Document;
 		if (!FJsonUtils::LoadFromFile(Path, Document))
 		{
-			FFrameGraphLoadResult Result;
-			Result.Issues.push_back(MakeIssue(FFrameGraphIssue::ESeverity::Error, "Could not read '" + Path.string() + "'."));
+			FRenderGraphLoadResult Result;
+			Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Error, "Could not read '" + Path.string() + "'."));
 			return Result;
 		}
 
 		return LoadFromString(Document.dump(), Types, OutGraph);
 	}
 
-	FFrameGraphLoadResult FFrameGraphJson::LoadFromString(const std::string& Json, const FFramePassTypeRegistry& Types,
-	                                                      FFrameGraphDesc& OutGraph)
+	FRenderGraphLoadResult FRenderGraphJson::LoadFromString(const std::string& Json, const FRenderGraphPassTypeRegistry& Types,
+	                                                      FRenderGraphDesc& OutGraph)
 	{
-		FFrameGraphLoadResult Result;
+		FRenderGraphLoadResult Result;
 
 		FJson Document = FJson::parse(Json, nullptr, false, true);
 		if (Document.is_discarded() || !Document.is_object())
 		{
-			Result.Issues.push_back(MakeIssue(FFrameGraphIssue::ESeverity::Error, "The document is not a JSON object."));
+			Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Error, "The document is not a JSON object."));
 			return Result;
 		}
 
@@ -148,7 +137,7 @@ namespace Lime
 		const auto PassArray = Document.find("passes");
 		if (PassArray == Document.end() || !PassArray->is_array())
 		{
-			Result.Issues.push_back(MakeIssue(FFrameGraphIssue::ESeverity::Error, "Missing a 'passes' array."));
+			Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Error, "Missing a 'passes' array."));
 			return Result;
 		}
 
@@ -156,7 +145,7 @@ namespace Lime
 		{
 			if (!Entry.is_object())
 			{
-				Result.Issues.push_back(MakeIssue(FFrameGraphIssue::ESeverity::Warning, "Skipped a pass entry that is not an object."));
+				Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Warning, "Skipped a pass entry that is not an object."));
 				continue;
 			}
 
@@ -165,16 +154,16 @@ namespace Lime
 			if (!ReadString(Entry, "name", PassName) || !ReadString(Entry, "type", TypeName))
 			{
 				Result.Issues.push_back(
-				    MakeIssue(FFrameGraphIssue::ESeverity::Warning, "Skipped a pass without both a 'name' and a 'type'."));
+				    MakeIssue(FRenderGraphIssue::ESeverity::Warning, "Skipped a pass without both a 'name' and a 'type'."));
 				continue;
 			}
 
 			// Routed through AddPass so the file cannot introduce a state the editor would refuse to create:
 			// duplicate names and unknown types are rejected identically either way.
-			FFrameGraphIssue Issue;
+			FRenderGraphIssue Issue;
 			if (!OutGraph.AddPass(PassName, TypeName, Types, Issue))
 			{
-				Issue.Severity = FFrameGraphIssue::ESeverity::Warning;
+				Issue.Severity = FRenderGraphIssue::ESeverity::Warning;
 				Result.Issues.push_back(std::move(Issue));
 			}
 		}
@@ -187,7 +176,7 @@ namespace Lime
 				if (!Entry.is_object())
 				{
 					Result.Issues.push_back(
-					    MakeIssue(FFrameGraphIssue::ESeverity::Warning, "Skipped an edge entry that is not an object."));
+					    MakeIssue(FRenderGraphIssue::ESeverity::Warning, "Skipped an edge entry that is not an object."));
 					continue;
 				}
 
@@ -196,34 +185,29 @@ namespace Lime
 				if (!ReadString(Entry, "from", FromText) || !ReadString(Entry, "to", ToText))
 				{
 					Result.Issues.push_back(
-					    MakeIssue(FFrameGraphIssue::ESeverity::Warning, "Skipped an edge without both a 'from' and a 'to'."));
+					    MakeIssue(FRenderGraphIssue::ESeverity::Warning, "Skipped an edge without both a 'from' and a 'to'."));
 					continue;
 				}
 
-				FFrameGraphEdge Edge;
+				FRenderGraphEdge Edge;
 				Edge.From = ParseRef(FromText);
 				Edge.To = ParseRef(ToText);
 
-				std::string KindText;
-				if (ReadString(Entry, "kind", KindText) && KindText == "execution")
+				// Both ends have to name a resource. An endpoint that is only a pass name used to mean an
+				// execution edge; now it is simply malformed, and saying so beats letting it through to fail
+				// a less obvious check later.
+				if (Edge.From.IsPassOnly() || Edge.To.IsPassOnly())
 				{
-					Edge.Kind = EFrameEdgeKind::Execution;
-					// An execution edge orders passes, so any resource part is meaningless and dropped rather
-					// than silently kept where it would confuse a later comparison.
-					Edge.From.ResourceName.clear();
-					Edge.To.ResourceName.clear();
-				}
-				else
-				{
-					// Inferred rather than required: an edge naming resources on both ends is a data edge, and
-					// making every file spell that out would be noise.
-					Edge.Kind = Edge.From.IsPassOnly() && Edge.To.IsPassOnly() ? EFrameEdgeKind::Execution : EFrameEdgeKind::Data;
+					Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Warning,
+					                                  "Skipped edge '" + FromText + "' to '" + ToText +
+					                                      "': both ends must name a resource as 'Pass.resource'."));
+					continue;
 				}
 
-				FFrameGraphIssue Issue;
+				FRenderGraphIssue Issue;
 				if (!OutGraph.AddEdge(Edge, Types, Issue))
 				{
-					Issue.Severity = FFrameGraphIssue::ESeverity::Warning;
+					Issue.Severity = FRenderGraphIssue::ESeverity::Warning;
 					Result.Issues.push_back(std::move(Issue));
 				}
 			}
@@ -237,43 +221,43 @@ namespace Lime
 				if (!Entry.is_string())
 				{
 					Result.Issues.push_back(
-					    MakeIssue(FFrameGraphIssue::ESeverity::Warning, "Skipped a graph output that is not a string."));
+					    MakeIssue(FRenderGraphIssue::ESeverity::Warning, "Skipped a graph output that is not a string."));
 					continue;
 				}
 
-				const FFrameGraphResourceRef Output = ParseRef(Entry.get<std::string>());
-				FFrameGraphIssue Issue;
+				const FRenderGraphResourceRef Output = ParseRef(Entry.get<std::string>());
+				FRenderGraphIssue Issue;
 				if (!OutGraph.ToggleGraphOutput(Output, Types, Issue))
 				{
 					// ToggleGraphOutput returns false both for a rejection and for removing an existing mark.
 					// Only the former carries a message, which is how the two are told apart here.
 					if (!Issue.Message.empty())
 					{
-						Issue.Severity = FFrameGraphIssue::ESeverity::Warning;
+						Issue.Severity = FRenderGraphIssue::ESeverity::Warning;
 						Result.Issues.push_back(std::move(Issue));
 					}
 				}
 			}
 		}
 
-		FJsonUtils::WarnUnknownKeys(Document, { "name", "passes", "edges", "graphOutputs" }, {}, "frame graph");
+		FJsonUtils::WarnUnknownKeys(Document, { "name", "passes", "edges", "graphOutputs" }, {}, "render graph");
 
 		Result.bSucceeded = true;
 		return Result;
 	}
 
-	bool FFrameGraphJson::SaveToFile(const std::filesystem::path& Path, const FFrameGraphDesc& Graph)
+	bool FRenderGraphJson::SaveToFile(const std::filesystem::path& Path, const FRenderGraphDesc& Graph)
 	{
 		if (!FJsonUtils::SaveToFile(Path, BuildDocument(Graph)))
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Could not write the frame graph to '{}'", Path.string());
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Could not write the render graph to '{}'", Path.string());
 			return false;
 		}
 
 		return true;
 	}
 
-	std::string FFrameGraphJson::SaveToString(const FFrameGraphDesc& Graph)
+	std::string FRenderGraphJson::SaveToString(const FRenderGraphDesc& Graph)
 	{
 		return BuildDocument(Graph).dump(1, '\t');
 	}

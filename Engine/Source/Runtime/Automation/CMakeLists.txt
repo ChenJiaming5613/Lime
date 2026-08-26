@@ -28,7 +28,7 @@ lime_add_module(
 		Commands/BuiltinCommands.cpp
 		Commands/CoreCommands.cpp
 		Commands/EditorCommands.cpp
-		Commands/FrameGraphCommands.cpp
+		Commands/RenderGraphCommands.cpp
 		Commands/RenderPassCommands.cpp
 		Commands/SceneCommands.cpp
 		Commands/ScriptCommands.cpp

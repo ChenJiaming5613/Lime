@@ -9,8 +9,7 @@
 #include "Editor/Panels/StatsPanel.h"
 
 #if LIME_WITH_NODE_EDITOR
-#include "Editor/FrameGraph/FrameGraphPanel.h"
-#include "Editor/NodeEditor/NodeEditorPanel.h"
+#include "Editor/RenderGraph/RenderGraphPanel.h"
 #endif
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
@@ -186,12 +185,11 @@ namespace Lime
 		// file in a static library that nothing else references. That is fine for project panels, which
 		// are compiled straight into an executable, but a panel living in this module would simply never
 		// appear. Naming the type is what keeps its object file.
-		Panels.push_back(std::make_shared<FNodeEditorPanel>());
-
+		//
 		// Held as well as listed, so the automation commands can drive it without searching the panel list
-		// and casting; the frame graph commands need the concrete type.
-		FrameGraphPanel = std::make_shared<FFrameGraphPanel>();
-		Panels.push_back(FrameGraphPanel);
+		// and casting; the render graph commands need the concrete type.
+		RenderGraphPanel = std::make_shared<FRenderGraphPanel>();
+		Panels.push_back(RenderGraphPanel);
 #endif
 
 		for (std::shared_ptr<IEditorPanel>& Panel : FEditorPanelRegistry::Get().InstantiateAll())

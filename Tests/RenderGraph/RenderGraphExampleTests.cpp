@@ -4,8 +4,8 @@
 // one and not the other produces a file that opens with warnings and draws a graph missing its edges,
 // which is easy to miss by eye and pointless to ship.
 
-#include "FrameGraph/FrameGraphJson.h"
-#include "FrameGraph/FrameGraphLayout.h"
+#include "RenderGraph/RenderGraphJson.h"
+#include "RenderGraph/RenderGraphLayout.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -21,7 +21,7 @@ namespace
 		std::filesystem::path Current = std::filesystem::current_path();
 		for (int32 Depth = 0; Depth < 8; ++Depth)
 		{
-			const std::filesystem::path Candidate = Current / "Engine" / "Content" / "FrameGraph" / "DeferredExample.json";
+			const std::filesystem::path Candidate = Current / "Engine" / "Content" / "RenderGraph" / "DeferredExample.json";
 			if (std::filesystem::exists(Candidate))
 			{
 				return Candidate;
@@ -36,18 +36,18 @@ namespace
 	}
 } // namespace
 
-TEST_CASE("The example frame graph loads cleanly against the built-in pass types", "[FrameGraph][Json]")
+TEST_CASE("The example render graph loads cleanly against the built-in pass types", "[RenderGraph][Json]")
 {
 	const std::filesystem::path Path = FindExample();
 	if (Path.empty())
 	{
-		SKIP("Engine/Content/FrameGraph/DeferredExample.json was not found");
+		SKIP("Engine/Content/RenderGraph/DeferredExample.json was not found");
 	}
 
 	// The default registry, not a test one: the point is that the shipped file matches the shipped types.
-	const FFramePassTypeRegistry Types;
-	FFrameGraphDesc Graph;
-	const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromFile(Path, Types, Graph);
+	const FRenderGraphPassTypeRegistry Types;
+	FRenderGraphDesc Graph;
+	const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromFile(Path, Types, Graph);
 
 	REQUIRE(Result.bSucceeded);
 
@@ -55,7 +55,7 @@ TEST_CASE("The example frame graph loads cleanly against the built-in pass types
 	{
 		// Every warning here means an element of the example did not survive loading, so the drawn graph
 		// would be missing a pass or an edge.
-		for (const FFrameGraphIssue& Issue : Result.Issues)
+		for (const FRenderGraphIssue& Issue : Result.Issues)
 		{
 			INFO("issue: " << Issue.Message);
 			REQUIRE(Issue.Message.empty());
@@ -64,8 +64,8 @@ TEST_CASE("The example frame graph loads cleanly against the built-in pass types
 
 	SECTION("The graph is valid")
 	{
-		const std::vector<FFrameGraphIssue> Issues = Graph.Validate(Types);
-		for (const FFrameGraphIssue& Issue : Issues)
+		const std::vector<FRenderGraphIssue> Issues = Graph.Validate(Types);
+		for (const FRenderGraphIssue& Issue : Issues)
 		{
 			INFO("validation: " << Issue.Message);
 			REQUIRE_FALSE(Issue.IsError());
@@ -77,11 +77,11 @@ TEST_CASE("The example frame graph loads cleanly against the built-in pass types
 	{
 		// A file whose edges were all dropped would still lay out, but every pass would land in layer 0.
 		// Asserting a depth confirms the dependencies actually took effect.
-		const std::vector<FFrameGraphNodePlacement> Placements = ComputeFrameGraphLayout(Graph);
+		const std::vector<FRenderGraphNodePlacement> Placements = ComputeRenderGraphLayout(Graph);
 		REQUIRE(Placements.size() == Graph.GetPasses().size());
 
 		int32 MaxLayer = 0;
-		for (const FFrameGraphNodePlacement& Placement : Placements)
+		for (const FRenderGraphNodePlacement& Placement : Placements)
 		{
 			MaxLayer = MaxLayer > Placement.Layer ? MaxLayer : Placement.Layer;
 		}

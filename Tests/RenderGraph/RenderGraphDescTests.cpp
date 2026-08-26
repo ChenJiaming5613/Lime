@@ -1,11 +1,11 @@
-// Frame graph model tests.
+// Render graph model tests.
 //
 // The properties here are the ones the rest of the system relies on rather than merely observable
 // behaviour: that a dangling reference cannot be created, that a cycle cannot be introduced, and that
 // removing a pass leaves nothing pointing at it. Each of those is an assumption the layout algorithm and
 // the panel are written against, so a break here would surface much later as a hang or a crash.
 
-#include "FrameGraph/FrameGraphDesc.h"
+#include "RenderGraph/RenderGraphDesc.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -17,44 +17,43 @@ namespace
 {
 	// A registry with just enough shape for the cases below: a producer, a consumer that also produces,
 	// and a sink. Deliberately not the built-in set, so these tests do not break when the built-ins change.
-	FFramePassTypeRegistry MakeTestRegistry()
+	FRenderGraphPassTypeRegistry MakeTestRegistry()
 	{
-		FFramePassTypeRegistry Registry;
+		FRenderGraphPassTypeRegistry Registry;
 		Registry.Clear();
 
-		FFramePassTypeDesc Source;
+		FRenderGraphPassTypeDesc Source;
 		Source.Name = "Source";
-		Source.Outputs.push_back(FFrameResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Source.Outputs.push_back(FRenderGraphResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
 		Registry.Register(std::move(Source));
 
-		FFramePassTypeDesc Filter;
+		FRenderGraphPassTypeDesc Filter;
 		Filter.Name = "Filter";
-		Filter.Inputs.push_back(FFrameResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
-		Filter.Outputs.push_back(FFrameResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Filter.Inputs.push_back(FRenderGraphResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Filter.Outputs.push_back(FRenderGraphResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
 		Registry.Register(std::move(Filter));
 
-		FFramePassTypeDesc Sink;
+		FRenderGraphPassTypeDesc Sink;
 		Sink.Name = "Sink";
-		Sink.Inputs.push_back(FFrameResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Sink.Inputs.push_back(FRenderGraphResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
 		Registry.Register(std::move(Sink));
 
 		return Registry;
 	}
 
-	FFrameGraphEdge MakeDataEdge(std::string FromPass, std::string FromResource, std::string ToPass, std::string ToResource)
+	FRenderGraphEdge MakeDataEdge(std::string FromPass, std::string FromResource, std::string ToPass, std::string ToResource)
 	{
-		FFrameGraphEdge Edge;
-		Edge.Kind = EFrameEdgeKind::Data;
-		Edge.From = FFrameGraphResourceRef{ std::move(FromPass), std::move(FromResource) };
-		Edge.To = FFrameGraphResourceRef{ std::move(ToPass), std::move(ToResource) };
+		FRenderGraphEdge Edge;
+		Edge.From = FRenderGraphResourceRef{ std::move(FromPass), std::move(FromResource) };
+		Edge.To = FRenderGraphResourceRef{ std::move(ToPass), std::move(ToResource) };
 		return Edge;
 	}
 
 	// Builds Source -> Filter -> Sink, the shape most cases start from.
-	FFrameGraphDesc MakeChain(const FFramePassTypeRegistry& Types)
+	FRenderGraphDesc MakeChain(const FRenderGraphPassTypeRegistry& Types)
 	{
-		FFrameGraphDesc Graph;
-		FFrameGraphIssue Issue;
+		FRenderGraphDesc Graph;
+		FRenderGraphIssue Issue;
 		REQUIRE(Graph.AddPass("A", "Source", Types, Issue));
 		REQUIRE(Graph.AddPass("B", "Filter", Types, Issue));
 		REQUIRE(Graph.AddPass("C", "Sink", Types, Issue));
@@ -64,11 +63,11 @@ namespace
 	}
 } // namespace
 
-TEST_CASE("Pass instances are identified by name", "[FrameGraph]")
+TEST_CASE("Pass instances are identified by name", "[RenderGraph]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	FFrameGraphDesc Graph;
-	FFrameGraphIssue Issue;
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	FRenderGraphDesc Graph;
+	FRenderGraphIssue Issue;
 
 	SECTION("A pass of a known type is added")
 	{
@@ -101,11 +100,11 @@ TEST_CASE("Pass instances are identified by name", "[FrameGraph]")
 	}
 }
 
-TEST_CASE("Data edges are checked against the declared resources", "[FrameGraph]")
+TEST_CASE("Data edges are checked against the declared resources", "[RenderGraph]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	FFrameGraphDesc Graph;
-	FFrameGraphIssue Issue;
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	FRenderGraphDesc Graph;
+	FRenderGraphIssue Issue;
 	REQUIRE(Graph.AddPass("A", "Source", Types, Issue));
 	REQUIRE(Graph.AddPass("B", "Filter", Types, Issue));
 
@@ -164,13 +163,13 @@ TEST_CASE("Data edges are checked against the declared resources", "[FrameGraph]
 	}
 }
 
-TEST_CASE("Cycles are refused", "[FrameGraph]")
+TEST_CASE("Cycles are refused", "[RenderGraph]")
 {
 	// Not defensive programming: the layering pass walks the graph assuming it terminates, so a cycle
 	// there is an unbounded loop with no diagnostic. It is refused where it would be introduced.
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	FFrameGraphDesc Graph = MakeChain(Types);
-	FFrameGraphIssue Issue;
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	FRenderGraphDesc Graph = MakeChain(Types);
+	FRenderGraphIssue Issue;
 
 	SECTION("A self edge is refused")
 	{
@@ -179,35 +178,25 @@ TEST_CASE("Cycles are refused", "[FrameGraph]")
 
 	SECTION("A back edge closing a multi hop cycle is refused")
 	{
-		// C already reaches back to A through B, so C to A would close the loop.
+		// The chain's own inputs are already taken, so the loop is built on fresh passes: D reads from B,
+		// E reads from D, and E back to D is the edge that would close it. Two hops, so this exercises the
+		// reachability walk rather than a direct A to B check.
 		REQUIRE(Graph.AddPass("D", "Filter", Types, Issue));
-		REQUIRE(Graph.AddEdge(MakeDataEdge("B", "out", "D", "in"), Types, Issue));
+		REQUIRE(Graph.AddPass("E", "Filter", Types, Issue));
+		REQUIRE(Graph.AddEdge(MakeDataEdge("D", "out", "E", "in"), Types, Issue));
 
-		FFrameGraphEdge Closing;
-		Closing.Kind = EFrameEdgeKind::Execution;
-		Closing.From = FFrameGraphResourceRef{ "D", "" };
-		Closing.To = FFrameGraphResourceRef{ "A", "" };
+		const FRenderGraphEdge Closing = MakeDataEdge("E", "out", "D", "in");
 		REQUIRE(Graph.WouldCreateCycle(Closing));
 		REQUIRE_FALSE(Graph.AddEdge(Closing, Types, Issue));
 	}
-
-	SECTION("An execution edge in the same direction as the data flow is fine")
-	{
-		FFrameGraphEdge Ordering;
-		Ordering.Kind = EFrameEdgeKind::Execution;
-		Ordering.From = FFrameGraphResourceRef{ "A", "" };
-		Ordering.To = FFrameGraphResourceRef{ "C", "" };
-		REQUIRE_FALSE(Graph.WouldCreateCycle(Ordering));
-		REQUIRE(Graph.AddEdge(Ordering, Types, Issue));
-	}
 }
 
-TEST_CASE("Removing a pass leaves nothing referring to it", "[FrameGraph]")
+TEST_CASE("Removing a pass leaves nothing referring to it", "[RenderGraph]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	FFrameGraphDesc Graph = MakeChain(Types);
-	FFrameGraphIssue Issue;
-	REQUIRE(Graph.ToggleGraphOutput(FFrameGraphResourceRef{ "B", "out" }, Types, Issue));
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	FRenderGraphDesc Graph = MakeChain(Types);
+	FRenderGraphIssue Issue;
+	REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "out" }, Types, Issue));
 
 	REQUIRE(Graph.RemovePass("B"));
 
@@ -219,65 +208,86 @@ TEST_CASE("Removing a pass leaves nothing referring to it", "[FrameGraph]")
 	REQUIRE(Graph.GetPasses().size() == 2);
 }
 
-TEST_CASE("Graph outputs may only name outputs", "[FrameGraph]")
+TEST_CASE("Graph outputs may only name outputs", "[RenderGraph]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	FFrameGraphDesc Graph = MakeChain(Types);
-	FFrameGraphIssue Issue;
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	FRenderGraphDesc Graph = MakeChain(Types);
+	FRenderGraphIssue Issue;
 
 	SECTION("Marking and unmarking an output")
 	{
-		REQUIRE(Graph.ToggleGraphOutput(FFrameGraphResourceRef{ "B", "out" }, Types, Issue));
-		REQUIRE(Graph.IsGraphOutput(FFrameGraphResourceRef{ "B", "out" }));
+		REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "out" }, Types, Issue));
+		REQUIRE(Graph.IsGraphOutput(FRenderGraphResourceRef{ "B", "out" }));
 
 		// The same call toggles, so a second one clears it.
-		REQUIRE_FALSE(Graph.ToggleGraphOutput(FFrameGraphResourceRef{ "B", "out" }, Types, Issue));
-		REQUIRE_FALSE(Graph.IsGraphOutput(FFrameGraphResourceRef{ "B", "out" }));
+		REQUIRE_FALSE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "out" }, Types, Issue));
+		REQUIRE_FALSE(Graph.IsGraphOutput(FRenderGraphResourceRef{ "B", "out" }));
 	}
 
 	SECTION("An input cannot be a graph output")
 	{
 		// Marking an input would claim the graph produces something it only consumes.
-		REQUIRE_FALSE(Graph.ToggleGraphOutput(FFrameGraphResourceRef{ "B", "in" }, Types, Issue));
+		REQUIRE_FALSE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "in" }, Types, Issue));
 		REQUIRE_FALSE(Issue.Message.empty());
+	}
+
+	SECTION("Several outputs may be marked, and each keeps its slot")
+	{
+		// One slot per thing worth looking at, such as colour and depth, each destined for its own viewport.
+		// The slot has to follow the output rather than its position in the pass list, or a viewport would
+		// start showing something else.
+		REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "A", "out" }, Types, Issue));
+		REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "out" }, Types, Issue));
+
+		REQUIRE(Graph.GetGraphOutputs().size() == 2);
+		REQUIRE(Graph.FindGraphOutputSlot(FRenderGraphResourceRef{ "A", "out" }) == 0);
+		REQUIRE(Graph.FindGraphOutputSlot(FRenderGraphResourceRef{ "B", "out" }) == 1);
+
+		// Not marked at all, so it has no slot.
+		REQUIRE(Graph.FindGraphOutputSlot(FRenderGraphResourceRef{ "B", "in" }) == -1);
+
+		// Unmarking the first closes the gap: the second moves up rather than leaving slot 0 empty.
+		REQUIRE_FALSE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "A", "out" }, Types, Issue));
+		REQUIRE(Graph.FindGraphOutputSlot(FRenderGraphResourceRef{ "A", "out" }) == -1);
+		REQUIRE(Graph.FindGraphOutputSlot(FRenderGraphResourceRef{ "B", "out" }) == 0);
 	}
 }
 
-TEST_CASE("Validate reports each kind of problem", "[FrameGraph]")
+TEST_CASE("Validate reports each kind of problem", "[RenderGraph]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
 
 	SECTION("A complete graph with a marked output is clean")
 	{
-		FFrameGraphDesc Graph = MakeChain(Types);
-		FFrameGraphIssue Issue;
-		REQUIRE(Graph.ToggleGraphOutput(FFrameGraphResourceRef{ "B", "out" }, Types, Issue));
+		FRenderGraphDesc Graph = MakeChain(Types);
+		FRenderGraphIssue Issue;
+		REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "out" }, Types, Issue));
 
-		const std::vector<FFrameGraphIssue> Issues = Graph.Validate(Types);
-		const auto Errors = std::count_if(Issues.begin(), Issues.end(), [](const FFrameGraphIssue& Item) { return Item.IsError(); });
+		const std::vector<FRenderGraphIssue> Issues = Graph.Validate(Types);
+		const auto Errors = std::count_if(Issues.begin(), Issues.end(), [](const FRenderGraphIssue& Item) { return Item.IsError(); });
 		REQUIRE(Errors == 0);
 	}
 
 	SECTION("A graph with no marked output is an error")
 	{
-		// Every pass would be culled by a real frame graph, so the graph produces nothing.
-		const FFrameGraphDesc Graph = MakeChain(Types);
-		const std::vector<FFrameGraphIssue> Issues = Graph.Validate(Types);
-		REQUIRE(std::any_of(Issues.begin(), Issues.end(), [](const FFrameGraphIssue& Item) { return Item.IsError(); }));
+		// Every pass would be culled by a real render graph, so the graph produces nothing.
+		const FRenderGraphDesc Graph = MakeChain(Types);
+		const std::vector<FRenderGraphIssue> Issues = Graph.Validate(Types);
+		REQUIRE(std::any_of(Issues.begin(), Issues.end(), [](const FRenderGraphIssue& Item) { return Item.IsError(); }));
 	}
 
 	SECTION("An unconnected input is a warning, not an error")
 	{
 		// A pass whose input is not yet wired is a graph still being assembled, which is normal while editing.
-		FFrameGraphDesc Graph;
-		FFrameGraphIssue Issue;
+		FRenderGraphDesc Graph;
+		FRenderGraphIssue Issue;
 		REQUIRE(Graph.AddPass("A", "Source", Types, Issue));
 		REQUIRE(Graph.AddPass("B", "Filter", Types, Issue));
-		REQUIRE(Graph.ToggleGraphOutput(FFrameGraphResourceRef{ "B", "out" }, Types, Issue));
+		REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "B", "out" }, Types, Issue));
 
-		const std::vector<FFrameGraphIssue> Issues = Graph.Validate(Types);
-		REQUIRE(std::any_of(Issues.begin(), Issues.end(), [](const FFrameGraphIssue& Item) { return !Item.IsError(); }));
-		const auto Errors = std::count_if(Issues.begin(), Issues.end(), [](const FFrameGraphIssue& Item) { return Item.IsError(); });
+		const std::vector<FRenderGraphIssue> Issues = Graph.Validate(Types);
+		REQUIRE(std::any_of(Issues.begin(), Issues.end(), [](const FRenderGraphIssue& Item) { return !Item.IsError(); }));
+		const auto Errors = std::count_if(Issues.begin(), Issues.end(), [](const FRenderGraphIssue& Item) { return Item.IsError(); });
 		REQUIRE(Errors == 0);
 	}
 }

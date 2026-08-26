@@ -1,4 +1,4 @@
-// Automation commands for the frame graph inspector.
+// Automation commands for the render graph inspector.
 //
 // Exists so the panel can be exercised from a script rather than by synthesising clicks: loading a file,
 // reading back what was loaded and saving it again are the operations worth asserting, and none of them
@@ -12,7 +12,7 @@
 #if LIME_WITH_EDITOR && LIME_WITH_NODE_EDITOR
 
 #include "Editor/EditorLayer.h"
-#include "Editor/FrameGraph/FrameGraphPanel.h"
+#include "Editor/RenderGraph/RenderGraphPanel.h"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -22,7 +22,7 @@ namespace Lime
 {
 	namespace
 	{
-		FFrameGraphPanel* ResolveFrameGraphPanel(FAutomationInvocation& Invocation)
+		FRenderGraphPanel* ResolveRenderGraphPanel(FAutomationInvocation& Invocation)
 		{
 			FEditorLayer* Editor = Invocation.GetContext().Editor;
 			if (Editor == nullptr)
@@ -31,10 +31,10 @@ namespace Lime
 				return nullptr;
 			}
 
-			FFrameGraphPanel* Panel = Editor->GetFrameGraphPanel();
+			FRenderGraphPanel* Panel = Editor->GetRenderGraphPanel();
 			if (Panel == nullptr)
 			{
-				Invocation.Fail("The frame graph panel is not available in this build");
+				Invocation.Fail("The render graph panel is not available in this build");
 			}
 			return Panel;
 		}
@@ -47,9 +47,9 @@ namespace Lime
 			return Path.is_absolute() ? Path : DefaultDirectory / Path;
 		}
 
-		void WriteGraphSummary(FAutomationInvocation& Invocation, const FFrameGraphPanel& Panel)
+		void WriteGraphSummary(FAutomationInvocation& Invocation, const FRenderGraphPanel& Panel)
 		{
-			const FFrameGraphDesc& Graph = Panel.GetGraph();
+			const FRenderGraphDesc& Graph = Panel.GetGraph();
 			FJson& Result = Invocation.GetResult();
 
 			Result["name"] = Graph.GetName();
@@ -57,7 +57,7 @@ namespace Lime
 			Result["edgeCount"] = Graph.GetEdges().size();
 
 			FJson Passes = FJson::array();
-			for (const FFramePassInstance& Pass : Graph.GetPasses())
+			for (const FRenderGraphPassInstance& Pass : Graph.GetPasses())
 			{
 				FJson Entry;
 				Entry["name"] = Pass.Name;
@@ -67,28 +67,41 @@ namespace Lime
 			Result["passes"] = std::move(Passes);
 
 			FJson Edges = FJson::array();
-			for (const FFrameGraphEdge& Edge : Graph.GetEdges())
+			for (const FRenderGraphEdge& Edge : Graph.GetEdges())
 			{
 				FJson Entry;
 				Entry["from"] = Edge.From.ToString();
 				Entry["to"] = Edge.To.ToString();
-				Entry["kind"] = Edge.Kind == EFrameEdgeKind::Execution ? "execution" : "data";
 				Edges.push_back(std::move(Entry));
 			}
 			Result["edges"] = std::move(Edges);
 
 			FJson Outputs = FJson::array();
-			for (const FFrameGraphResourceRef& Output : Graph.GetGraphOutputs())
+			for (const FRenderGraphResourceRef& Output : Graph.GetGraphOutputs())
 			{
 				Outputs.push_back(Output.ToString());
 			}
 			Result["graphOutputs"] = std::move(Outputs);
 
+		// Reported so a script can check the arrangement, not just the contents. Nodes stacked on top of
+		// each other and nodes never laid out produce the same summary otherwise.
+		FJson Layout = FJson::array();
+		for (const FRenderGraphNodePlacement& Placement : Panel.GetPlacements())
+		{
+			FJson Entry;
+			Entry["pass"] = Placement.PassName;
+			Entry["layer"] = Placement.Layer;
+			Entry["x"] = Placement.X;
+			Entry["y"] = Placement.Y;
+			Layout.push_back(std::move(Entry));
+		}
+		Result["layout"] = std::move(Layout);
+
 			// Reported separately by severity, because a warning means the graph is usable and an error means
 			// it is not; a script waiting for a clean load needs to tell those apart.
 			FJson Issues = FJson::array();
 			SizeType ErrorCount = 0;
-			for (const FFrameGraphIssue& Issue : Panel.GetIssues())
+			for (const FRenderGraphIssue& Issue : Panel.GetIssues())
 			{
 				FJson Entry;
 				Entry["severity"] = Issue.IsError() ? "error" : "warning";
@@ -106,14 +119,14 @@ namespace Lime
 		}
 	} // namespace
 
-	void RegisterFrameGraphAutomationCommands()
+	void RegisterRenderGraphAutomationCommands()
 	{
 		FAutomationCommandRegistry& Registry = FAutomationCommandRegistry::Get();
 
-		Registry.Register("framegraph.info", "Reports the loaded frame graph: passes, edges, graph outputs and validation issues",
+		Registry.Register("rendergraph.info", "Reports the loaded render graph: passes, edges, graph outputs and validation issues",
 		                  [](FAutomationInvocation& Invocation)
 		                  {
-			                  const FFrameGraphPanel* Panel = ResolveFrameGraphPanel(Invocation);
+			                  const FRenderGraphPanel* Panel = ResolveRenderGraphPanel(Invocation);
 			                  if (Panel == nullptr)
 			                  {
 				                  return;
@@ -122,10 +135,10 @@ namespace Lime
 			                  WriteGraphSummary(Invocation, *Panel);
 		                  });
 
-		Registry.Register("framegraph.load", "Loads a frame graph. Params: path (relative to the content frame graph directory)",
+		Registry.Register("rendergraph.load", "Loads a render graph. Params: path (relative to the content render graph directory)",
 		                  [](FAutomationInvocation& Invocation)
 		                  {
-			                  FFrameGraphPanel* Panel = ResolveFrameGraphPanel(Invocation);
+			                  FRenderGraphPanel* Panel = ResolveRenderGraphPanel(Invocation);
 			                  if (Panel == nullptr)
 			                  {
 				                  return;
@@ -137,7 +150,7 @@ namespace Lime
 				                  return;
 			                  }
 
-			                  const std::filesystem::path Path = ResolvePath(PathText, FFrameGraphPanel::GetDefaultLoadDirectory());
+			                  const std::filesystem::path Path = ResolvePath(PathText, FRenderGraphPanel::GetDefaultLoadDirectory());
 			                  if (!Panel->LoadFromFile(Path))
 			                  {
 				                  Invocation.Fail(fmt::format("Could not load '{}'", Path.string()));
@@ -150,10 +163,10 @@ namespace Lime
 			                  WriteGraphSummary(Invocation, *Panel);
 		                  });
 
-		Registry.Register("framegraph.save", "Saves the loaded frame graph. Params: path (relative to the saved frame graph directory)",
+		Registry.Register("rendergraph.save", "Saves the loaded render graph. Params: path (relative to the saved render graph directory)",
 		                  [](FAutomationInvocation& Invocation)
 		                  {
-			                  FFrameGraphPanel* Panel = ResolveFrameGraphPanel(Invocation);
+			                  FRenderGraphPanel* Panel = ResolveRenderGraphPanel(Invocation);
 			                  if (Panel == nullptr)
 			                  {
 				                  return;
@@ -165,7 +178,7 @@ namespace Lime
 				                  return;
 			                  }
 
-			                  const std::filesystem::path Path = ResolvePath(PathText, FFrameGraphPanel::GetDefaultSaveDirectory());
+			                  const std::filesystem::path Path = ResolvePath(PathText, FRenderGraphPanel::GetDefaultSaveDirectory());
 			                  if (!Panel->SaveToFile(Path))
 			                  {
 				                  Invocation.Fail(fmt::format("Could not save to '{}'", Path.string()));
@@ -182,7 +195,7 @@ namespace Lime
 namespace Lime
 {
 	// The registration list calls this unconditionally, so it has to exist even when the panel does not.
-	void RegisterFrameGraphAutomationCommands() {}
+	void RegisterRenderGraphAutomationCommands() {}
 } // namespace Lime
 
 #endif

@@ -1,11 +1,16 @@
-#include "Editor/FrameGraph/FrameGraphPanel.h"
+#include "Editor/RenderGraph/RenderGraphPanel.h"
 
 #include "Core/Logging/LogManager.h"
 #include "Platform/PlatformPaths.h"
 
 #include <imgui_node_editor.h>
 
+// SetFontRasterizerDensity lives in the internal header in 1.92. It is the supported way to ask for
+// glyphs baked at a different pixel density, and the node editor needs it to keep zoomed text sharp.
+#include <imgui_internal.h>
+
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -18,6 +23,59 @@ namespace Lime
 		constexpr ImU32 ErrorColour = IM_COL32(240, 120, 110, 255);
 		constexpr ImU32 WarningColour = IM_COL32(235, 195, 100, 255);
 
+		// A bullet whose text wraps, and whose continuation lines stay under the text rather than sliding
+		// back beneath the bullet.
+		//
+		// ImGui::BulletText does not wrap, so in a narrow column anything long enough was clipped at the
+		// panel edge.
+		//
+		// Bullet() ends with its own SameLine, so the cursor is already past the glyph and its spacing when
+		// this reads it. Indenting by that distance leaves the first line exactly where it is and gives the
+		// wrapped lines the same left margin, which is what keeps the row reading as one item.
+		void DrawWrappedBullet(const std::string& Text)
+		{
+			const float LineStart = ImGui::GetCursorPosX();
+			ImGui::Bullet();
+			const float Offset = ImGui::GetCursorPosX() - LineStart;
+
+			ImGui::Indent(Offset);
+			ImGui::TextWrapped("%s", Text.c_str());
+			ImGui::Unindent(Offset);
+		}
+
+		// Density is capped because the atlas grows with its square: a pass name baked for a zoom of 10
+		// would cost a hundred times the pixels for detail no one can use. Past this the text is already
+		// far larger than the screen.
+		constexpr float MaxCanvasRasterizerDensity = 4.0f;
+
+		// Zoom is quantised into steps before it becomes a density, so a drag on the scroll wheel does not
+		// bake a fresh set of glyphs for every intermediate value. A quarter step is finer than the eye
+		// follows while keeping the number of live bakes small.
+		constexpr float CanvasRasterizerDensityStep = 0.25f;
+
+		// The density that keeps canvas text sharp at the current zoom.
+		//
+		// GetCurrentZoom returns the view's InvScale, so it is 0.5 when the graph is drawn at twice its
+		// size: the density wanted is its reciprocal. Zooming out is left alone, since baking below the
+		// display density would only throw away detail the atlas already holds.
+		float CalcCanvasRasterizerDensity(float BaseDensity)
+		{
+			const float Zoom = ed::GetCurrentZoom();
+			if (!(Zoom > 0.0f))
+			{
+				return BaseDensity;
+			}
+
+			const float Scale = 1.0f / Zoom;
+			if (Scale <= 1.0f)
+			{
+				return BaseDensity;
+			}
+
+			const float Quantised = std::ceil(Scale / CanvasRasterizerDensityStep) * CanvasRasterizerDensityStep;
+			return BaseDensity * std::min(Quantised, MaxCanvasRasterizerDensity);
+		}
+
 		void SetTextBuffer(char* Buffer, SizeType Capacity, const std::string& Value)
 		{
 			const SizeType Length = std::min(Value.size(), Capacity - 1);
@@ -26,7 +84,7 @@ namespace Lime
 		}
 
 		// A name that is not taken yet, so adding a second pass of one type does not fail on the name.
-		std::string MakeUniqueName(const FFrameGraphDesc& Graph, const std::string& TypeName)
+		std::string MakeUniqueName(const FRenderGraphDesc& Graph, const std::string& TypeName)
 		{
 			if (Graph.FindPass(TypeName) == nullptr)
 			{
@@ -46,12 +104,12 @@ namespace Lime
 		}
 	} // namespace
 
-	FFrameGraphPanel::FFrameGraphPanel()
+	FRenderGraphPanel::FRenderGraphPanel()
 	{
 		SetTextBuffer(PathBuffer, sizeof(PathBuffer), (GetDefaultLoadDirectory() / "DeferredExample.json").string());
 	}
 
-	FFrameGraphPanel::~FFrameGraphPanel()
+	FRenderGraphPanel::~FRenderGraphPanel()
 	{
 		if (EditorContext != nullptr)
 		{
@@ -60,20 +118,20 @@ namespace Lime
 		}
 	}
 
-	std::filesystem::path FFrameGraphPanel::GetDefaultLoadDirectory()
+	std::filesystem::path FRenderGraphPanel::GetDefaultLoadDirectory()
 	{
 		// Content, because that is where the shipped examples land and it is copied next to the executable.
-		return FPlatformPaths::GetContentDirectory() / "FrameGraph";
+		return FPlatformPaths::GetContentDirectory() / "RenderGraph";
 	}
 
-	std::filesystem::path FFrameGraphPanel::GetDefaultSaveDirectory()
+	std::filesystem::path FRenderGraphPanel::GetDefaultSaveDirectory()
 	{
 		// Saved rather than Content: a build copies Content out again, so writing there would look like the
 		// save had silently reverted.
-		return FPlatformPaths::GetSavedDirectory() / "FrameGraph";
+		return FPlatformPaths::GetSavedDirectory() / "RenderGraph";
 	}
 
-	void FFrameGraphPanel::EnsureEditorContext()
+	void FRenderGraphPanel::EnsureEditorContext()
 	{
 		if (EditorContext != nullptr)
 		{
@@ -88,24 +146,37 @@ namespace Lime
 		EditorContext = ed::CreateEditor(&Config);
 	}
 
-	bool FFrameGraphPanel::LoadFromFile(const std::filesystem::path& Path)
+	bool FRenderGraphPanel::LoadFromFile(const std::filesystem::path& Path)
 	{
-		const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromFile(Path, PassTypes, Graph);
+		const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromFile(Path, PassTypes, Graph);
 		Issues = Result.Issues;
 
 		if (!Result.bSucceeded)
 		{
 			StatusMessage = "Could not load " + Path.filename().string();
 			bStatusIsError = true;
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_EDITOR, "Frame graph load failed: '{}'", Path.string());
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_EDITOR, "Render graph load failed: '{}'", Path.string());
 			return false;
 		}
 
 		SelectedPass.clear();
 		Ids.Build(Graph, PassTypes);
-		RequestRelayout();
-		// Fit after the layout lands, so the view frames the graph rather than wherever it was last.
-		bPendingFit = true;
+
+		// Dropped rather than kept: these are the previous graph's nodes, and a pass sharing a name across
+		// two graphs need not be the same shape in both.
+		NodeSizes.clear();
+
+		// Deferred rather than laid out here.
+		//
+		// A layout needs to know how big each node is, and only the widget that drew a node knows that. At
+		// this point nothing of this graph has been drawn, so laying out now would fall back to nominal
+		// sizes and a node made wide by a long resource name would overlap the layer beside it. The nodes
+		// are measured at the end of the next canvas frame, and the layout runs then.
+		//
+		// The fit waits with it, since framing a layout that is about to change would settle on the wrong
+		// zoom.
+		bLayoutPendingMeasurement = true;
+
 		RefreshIssues();
 
 		const SizeType Dropped = Result.Issues.size();
@@ -120,14 +191,14 @@ namespace Lime
 		bStatusIsError = false;
 
 		SetTextBuffer(PathBuffer, sizeof(PathBuffer), Path.string());
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Loaded frame graph '{}' with {} pass(es) and {} edge(s)", Path.string(),
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Loaded render graph '{}' with {} pass(es) and {} edge(s)", Path.string(),
 		              Graph.GetPasses().size(), Graph.GetEdges().size());
 		return true;
 	}
 
-	bool FFrameGraphPanel::SaveToFile(const std::filesystem::path& Path)
+	bool FRenderGraphPanel::SaveToFile(const std::filesystem::path& Path)
 	{
-		if (!FFrameGraphJson::SaveToFile(Path, Graph))
+		if (!FRenderGraphJson::SaveToFile(Path, Graph))
 		{
 			StatusMessage = "Could not write " + Path.filename().string();
 			bStatusIsError = true;
@@ -136,25 +207,31 @@ namespace Lime
 
 		StatusMessage = "Saved " + Path.filename().string();
 		bStatusIsError = false;
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Saved frame graph to '{}'", Path.string());
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Saved render graph to '{}'", Path.string());
 		return true;
 	}
 
-	void FFrameGraphPanel::RequestRelayout()
+	void FRenderGraphPanel::RequestRelayout()
 	{
-		Placements = ComputeFrameGraphLayout(Graph);
+		// Uses the sizes recorded while the canvas was last drawn, so a node made wide by a long resource
+		// name gets the room it needs instead of overlapping the layer beside it.
+		//
+		// Callable directly whenever the graph on screen has already been drawn, which is the case for the
+		// toolbar button. A load is the exception and goes through bLayoutPendingMeasurement, since none of
+		// its nodes have been measured yet.
+		Placements = ComputeRenderGraphLayout(Graph, NodeSizes);
 		bApplyPositions = true;
 	}
 
-	void FFrameGraphPanel::RefreshIssues()
+	void FRenderGraphPanel::RefreshIssues()
 	{
 		// Load issues describe what the file lost; validation describes the graph as it now stands. Both are
 		// shown, so the list is rebuilt from validation and the load issues are kept ahead of it.
-		std::vector<FFrameGraphIssue> Validation = Graph.Validate(PassTypes);
+		std::vector<FRenderGraphIssue> Validation = Graph.Validate(PassTypes);
 		Issues.insert(Issues.end(), std::make_move_iterator(Validation.begin()), std::make_move_iterator(Validation.end()));
 	}
 
-	void FFrameGraphPanel::OnDrawUI(const FEditorContext& Context)
+	void FRenderGraphPanel::OnDrawUI(const FEditorContext& Context)
 	{
 		LIME_UNUSED(Context);
 
@@ -214,10 +291,10 @@ namespace Lime
 		ImGui::End();
 	}
 
-	void FFrameGraphPanel::DrawToolbar()
+	void FRenderGraphPanel::DrawToolbar()
 	{
 		ImGui::SetNextItemWidth(-260.0f);
-		ImGui::InputTextWithHint("##Path", "path to a frame graph .json", PathBuffer, sizeof(PathBuffer));
+		ImGui::InputTextWithHint("##Path", "path to a render graph .json", PathBuffer, sizeof(PathBuffer));
 
 		ImGui::SameLine();
 		if (ImGui::Button("Load"))
@@ -267,7 +344,7 @@ namespace Lime
 		}
 	}
 
-	void FFrameGraphPanel::DrawPassTypeList()
+	void FRenderGraphPanel::DrawPassTypeList()
 	{
 		ImGui::TextUnformatted("Pass Types");
 		ImGui::Separator();
@@ -275,7 +352,7 @@ namespace Lime
 		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputTextWithHint("##NewPassName", "name (optional)", NewPassNameBuffer, sizeof(NewPassNameBuffer));
 
-		for (const FFramePassTypeDesc& Type : PassTypes.GetAll())
+		for (const FRenderGraphPassTypeDesc& Type : PassTypes.GetAll())
 		{
 			if (ImGui::Button(Type.Name.c_str(), ImVec2(-1.0f, 0.0f)))
 			{
@@ -292,37 +369,37 @@ namespace Lime
 		ImGui::TextDisabled("Click a type to add it");
 	}
 
-	void FFrameGraphPanel::DrawGraphCanvas()
+	void FRenderGraphPanel::DrawGraphCanvas()
 	{
 		// Recorded before the canvas begins, so the fit below can tell a laid out window from one still
 		// reporting zero.
 		CanvasSize = ImGui::GetContentRegionAvail();
 
 		ed::SetCurrentEditor(EditorContext);
-		ed::Begin("FrameGraphCanvas", ImVec2(0.0f, 0.0f));
 
-		FFrameGraphHoverState Hover;
-		DrawFrameGraphNodes(Graph, PassTypes, Ids, Placements, bApplyPositions, SelectedPass, Hover);
+		// Text inside the canvas is rasterised at the base size and then scaled by the view transform,
+		// which resamples the glyph bitmaps and makes them blurry when zoomed in. Raising the rasterizer
+		// density asks for glyphs baked at the on-screen pixel count instead. Density does not take part
+		// in text measurement, so the layout is unchanged and only the sharpness differs.
+		const float PreviousDensity = ImGui::GetFontRasterizerDensity();
+		ImGui::SetFontRasterizerDensity(CalcCanvasRasterizerDensity(PreviousDensity));
+
+		ed::Begin("RenderGraphCanvas", ImVec2(0.0f, 0.0f));
+
+		FRenderGraphHoverState Hover;
+		// Captured before the nodes are drawn, because a deferred layout later in this frame may set the
+		// flag again and the clear at the end must only retire the request this frame actually served.
+		const bool bAppliedPositionsThisFrame = bApplyPositions;
+		DrawRenderGraphNodes(Graph, PassTypes, Ids, Placements, bAppliedPositionsThisFrame, SelectedPass, Hover);
 
 		// Edges are drawn after the nodes so both endpoints exist as far as the widget is concerned.
-		const std::vector<FFrameGraphEdge>& Edges = Graph.GetEdges();
+		const std::vector<FRenderGraphEdge>& Edges = Graph.GetEdges();
 		for (SizeType Index = 0; Index < Edges.size(); ++Index)
 		{
-			const FFrameGraphEdge& Edge = Edges[Index];
+			const FRenderGraphEdge& Edge = Edges[Index];
 
-			int32 FromPin = 0;
-			int32 ToPin = 0;
-			if (Edge.Kind == EFrameEdgeKind::Data)
-			{
-				FromPin = Ids.GetPinId(Edge.From);
-				ToPin = Ids.GetPinId(Edge.To);
-			}
-			else
-			{
-				FromPin = Ids.GetExecutionOutputId(Edge.From.PassName);
-				ToPin = Ids.GetExecutionInputId(Edge.To.PassName);
-			}
-
+			const int32 FromPin = Ids.GetPinId(Edge.From);
+			const int32 ToPin = Ids.GetPinId(Edge.To);
 			if (FromPin == 0 || ToPin == 0)
 			{
 				continue;
@@ -330,11 +407,8 @@ namespace Lime
 
 			// Link ids are offset past the pin ids so they cannot collide with them. The widget keeps links
 			// in the same id space as everything else.
-			const int32 LinkId = 1000000 + static_cast<int32>(Index);
-			const ImVec4 Colour =
-			    Edge.Kind == EFrameEdgeKind::Execution ? ImVec4(0.90f, 0.71f, 0.35f, 1.0f) : ImVec4(0.55f, 0.75f, 1.0f, 1.0f);
-			ed::Link(ed::LinkId(LinkId), ed::PinId(FromPin), ed::PinId(ToPin), Colour,
-			         Edge.Kind == EFrameEdgeKind::Execution ? 1.5f : 2.0f);
+			const int32 LinkId = FRenderGraphIdMap::LinkIdBase + static_cast<int32>(Index);
+			ed::Link(ed::LinkId(LinkId), ed::PinId(FromPin), ed::PinId(ToPin), ImVec4(0.55f, 0.75f, 1.0f, 1.0f), 2.0f);
 		}
 
 		HandleLinkCreation();
@@ -348,8 +422,15 @@ namespace Lime
 			bToggleOutputRequested = true;
 		}
 
-		// Selection follows the widget rather than being tracked separately, so clicking a node in the
-		// canvas and reading it in the details panel cannot disagree.
+		ed::End();
+
+		// Read after End, not before it.
+		//
+		// A click is turned into a selection inside End, while Begin resets the "changed" comparison for
+		// the frame. Asking before End therefore compares a selection against itself and never reports a
+		// change, which left the details panel showing whatever was picked before.
+		//
+		// The editor is still current here, which is what these calls need.
 		if (ed::HasSelectionChanged())
 		{
 			SelectedPass.clear();
@@ -363,7 +444,45 @@ namespace Lime
 			}
 		}
 
-		ed::End();
+		// Recorded every frame so a relayout has real sizes to work with. The widget only knows how big a
+		// node is once it has drawn it, and a node is as wide as its longest resource name, so this is the
+		// only place the number exists. Sizes are in canvas space, which is what the layout produces.
+		NodeSizes.clear();
+		NodeSizes.reserve(Graph.GetPasses().size());
+		SizeType MeasurableNodes = 0;
+		for (const FRenderGraphPassInstance& Pass : Graph.GetPasses())
+		{
+			const int32 NodeId = Ids.GetNodeId(Pass.Name);
+			if (NodeId == 0)
+			{
+				continue;
+			}
+
+			++MeasurableNodes;
+			const ImVec2 Size = ed::GetNodeSize(ed::NodeId(NodeId));
+			if (Size.x > 0.0f && Size.y > 0.0f)
+			{
+				NodeSizes.push_back(FRenderGraphNodeSize{ Pass.Name, Size.x, Size.y });
+			}
+		}
+
+		// The layout a load asked for, run now that the nodes it needs to place have been measured.
+		//
+		// Held back until every node has a measurement rather than laying out on a partial set: a node still
+		// reporting nothing would be placed at a nominal size and would then overlap once it appeared at its
+		// real width, which is the problem this defers for in the first place.
+		if (bLayoutPendingMeasurement && MeasurableNodes > 0 && NodeSizes.size() == MeasurableNodes)
+		{
+			bLayoutPendingMeasurement = false;
+			RequestRelayout();
+			// Framed once the positions this produced have been applied, so the view matches the layout
+			// rather than the one it replaced.
+			bPendingFit = true;
+		}
+
+		// Restored once the canvas has flushed its draw data, so the rest of the editor keeps rendering
+		// text at the density of the display rather than at the canvas zoom.
+		ImGui::SetFontRasterizerDensity(PreviousDensity);
 
 		// After End, and with the editor still current: navigation reads the context, and calling it once
 		// SetCurrentEditor(nullptr) has run dereferences a null pointer.
@@ -387,10 +506,17 @@ namespace Lime
 
 		// Cleared after a full frame with positions applied, so the widget owns them from here and a drag is
 		// not undone next frame.
-		bApplyPositions = false;
+		//
+		// Only the request this frame served is retired. The deferred layout above runs after the nodes have
+		// been drawn and sets the flag for the next frame; clearing unconditionally would discard it and the
+		// graph would stay stacked wherever the widget first put it.
+		if (bAppliedPositionsThisFrame)
+		{
+			bApplyPositions = false;
+		}
 	}
 
-	void FFrameGraphPanel::HandleLinkCreation()
+	void FRenderGraphPanel::HandleLinkCreation()
 	{
 		if (!ed::BeginCreate())
 		{
@@ -405,35 +531,17 @@ namespace Lime
 			const int32 Start = static_cast<int32>(StartPinId.Get());
 			const int32 End = static_cast<int32>(EndPinId.Get());
 
-			FFrameGraphEdge Candidate;
+			FRenderGraphEdge Candidate;
 			bool bWellFormed = false;
 
-			if (Ids.IsExecutionPin(Start) && Ids.IsExecutionPin(End))
+			const FRenderGraphResourceRef* From = Ids.FindResourceByPinId(Start);
+			const FRenderGraphResourceRef* To = Ids.FindResourceByPinId(End);
+			if (From != nullptr && To != nullptr)
 			{
-				const std::string* FromPass = Ids.FindPassByExecutionPinId(Start);
-				const std::string* ToPass = Ids.FindPassByExecutionPinId(End);
-				if (FromPass != nullptr && ToPass != nullptr)
-				{
-					Candidate.Kind = EFrameEdgeKind::Execution;
-					Candidate.From = FFrameGraphResourceRef{ *FromPass, "" };
-					Candidate.To = FFrameGraphResourceRef{ *ToPass, "" };
-					bWellFormed = true;
-				}
+				Candidate.From = *From;
+				Candidate.To = *To;
+				bWellFormed = true;
 			}
-			else if (!Ids.IsExecutionPin(Start) && !Ids.IsExecutionPin(End))
-			{
-				const FFrameGraphResourceRef* From = Ids.FindResourceByPinId(Start);
-				const FFrameGraphResourceRef* To = Ids.FindResourceByPinId(End);
-				if (From != nullptr && To != nullptr)
-				{
-					Candidate.Kind = EFrameEdgeKind::Data;
-					Candidate.From = *From;
-					Candidate.To = *To;
-					bWellFormed = true;
-				}
-			}
-			// Mixing a resource pin with an execution pin is left rejected: an execution edge carries no
-			// resource, so one end naming one would be meaningless.
 
 			if (!bWellFormed)
 			{
@@ -443,8 +551,8 @@ namespace Lime
 			{
 				// Asked of the model rather than judged here, so the canvas and a hand edited file are held
 				// to exactly the same rules.
-				FFrameGraphDesc Trial = Graph;
-				FFrameGraphIssue Issue;
+				FRenderGraphDesc Trial = Graph;
+				FRenderGraphIssue Issue;
 				const bool bWouldSucceed = Trial.AddEdge(Candidate, PassTypes, Issue);
 
 				if (!bWouldSucceed)
@@ -468,7 +576,7 @@ namespace Lime
 		ed::EndCreate();
 	}
 
-	void FFrameGraphPanel::HandleDeletions()
+	void FRenderGraphPanel::HandleDeletions()
 	{
 		if (!ed::BeginDelete())
 		{
@@ -481,7 +589,7 @@ namespace Lime
 		{
 			if (ed::AcceptDeletedItem())
 			{
-				const int32 Index = static_cast<int32>(DeletedLink.Get()) - 1000000;
+				const int32 Index = static_cast<int32>(DeletedLink.Get()) - FRenderGraphIdMap::LinkIdBase;
 				if (Index >= 0 && static_cast<SizeType>(Index) < Graph.GetEdges().size())
 				{
 					// Queued rather than erased now: removing an edge while the canvas is iterating the ones
@@ -498,7 +606,9 @@ namespace Lime
 			{
 				if (const std::string* Pass = Ids.FindPassByNodeId(static_cast<int32>(DeletedNode.Get())))
 				{
-					PassToRemove = *Pass;
+					// Appended rather than assigned: a box selection reports every node it covers, and
+					// keeping only the last one would delete a single node out of the group.
+					PassesToRemove.push_back(*Pass);
 				}
 			}
 		}
@@ -506,7 +616,7 @@ namespace Lime
 		ed::EndDelete();
 	}
 
-	void FFrameGraphPanel::ApplyPendingEdits()
+	void FRenderGraphPanel::ApplyPendingEdits()
 	{
 		bool bChanged = false;
 
@@ -516,7 +626,7 @@ namespace Lime
 			// type twice does not fail on a duplicate.
 			std::string Name = NewPassNameBuffer[0] != '\0' ? std::string(NewPassNameBuffer) : MakeUniqueName(Graph, TypeToAdd);
 
-			FFrameGraphIssue Issue;
+			FRenderGraphIssue Issue;
 			if (Graph.AddPass(Name, TypeToAdd, PassTypes, Issue))
 			{
 				SelectedPass = Name;
@@ -547,24 +657,46 @@ namespace Lime
 			bChanged = true;
 		}
 
-		if (!PassToRemove.empty())
+		if (!PassesToRemove.empty())
 		{
-			if (Graph.RemovePass(PassToRemove))
+			int32 RemovedCount = 0;
+			for (const std::string& Pass : PassesToRemove)
 			{
-				if (SelectedPass == PassToRemove)
+				if (Graph.RemovePass(Pass))
 				{
-					SelectedPass.clear();
+					if (SelectedPass == Pass)
+					{
+						SelectedPass.clear();
+					}
+					// Dropped from the layout as well, so the positions kept for the remaining passes stay
+					// paired with the passes they belong to.
+					Placements.erase(std::remove_if(Placements.begin(), Placements.end(),
+					                                [&Pass](const FRenderGraphNodePlacement& Candidate)
+					                                { return Candidate.PassName == Pass; }),
+					                 Placements.end());
+					++RemovedCount;
 				}
-				StatusMessage = "Removed " + PassToRemove;
+			}
+
+			if (RemovedCount == 1)
+			{
+				StatusMessage = "Removed " + PassesToRemove.front();
 				bStatusIsError = false;
 				bChanged = true;
 			}
-			PassToRemove.clear();
+			else if (RemovedCount > 1)
+			{
+				StatusMessage = "Removed " + std::to_string(RemovedCount) + " passes";
+				bStatusIsError = false;
+				bChanged = true;
+			}
+
+			PassesToRemove.clear();
 		}
 
 		if (bToggleOutputRequested)
 		{
-			FFrameGraphIssue Issue;
+			FRenderGraphIssue Issue;
 			const bool bNowMarked = Graph.ToggleGraphOutput(OutputToToggle, PassTypes, Issue);
 			if (!Issue.Message.empty())
 			{
@@ -573,7 +705,17 @@ namespace Lime
 			}
 			else
 			{
-				StatusMessage = OutputToToggle.ToString() + (bNowMarked ? " is now a graph output" : " is no longer a graph output");
+				// The slot is reported because it is what identifies the output from here on, and marking a
+				// second one is only useful if you can tell which is which.
+				if (bNowMarked)
+				{
+					const int32 Slot = Graph.FindGraphOutputSlot(OutputToToggle);
+					StatusMessage = OutputToToggle.ToString() + " is graph output " + std::to_string(Slot);
+				}
+				else
+				{
+					StatusMessage = OutputToToggle.ToString() + " is no longer a graph output";
+				}
 				bStatusIsError = false;
 			}
 			bToggleOutputRequested = false;
@@ -590,7 +732,7 @@ namespace Lime
 		}
 	}
 
-	void FFrameGraphPanel::DrawSelectionDetails()
+	void FRenderGraphPanel::DrawSelectionDetails()
 	{
 		ImGui::TextUnformatted("Selected Pass");
 		ImGui::Separator();
@@ -601,7 +743,7 @@ namespace Lime
 			return;
 		}
 
-		const FFramePassInstance* Pass = Graph.FindPass(SelectedPass);
+		const FRenderGraphPassInstance* Pass = Graph.FindPass(SelectedPass);
 		if (Pass == nullptr)
 		{
 			ImGui::TextDisabled("Nothing selected");
@@ -611,7 +753,7 @@ namespace Lime
 		ImGui::Text("%s", Pass->Name.c_str());
 		ImGui::TextDisabled("%s", Pass->TypeName.c_str());
 
-		const FFramePassTypeDesc* Type = PassTypes.Find(Pass->TypeName);
+		const FRenderGraphPassTypeDesc* Type = PassTypes.Find(Pass->TypeName);
 		if (Type != nullptr)
 		{
 			if (!Type->Description.empty())
@@ -620,7 +762,7 @@ namespace Lime
 			}
 
 			// The layer doubles as the execution stage: everything in one layer can run before the next.
-			const auto Placement = std::find_if(Placements.begin(), Placements.end(), [this](const FFrameGraphNodePlacement& Candidate)
+			const auto Placement = std::find_if(Placements.begin(), Placements.end(), [this](const FRenderGraphNodePlacement& Candidate)
 			                                    { return Candidate.PassName == SelectedPass; });
 			if (Placement != Placements.end())
 			{
@@ -629,45 +771,58 @@ namespace Lime
 
 			ImGui::Separator();
 			ImGui::TextDisabled("Inputs");
-			for (const FFrameResourceDesc& Input : Type->Inputs)
+			for (const FRenderGraphResourceDesc& Input : Type->Inputs)
 			{
-				const FFrameGraphResourceRef Ref{ Pass->Name, Input.Name };
-				const auto Producer = std::find_if(Graph.GetEdges().begin(), Graph.GetEdges().end(), [&Ref](const FFrameGraphEdge& Edge)
-				                                   { return Edge.Kind == EFrameEdgeKind::Data && Edge.To == Ref; });
+				const FRenderGraphResourceRef Ref{ Pass->Name, Input.Name };
+				const auto Producer = std::find_if(Graph.GetEdges().begin(), Graph.GetEdges().end(),
+				                                   [&Ref](const FRenderGraphEdge& Edge) { return Edge.To == Ref; });
+
+				// Wrapped rather than written as a bullet: this column is narrow by design, and a producer
+				// named "ShadowCaster.depth" is longer than it. BulletText does not wrap, so the tail was
+				// simply clipped away.
 				if (Producer != Graph.GetEdges().end())
 				{
-					ImGui::BulletText("%s <- %s", Input.Name.c_str(), Producer->From.ToString().c_str());
+					DrawWrappedBullet(Input.Name + " <- " + Producer->From.ToString());
 				}
 				else
 				{
 					ImGui::PushStyleColor(ImGuiCol_Text, WarningColour);
-					ImGui::BulletText("%s (unconnected)", Input.Name.c_str());
+					DrawWrappedBullet(Input.Name + " (unconnected)");
 					ImGui::PopStyleColor();
 				}
 			}
 
 			ImGui::TextDisabled("Outputs");
-			for (const FFrameResourceDesc& Output : Type->Outputs)
+			for (const FRenderGraphResourceDesc& Output : Type->Outputs)
 			{
-				const FFrameGraphResourceRef Ref{ Pass->Name, Output.Name };
-				const bool bMarked = Graph.IsGraphOutput(Ref);
-				ImGui::BulletText("%s%s", Output.Name.c_str(), bMarked ? "  [graph output]" : "");
+				const FRenderGraphResourceRef Ref{ Pass->Name, Output.Name };
+
+				// One string for the whole row, because the format used to be appended with SameLine and a
+				// separate call, which cannot wrap and left "(D32_FLOAT)" running off the panel.
+				std::string Line = Output.Name;
 				if (!Output.Format.empty())
 				{
-					ImGui::SameLine();
-					ImGui::TextDisabled("(%s)", Output.Format.c_str());
+					Line += " (" + Output.Format + ")";
 				}
+
+				// The slot is what a viewport would be bound to, so it is named rather than implied.
+				const int32 Slot = Graph.FindGraphOutputSlot(Ref);
+				if (Slot >= 0)
+				{
+					Line += "  [out " + std::to_string(Slot) + "]";
+				}
+				DrawWrappedBullet(Line);
 			}
 		}
 
 		ImGui::Separator();
 		if (ImGui::Button("Delete Pass", ImVec2(-1.0f, 0.0f)))
 		{
-			PassToRemove = SelectedPass;
+			PassesToRemove.push_back(SelectedPass);
 		}
 	}
 
-	void FFrameGraphPanel::DrawIssueList()
+	void FRenderGraphPanel::DrawIssueList()
 	{
 		ImGui::TextUnformatted("Issues");
 		ImGui::Separator();
@@ -678,7 +833,7 @@ namespace Lime
 			return;
 		}
 
-		for (const FFrameGraphIssue& Issue : Issues)
+		for (const FRenderGraphIssue& Issue : Issues)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, Issue.IsError() ? ErrorColour : WarningColour);
 			ImGui::TextWrapped("%s", Issue.Message.c_str());

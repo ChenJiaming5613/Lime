@@ -1,6 +1,6 @@
-# Frame graph files
+# Render graph files
 
-A frame graph describes which render passes run and what each one reads from the others. The Frame Graph
+A render graph describes which render passes run and what each one reads from the others. The Render Graph
 panel in the editor loads these, draws them and writes them back.
 
 ## Format
@@ -12,8 +12,7 @@ panel in the editor loads these, draws them and writes them back.
     { "name": "ForwardLit", "type": "ForwardLit" }
   ],
   "edges": [
-    { "from": "ShadowCaster.depth", "to": "ForwardLit.shadowDepth" },
-    { "from": "DepthPrepass", "to": "ShadowCaster", "kind": "execution" }
+    { "from": "ShadowCaster.depth", "to": "ForwardLit.shadowDepth" }
   ],
   "graphOutputs": [
     "ToneMap.ldr"
@@ -37,22 +36,19 @@ Which resources a pass has comes from its type, not from the file. `ForwardLit` 
 and `sceneDepth` as inputs and `color` as an output, so those are the only names an edge may use on a
 `ForwardLit` instance.
 
-## Two kinds of edge
+## Edges
 
-**Data edges** run from an output to an input, and both endpoints name a resource:
+An edge runs from an output to an input, and both endpoints name a resource as `Pass.resource`:
 
 ```json
 { "from": "ForwardLit.color", "to": "Bloom.input" }
 ```
 
-**Execution edges** only constrain order. Both endpoints name a pass and nothing else:
+Both parts are required. An endpoint that names only a pass is rejected with a warning, and the edge is
+skipped.
 
-```json
-{ "from": "DepthPrepass", "to": "ShadowCaster", "kind": "execution" }
-```
-
-Use one when a pass has to run before another without reading anything it produces. `kind` may be
-omitted on data edges; it is inferred from the endpoints naming resources.
+An input takes one edge: two passes writing into the same input has no defined meaning here, so the
+second is rejected rather than silently replacing the first.
 
 ## No layout
 

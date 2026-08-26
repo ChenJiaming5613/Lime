@@ -13,8 +13,7 @@
 		{ "from": "DepthPrepass.depth", "to": "ForwardLit.sceneDepth" },
 		{ "from": "ForwardLit.color", "to": "Bloom.input" },
 		{ "from": "Bloom.output", "to": "ToneMap.hdr" },
-		{ "from": "ToneMap.ldr", "to": "Present.image" },
-		{ "from": "DepthPrepass", "to": "ShadowCaster", "kind": "execution" }
+		{ "from": "ToneMap.ldr", "to": "Present.image" }
 	],
 	"graphOutputs": [
 		"ToneMap.ldr"

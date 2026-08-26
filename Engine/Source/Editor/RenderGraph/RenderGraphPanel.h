@@ -1,18 +1,18 @@
-// Frame graph inspector.
+// Render graph inspector.
 //
 // Loads a graph from JSON, lays it out, draws it and writes edits back. Modelled on Falcor's render graph
 // editor: a pass per node, a labelled pin per declared resource, and edges connecting pins.
 //
-// The graph in FFrameGraphDesc is the only record. The layout is derived from it on load and after an
+// The graph in FRenderGraphDesc is the only record. The layout is derived from it on load and after an
 // explicit relayout, and the node widget owns positions in between so a drag survives. Nothing about the
 // display is saved, which is why there is no path by which the file and the picture can disagree.
 
 #pragma once
 
-#include "Editor/FrameGraph/FrameGraphNodeView.h"
+#include "Editor/RenderGraph/RenderGraphNodeView.h"
 #include "Editor/Panels/EditorPanel.h"
 
-#include "FrameGraph/FrameGraphJson.h"
+#include "RenderGraph/RenderGraphJson.h"
 
 #include <filesystem>
 #include <memory>
@@ -26,17 +26,17 @@ namespace ax::NodeEditor
 
 namespace Lime
 {
-	class FFrameGraphPanel final : public IEditorPanel
+	class FRenderGraphPanel final : public IEditorPanel
 	{
 	public:
-		FFrameGraphPanel();
-		~FFrameGraphPanel() override;
+		FRenderGraphPanel();
+		~FRenderGraphPanel() override;
 
-		LIME_NON_COPYABLE(FFrameGraphPanel);
-		LIME_NON_MOVABLE(FFrameGraphPanel);
+		LIME_NON_COPYABLE(FRenderGraphPanel);
+		LIME_NON_MOVABLE(FRenderGraphPanel);
 
 		// Stable across runs, since it doubles as the ImGui window title used for layout persistence.
-		const char* GetName() const override { return "Frame Graph"; }
+		const char* GetName() const override { return "Render Graph"; }
 		// Center: a graph is a workspace, and docked to a side it would be too narrow to follow.
 		EEditorDockSlot GetDefaultDockSlot() const override { return EEditorDockSlot::Center; }
 		const char* GetMenuCategory() const override { return "Rendering"; }
@@ -52,10 +52,15 @@ namespace Lime
 		bool LoadFromFile(const std::filesystem::path& Path);
 		bool SaveToFile(const std::filesystem::path& Path);
 
-		const FFrameGraphDesc& GetGraph() const { return Graph; }
-		const FFramePassTypeRegistry& GetPassTypes() const { return PassTypes; }
-		const std::vector<FFrameGraphIssue>& GetIssues() const { return Issues; }
+		const FRenderGraphDesc& GetGraph() const { return Graph; }
+		const FRenderGraphPassTypeRegistry& GetPassTypes() const { return PassTypes; }
+		const std::vector<FRenderGraphIssue>& GetIssues() const { return Issues; }
 		const std::string& GetLastLoadedPath() const { return PathBuffer; }
+
+		// Where the layout put each pass. Exposed so a test can assert on the arrangement: a graph whose
+		// nodes all sit at the origin looks identical to one that was never laid out, and nothing else
+		// reports the difference.
+		const std::vector<FRenderGraphNodePlacement>& GetPlacements() const { return Placements; }
 
 		// Default locations, exposed so the automation commands and the UI agree on where graphs live.
 		static std::filesystem::path GetDefaultLoadDirectory();
@@ -83,11 +88,14 @@ namespace Lime
 		// Runs Validate and stores the result for the issue list, so the panel does not revalidate per frame.
 		void RefreshIssues();
 
-		FFrameGraphDesc Graph;
-		FFramePassTypeRegistry PassTypes;
-		std::vector<FFrameGraphNodePlacement> Placements;
-		std::vector<FFrameGraphIssue> Issues;
-		FFrameGraphIdMap Ids;
+		FRenderGraphDesc Graph;
+		FRenderGraphPassTypeRegistry PassTypes;
+		std::vector<FRenderGraphNodePlacement> Placements;
+		// Node sizes as the widget last drew them, refreshed every frame and fed back into the layout.
+		// Without them the layout has to assume a size, and a node wider than that overlaps its neighbour.
+		std::vector<FRenderGraphNodeSize> NodeSizes;
+		std::vector<FRenderGraphIssue> Issues;
+		FRenderGraphIdMap Ids;
 
 		// Owned rather than borrowed from the demo panel: two canvases sharing one context would share
 		// selection and view state.
@@ -98,6 +106,11 @@ namespace Lime
 
 		// Set for one frame after a load or a relayout. Positions are pushed to the widget only then.
 		bool bApplyPositions = false;
+		// Set when a layout is wanted but the nodes have not been measured yet, which is the case straight
+		// after a load: the widget only knows how big a node is once it has drawn it, so laying out before
+		// then would use nominal sizes and let a wide node overlap its neighbour. Cleared once the layout
+		// has run against real measurements.
+		bool bLayoutPendingMeasurement = false;
 		// Frames the canvas has been drawn at a usable size. The initial fit waits on this rather than on
 		// frame count alone, since a panel that is not yet laid out reports no space and the fit would
 		// settle on a zoom that makes every node a few pixels wide.
@@ -106,10 +119,13 @@ namespace Lime
 		bool bPendingFit = false;
 
 		// Pending edits, drained by ApplyPendingEdits.
-		std::string PassToRemove;
+		//
+		// A list rather than a single name: a box selection deletes every node in it, and the widget
+		// reports them one at a time.
+		std::vector<std::string> PassesToRemove;
 		std::string TypeToAdd;
 		std::vector<SizeType> EdgesToRemove;
-		FFrameGraphResourceRef OutputToToggle;
+		FRenderGraphResourceRef OutputToToggle;
 		bool bToggleOutputRequested = false;
 
 		// Text fields. Fixed buffers because ImGui::InputText writes into one; sized for a long path.

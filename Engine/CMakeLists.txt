@@ -13,8 +13,8 @@ add_subdirectory(Source/Runtime/Platform)
 add_subdirectory(Source/Runtime/Camera)
 # Asset import needs only Core, so it can be built before anything graphics related.
 add_subdirectory(Source/Runtime/Asset)
-# The frame graph is plain data plus its layout, so it needs only Core as well.
-add_subdirectory(Source/Runtime/FrameGraph)
+# The render graph is plain data plus its layout, so it needs only Core as well.
+add_subdirectory(Source/Runtime/RenderGraph)
 add_subdirectory(Source/Runtime/RHI)
 # The scene uploads through the RHI but knows nothing about passes, so it precedes the renderer.
 add_subdirectory(Source/Runtime/Scene)

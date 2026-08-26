@@ -1,4 +1,4 @@
-#include "FrameGraph/FrameGraphLayout.h"
+#include "RenderGraph/RenderGraphLayout.h"
 
 #include <algorithm>
 #include <map>
@@ -11,12 +11,9 @@ namespace Lime
 		// Adjacency by pass index, built once so the stages below do not rescan the edge list.
 		struct FAdjacency
 		{
-			// Data edge successors and predecessors, which is what layering and ordering read.
+			// Every edge is a data edge, so one pair of lists serves both layering and ordering.
 			std::vector<std::vector<SizeType>> DataSuccessors;
 			std::vector<std::vector<SizeType>> DataPredecessors;
-			// Execution edges kept apart: they take part in ordering but must not affect layering.
-			std::vector<std::vector<SizeType>> OrderSuccessors;
-			std::vector<std::vector<SizeType>> OrderPredecessors;
 		};
 
 		// Sorted and deduplicated, so two graphs differing only in edge order produce identical adjacency
@@ -30,17 +27,15 @@ namespace Lime
 			}
 		}
 
-		FAdjacency BuildAdjacency(const FFrameGraphDesc& Graph, const std::map<std::string, SizeType>& IndexByName)
+		FAdjacency BuildAdjacency(const FRenderGraphDesc& Graph, const std::map<std::string, SizeType>& IndexByName)
 		{
 			const SizeType Count = Graph.GetPasses().size();
 
 			FAdjacency Adjacency;
 			Adjacency.DataSuccessors.resize(Count);
 			Adjacency.DataPredecessors.resize(Count);
-			Adjacency.OrderSuccessors.resize(Count);
-			Adjacency.OrderPredecessors.resize(Count);
 
-			for (const FFrameGraphEdge& Edge : Graph.GetEdges())
+			for (const FRenderGraphEdge& Edge : Graph.GetEdges())
 			{
 				const auto From = IndexByName.find(Edge.From.PassName);
 				const auto To = IndexByName.find(Edge.To.PassName);
@@ -51,21 +46,12 @@ namespace Lime
 					continue;
 				}
 
-				if (Edge.Kind == EFrameEdgeKind::Data)
-				{
-					Adjacency.DataSuccessors[From->second].push_back(To->second);
-					Adjacency.DataPredecessors[To->second].push_back(From->second);
-				}
-
-				// Both kinds order passes relative to each other, so both feed the ordering stage.
-				Adjacency.OrderSuccessors[From->second].push_back(To->second);
-				Adjacency.OrderPredecessors[To->second].push_back(From->second);
+				Adjacency.DataSuccessors[From->second].push_back(To->second);
+				Adjacency.DataPredecessors[To->second].push_back(From->second);
 			}
 
 			Normalize(Adjacency.DataSuccessors);
 			Normalize(Adjacency.DataPredecessors);
-			Normalize(Adjacency.OrderSuccessors);
-			Normalize(Adjacency.OrderPredecessors);
 			return Adjacency;
 		}
 
@@ -155,10 +141,10 @@ namespace Lime
 		// A node with no neighbours in the layer being referenced keeps its current position, so the sweeps
 		// only move nodes that have a reason to move. Ties break on name, which is what makes repeated runs
 		// on the same graph identical.
-		void OrderWithinLayers(const FFrameGraphDesc& Graph, const FAdjacency& Adjacency, int32 Iterations,
+		void OrderWithinLayers(const FRenderGraphDesc& Graph, const FAdjacency& Adjacency, int32 Iterations,
 		                       std::vector<std::vector<SizeType>>& OutLayerContents)
 		{
-			const std::vector<FFramePassInstance>& Passes = Graph.GetPasses();
+			const std::vector<FRenderGraphPassInstance>& Passes = Graph.GetPasses();
 			const SizeType Count = Passes.size();
 
 			std::vector<SizeType> PositionInLayer(Count, 0);
@@ -191,7 +177,7 @@ namespace Lime
 					{
 						const SizeType Node = Layer[Slot];
 						const std::vector<SizeType>& Neighbours =
-						    bDownward ? Adjacency.OrderPredecessors[Node] : Adjacency.OrderSuccessors[Node];
+						    bDownward ? Adjacency.DataPredecessors[Node] : Adjacency.DataSuccessors[Node];
 						float Key = Barycentre(Neighbours, PositionInLayer);
 						if (Key < 0.0f)
 						{
@@ -224,10 +210,12 @@ namespace Lime
 		}
 	} // namespace
 
-	std::vector<FFrameGraphNodePlacement> ComputeFrameGraphLayout(const FFrameGraphDesc& Graph, const FFrameGraphLayoutSettings& Settings)
+	std::vector<FRenderGraphNodePlacement> ComputeRenderGraphLayout(const FRenderGraphDesc& Graph,
+	                                                             const std::vector<FRenderGraphNodeSize>& NodeSizes,
+	                                                             const FRenderGraphLayoutSettings& Settings)
 	{
-		const std::vector<FFramePassInstance>& Passes = Graph.GetPasses();
-		std::vector<FFrameGraphNodePlacement> Placements;
+		const std::vector<FRenderGraphPassInstance>& Passes = Graph.GetPasses();
+		std::vector<FRenderGraphNodePlacement> Placements;
 		Placements.reserve(Passes.size());
 
 		if (Passes.empty())
@@ -262,8 +250,6 @@ namespace Lime
 
 		OrderWithinLayers(Graph, Adjacency, Settings.OrderingIterations, LayerContents);
 
-		// Each layer is centred vertically about zero, so a graph with layers of different sizes reads as a
-		// band rather than hanging from the top edge.
 		Placements.resize(Passes.size());
 		for (SizeType Index = 0; Index < Passes.size(); ++Index)
 		{
@@ -271,18 +257,68 @@ namespace Lime
 			Placements[Index].Layer = Layers[Index];
 		}
 
+		// Measured sizes by pass name, so a lookup below can fall back per pass rather than all or nothing:
+		// a freshly added pass has no measurement yet while the rest of the graph does.
+		std::map<std::string, FRenderGraphNodeSize> SizeByName;
+		for (const FRenderGraphNodeSize& Size : NodeSizes)
+		{
+			if (Size.Width > 0.0f && Size.Height > 0.0f)
+			{
+				SizeByName.emplace(Size.PassName, Size);
+			}
+		}
+
+		const auto WidthOf = [&SizeByName, &Settings](const std::string& PassName)
+		{
+			const auto Found = SizeByName.find(PassName);
+			return Found != SizeByName.end() ? Found->second.Width : Settings.FallbackNodeWidth;
+		};
+		const auto HeightOf = [&SizeByName, &Settings](const std::string& PassName)
+		{
+			const auto Found = SizeByName.find(PassName);
+			return Found != SizeByName.end() ? Found->second.Height : Settings.FallbackNodeHeight;
+		};
+
+		// X advances by the widest node in the layer rather than by a fixed stride, which is what keeps a
+		// wide node from reaching into the layer beside it. Positions are node top left corners.
+		float LayerLeft = 0.0f;
 		for (SizeType LayerIndex = 0; LayerIndex < LayerContents.size(); ++LayerIndex)
 		{
 			const std::vector<SizeType>& Layer = LayerContents[LayerIndex];
-			const float Height = static_cast<float>(Layer.size() - 1) * Settings.NodeSpacing;
-			const float Top = -Height * 0.5f;
 
+			// An empty layer should not arise, since layers are numbered consecutively from the passes that
+			// land in them. Guarded anyway because SizeType is unsigned: "size() - 1" on an empty layer
+			// wraps to a huge value and the whole graph would be placed off in the distance.
+			if (Layer.empty())
+			{
+				continue;
+			}
+
+			// Each layer is centred vertically about zero, so a graph with layers of different sizes reads
+			// as a band rather than hanging from the top edge. Height is summed from the nodes themselves,
+			// so a tall node pushes the ones after it down instead of overlapping them.
+			float TotalHeight = 0.0f;
 			for (SizeType Slot = 0; Slot < Layer.size(); ++Slot)
 			{
-				FFrameGraphNodePlacement& Placement = Placements[Layer[Slot]];
-				Placement.X = static_cast<float>(LayerIndex) * Settings.LayerSpacing;
-				Placement.Y = Top + static_cast<float>(Slot) * Settings.NodeSpacing;
+				TotalHeight += HeightOf(Passes[Layer[Slot]].Name);
 			}
+			TotalHeight += static_cast<float>(Layer.size() - 1) * Settings.NodeSpacing;
+
+			float WidestInLayer = 0.0f;
+			float Cursor = -TotalHeight * 0.5f;
+			for (SizeType Slot = 0; Slot < Layer.size(); ++Slot)
+			{
+				const std::string& PassName = Passes[Layer[Slot]].Name;
+				FRenderGraphNodePlacement& Placement = Placements[Layer[Slot]];
+
+				Placement.X = LayerLeft;
+				Placement.Y = Cursor;
+
+				Cursor += HeightOf(PassName) + Settings.NodeSpacing;
+				WidestInLayer = std::max(WidestInLayer, WidthOf(PassName));
+			}
+
+			LayerLeft += WidestInLayer + Settings.LayerSpacing;
 		}
 
 		return Placements;

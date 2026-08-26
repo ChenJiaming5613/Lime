@@ -1,4 +1,4 @@
-// Frame graph JSON tests.
+// Render graph JSON tests.
 //
 // Two properties matter most. First, a round trip has to preserve the graph: the file is the only record,
 // so anything lost on save is lost for good. Second, one bad element must not lose the rest, because these
@@ -8,7 +8,7 @@
 // Also asserts what must *not* be written. Layout is recomputed on load, so a file carrying positions
 // would create a second source of truth that silently disagrees with the computed one.
 
-#include "FrameGraph/FrameGraphJson.h"
+#include "RenderGraph/RenderGraphJson.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -20,20 +20,20 @@ using namespace Lime;
 
 namespace
 {
-	FFramePassTypeRegistry MakeTestRegistry()
+	FRenderGraphPassTypeRegistry MakeTestRegistry()
 	{
-		FFramePassTypeRegistry Registry;
+		FRenderGraphPassTypeRegistry Registry;
 		Registry.Clear();
 
-		FFramePassTypeDesc Source;
+		FRenderGraphPassTypeDesc Source;
 		Source.Name = "Source";
-		Source.Outputs.push_back(FFrameResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Source.Outputs.push_back(FRenderGraphResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
 		Registry.Register(std::move(Source));
 
-		FFramePassTypeDesc Filter;
+		FRenderGraphPassTypeDesc Filter;
 		Filter.Name = "Filter";
-		Filter.Inputs.push_back(FFrameResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
-		Filter.Outputs.push_back(FFrameResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Filter.Inputs.push_back(FRenderGraphResourceDesc{ "in", EFrameResourceKind::Texture, "RGBA8_UNORM" });
+		Filter.Outputs.push_back(FRenderGraphResourceDesc{ "out", EFrameResourceKind::Texture, "RGBA8_UNORM" });
 		Registry.Register(std::move(Filter));
 
 		return Registry;
@@ -51,18 +51,18 @@ namespace
 		"graphOutputs": [ "B.out" ]
 	})";
 
-	SizeType CountErrors(const FFrameGraphLoadResult& Result)
+	SizeType CountErrors(const FRenderGraphLoadResult& Result)
 	{
 		return Result.CountErrors();
 	}
 } // namespace
 
-TEST_CASE("A frame graph survives a round trip", "[FrameGraph][Json]")
+TEST_CASE("A render graph survives a round trip", "[RenderGraph][Json]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
 
-	FFrameGraphDesc Loaded;
-	const FFrameGraphLoadResult First = FFrameGraphJson::LoadFromString(ValidGraph, Types, Loaded);
+	FRenderGraphDesc Loaded;
+	const FRenderGraphLoadResult First = FRenderGraphJson::LoadFromString(ValidGraph, Types, Loaded);
 	REQUIRE(First.bSucceeded);
 	REQUIRE(CountErrors(First) == 0);
 	REQUIRE(Loaded.GetName() == "Round Trip");
@@ -74,10 +74,10 @@ TEST_CASE("A frame graph survives a round trip", "[FrameGraph][Json]")
 	{
 		// Compared element by element rather than by text: key order and whitespace are not part of the
 		// meaning, but the passes, edges and outputs are.
-		const std::string Text = FFrameGraphJson::SaveToString(Loaded);
+		const std::string Text = FRenderGraphJson::SaveToString(Loaded);
 
-		FFrameGraphDesc Again;
-		const FFrameGraphLoadResult Second = FFrameGraphJson::LoadFromString(Text, Types, Again);
+		FRenderGraphDesc Again;
+		const FRenderGraphLoadResult Second = FRenderGraphJson::LoadFromString(Text, Types, Again);
 		REQUIRE(Second.bSucceeded);
 		REQUIRE(CountErrors(Second) == 0);
 
@@ -96,7 +96,7 @@ TEST_CASE("A frame graph survives a round trip", "[FrameGraph][Json]")
 	{
 		// Positions are a function of the graph, recomputed on load. A file that stored them would disagree
 		// with the computed layout as soon as either changed, with no way to tell which was right.
-		const std::string Text = FFrameGraphJson::SaveToString(Loaded);
+		const std::string Text = FRenderGraphJson::SaveToString(Loaded);
 		REQUIRE(Text.find("position") == std::string::npos);
 		REQUIRE(Text.find("location") == std::string::npos);
 		REQUIRE(Text.find("zoom") == std::string::npos);
@@ -104,36 +104,40 @@ TEST_CASE("A frame graph survives a round trip", "[FrameGraph][Json]")
 	}
 }
 
-TEST_CASE("Execution edges keep their kind through a round trip", "[FrameGraph][Json]")
+TEST_CASE("An edge whose endpoint names only a pass is skipped", "[RenderGraph][Json]")
 {
-	// The distinction has to survive: a data edge redrawn as an execution edge would lose the resource it
-	// carries, and the reverse would invent one.
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
+	// Both ends have to name a resource. This shape used to mean an execution edge; now it is malformed,
+	// and the loader should say so rather than invent a resource or drop it silently.
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
 	const char* const Document = R"({
 		"passes": [
 			{ "name": "A", "type": "Source" },
 			{ "name": "B", "type": "Filter" }
 		],
 		"edges": [
-			{ "from": "A", "to": "B", "kind": "execution" }
+			{ "from": "A", "to": "B" },
+			{ "from": "A.out", "to": "B.in" }
 		],
 		"graphOutputs": [ "B.out" ]
 	})";
 
-	FFrameGraphDesc Graph;
-	REQUIRE(FFrameGraphJson::LoadFromString(Document, Types, Graph).bSucceeded);
-	REQUIRE(Graph.GetEdges().size() == 1);
-	REQUIRE(Graph.GetEdges()[0].Kind == EFrameEdgeKind::Execution);
-	REQUIRE(Graph.GetEdges()[0].From.IsPassOnly());
+	FRenderGraphDesc Graph;
+	const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromString(Document, Types, Graph);
 
-	FFrameGraphDesc Again;
-	REQUIRE(FFrameGraphJson::LoadFromString(FFrameGraphJson::SaveToString(Graph), Types, Again).bSucceeded);
-	REQUIRE(Again.GetEdges() == Graph.GetEdges());
+	// A warning, not an error: the rest of the file is still a usable graph.
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.CountErrors() == 0);
+	REQUIRE_FALSE(Result.Issues.empty());
+
+	// Only the well formed edge survives.
+	REQUIRE(Graph.GetEdges().size() == 1);
+	REQUIRE(Graph.GetEdges()[0].From.ResourceName == "out");
+	REQUIRE(Graph.GetEdges()[0].To.ResourceName == "in");
 }
 
-TEST_CASE("A malformed element is dropped without losing the graph", "[FrameGraph][Json]")
+TEST_CASE("A malformed element is dropped without losing the graph", "[RenderGraph][Json]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
 
 	SECTION("An edge naming a missing pass is dropped")
 	{
@@ -149,8 +153,8 @@ TEST_CASE("A malformed element is dropped without losing the graph", "[FrameGrap
 			"graphOutputs": [ "B.out" ]
 		})";
 
-		FFrameGraphDesc Graph;
-		const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromString(Document, Types, Graph);
+		FRenderGraphDesc Graph;
+		const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromString(Document, Types, Graph);
 		// Succeeded, because the rest of the file is usable; reported, because something was lost.
 		REQUIRE(Result.bSucceeded);
 		REQUIRE(Result.HasIssues());
@@ -168,8 +172,8 @@ TEST_CASE("A malformed element is dropped without losing the graph", "[FrameGrap
 			"graphOutputs": [ "A.out" ]
 		})";
 
-		FFrameGraphDesc Graph;
-		const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromString(Document, Types, Graph);
+		FRenderGraphDesc Graph;
+		const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromString(Document, Types, Graph);
 		REQUIRE(Result.bSucceeded);
 		REQUIRE(Result.HasIssues());
 		REQUIRE(Graph.GetPasses().size() == 1);
@@ -186,21 +190,21 @@ TEST_CASE("A malformed element is dropped without losing the graph", "[FrameGrap
 			"graphOutputs": [ "A.out" ]
 		})";
 
-		FFrameGraphDesc Graph;
-		const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromString(Document, Types, Graph);
+		FRenderGraphDesc Graph;
+		const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromString(Document, Types, Graph);
 		REQUIRE(Result.bSucceeded);
 		REQUIRE(Graph.GetPasses().size() == 1);
 	}
 }
 
-TEST_CASE("An unusable document fails outright", "[FrameGraph][Json]")
+TEST_CASE("An unusable document fails outright", "[RenderGraph][Json]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
 
 	SECTION("Text that is not JSON")
 	{
-		FFrameGraphDesc Graph;
-		const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromString("this is not json", Types, Graph);
+		FRenderGraphDesc Graph;
+		const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromString("this is not json", Types, Graph);
 		REQUIRE_FALSE(Result.bSucceeded);
 		REQUIRE(CountErrors(Result) > 0);
 	}
@@ -208,8 +212,8 @@ TEST_CASE("An unusable document fails outright", "[FrameGraph][Json]")
 	SECTION("A document without a passes array")
 	{
 		// Nothing to salvage: without passes there is no graph, and edges would all dangle.
-		FFrameGraphDesc Graph;
-		const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromString(R"({"name":"Empty"})", Types, Graph);
+		FRenderGraphDesc Graph;
+		const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromString(R"({"name":"Empty"})", Types, Graph);
 		REQUIRE_FALSE(Result.bSucceeded);
 		REQUIRE(CountErrors(Result) > 0);
 	}
@@ -218,26 +222,26 @@ TEST_CASE("An unusable document fails outright", "[FrameGraph][Json]")
 	{
 		// The panel keeps showing what it had, rather than replacing a working graph with an empty one
 		// because a path was mistyped.
-		FFrameGraphDesc Graph;
-		REQUIRE(FFrameGraphJson::LoadFromString(ValidGraph, Types, Graph).bSucceeded);
+		FRenderGraphDesc Graph;
+		REQUIRE(FRenderGraphJson::LoadFromString(ValidGraph, Types, Graph).bSucceeded);
 		REQUIRE(Graph.GetPasses().size() == 2);
 
-		REQUIRE_FALSE(FFrameGraphJson::LoadFromString("{{{", Types, Graph).bSucceeded);
+		REQUIRE_FALSE(FRenderGraphJson::LoadFromString("{{{", Types, Graph).bSucceeded);
 		REQUIRE(Graph.GetPasses().size() == 2);
 	}
 }
 
-TEST_CASE("A frame graph round trips through a file", "[FrameGraph][Json]")
+TEST_CASE("A render graph round trips through a file", "[RenderGraph][Json]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	const std::filesystem::path Path = std::filesystem::temp_directory_path() / "LimeFrameGraphTest.json";
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	const std::filesystem::path Path = std::filesystem::temp_directory_path() / "LimeRenderGraphTest.json";
 
-	FFrameGraphDesc Graph;
-	REQUIRE(FFrameGraphJson::LoadFromString(ValidGraph, Types, Graph).bSucceeded);
-	REQUIRE(FFrameGraphJson::SaveToFile(Path, Graph));
+	FRenderGraphDesc Graph;
+	REQUIRE(FRenderGraphJson::LoadFromString(ValidGraph, Types, Graph).bSucceeded);
+	REQUIRE(FRenderGraphJson::SaveToFile(Path, Graph));
 
-	FFrameGraphDesc Reloaded;
-	const FFrameGraphLoadResult Result = FFrameGraphJson::LoadFromFile(Path, Types, Reloaded);
+	FRenderGraphDesc Reloaded;
+	const FRenderGraphLoadResult Result = FRenderGraphJson::LoadFromFile(Path, Types, Reloaded);
 	REQUIRE(Result.bSucceeded);
 	REQUIRE(Reloaded.GetPasses().size() == Graph.GetPasses().size());
 	REQUIRE(Reloaded.GetEdges() == Graph.GetEdges());
@@ -246,12 +250,12 @@ TEST_CASE("A frame graph round trips through a file", "[FrameGraph][Json]")
 	std::filesystem::remove(Path, Error);
 }
 
-TEST_CASE("A missing file is reported rather than throwing", "[FrameGraph][Json]")
+TEST_CASE("A missing file is reported rather than throwing", "[RenderGraph][Json]")
 {
-	const FFramePassTypeRegistry Types = MakeTestRegistry();
-	FFrameGraphDesc Graph;
-	const FFrameGraphLoadResult Result =
-	    FFrameGraphJson::LoadFromFile(std::filesystem::temp_directory_path() / "LimeNoSuchGraph.json", Types, Graph);
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+	FRenderGraphDesc Graph;
+	const FRenderGraphLoadResult Result =
+	    FRenderGraphJson::LoadFromFile(std::filesystem::temp_directory_path() / "LimeNoSuchGraph.json", Types, Graph);
 
 	REQUIRE_FALSE(Result.bSucceeded);
 	REQUIRE(CountErrors(Result) > 0);
