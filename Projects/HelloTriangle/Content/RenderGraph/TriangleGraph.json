@@ -1,0 +1,8 @@
+{
+	"name": "HelloTriangle",
+	"passes": [
+		{ "name": "Triangle", "type": "Triangle" }
+	],
+	"edges": [],
+	"graphOutputs": [ "Triangle.color" ]
+}

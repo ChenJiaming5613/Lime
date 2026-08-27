@@ -36,13 +36,14 @@ namespace Lime
 		return Instance;
 	}
 
-	void FRenderPassRegistry::Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory)
+	void FRenderPassRegistry::Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory,
+	                                  bool bIsBuiltin)
 	{
 		if (Factory == nullptr)
 		{
 			return;
 		}
-		Registrations.push_back(FRenderPassRegistration{ Name, Priority, std::move(Factory) });
+		Registrations.push_back(FRenderPassRegistration{ Name, Priority, std::move(Factory), bIsBuiltin });
 	}
 
 	std::vector<FRenderPassRegistration> FRenderPassRegistry::GetSortedRegistrations() const

@@ -21,7 +21,8 @@ namespace Lime
 		{
 			const PassType Prototype;
 			FRenderPassRegistry::Get().Register(Prototype.GetTypeName(), PassType::Priority,
-			                                    [] { return std::static_pointer_cast<IRenderPass>(std::make_shared<PassType>()); });
+			                                    [] { return std::static_pointer_cast<IRenderPass>(std::make_shared<PassType>()); },
+			                                    /*bIsBuiltin*/ true);
 		}
 	} // namespace
 

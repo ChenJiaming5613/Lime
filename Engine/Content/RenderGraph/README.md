@@ -87,6 +87,20 @@ If compiling fails, the engine renders **only the editor UI**: the viewport stay
 is written to the log and listed in the panel. That is deliberate — a black viewport with an explanation
 beats a half-drawn frame with none.
 
+`BrokenGraph.json` ships alongside the default and marks nothing as an output, so it always fails. It
+exists so that behaviour can be exercised on purpose rather than only by accident.
+
+## Choosing a graph
+
+`scene.renderGraph` in ProjectSettings.json names the file, and `--render-graph=<file>` overrides it for
+one run:
+
+```
+HelloTriangle.exe --render-graph=BrokenGraph.json
+```
+
+Relative names are resolved against the engine's render graph content directory.
+
 ## Changes need a restart
 
 The panel edits and saves files. It does not rebuild the running graph, so a saved change takes effect the

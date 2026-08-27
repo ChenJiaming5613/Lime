@@ -4,6 +4,7 @@
 // reflection the inspector uses. A project pass therefore becomes scriptable the moment it declares
 // LIME_REFLECT, with no automation code of its own.
 
+#include "Renderer/RenderPassRegistry.h"
 #include "Renderer/Renderer.h"
 
 #include "Automation/AutomationCommandRegistry.h"
@@ -60,6 +61,7 @@ namespace Lime
 			                  }
 
 			                  FJson Passes = FJson::array();
+			                  const std::vector<FRenderPassRegistration>& Registrations = FRenderPassRegistry::Get().GetRegistrations();
 			                  for (const std::shared_ptr<IRenderPass>& Pass : Renderer->GetPasses())
 			                  {
 				                  FJson Entry = FJson::object();
@@ -67,6 +69,24 @@ namespace Lime
 				                  Entry["priority"] = static_cast<int32>(Pass->GetPriority());
 				                  // Tells a script whether pass.get and pass.set will work on it.
 				                  Entry["hasSettings"] = Pass->GetReflectedSettings().IsValid();
+
+				                  // Whether the engine provides it or the project does. Reported so a script can
+				                  // address the project's own pass without keeping a list of engine pass names,
+				                  // which would go stale as soon as one is added.
+				                  //
+				                  // Matched by type name, which is what the registry keys on; GetName is a display
+				                  // name and the two need not agree.
+				                  bool bIsBuiltin = false;
+				                  for (const FRenderPassRegistration& Registration : Registrations)
+				                  {
+					                  if (Registration.Name != nullptr && Pass->GetTypeName() == Registration.Name)
+					                  {
+						                  bIsBuiltin = Registration.bIsBuiltin;
+						                  break;
+					                  }
+				                  }
+				                  Entry["isBuiltin"] = bIsBuiltin;
+
 				                  Passes.push_back(std::move(Entry));
 			                  }
 

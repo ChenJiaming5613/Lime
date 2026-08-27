@@ -2,6 +2,7 @@
 
 #include "Core/Logging/LogManager.h"
 #include "Platform/PlatformPaths.h"
+#include "Renderer/Passes/BuiltinPasses.h"
 
 #include <imgui_node_editor.h>
 
@@ -109,6 +110,17 @@ namespace Lime
 
 	FRenderGraphPanel::FRenderGraphPanel()
 	{
+		// Reflected from the passes this build provides, not a list kept here.
+		//
+		// It has to be the same table the engine compiles against, or the panel would accept a graph the
+		// engine then rejects — or refuse one it would have run.
+		//
+		// Through BuildRenderGraphPassTypes rather than the registry directly, because the editor is
+		// initialised before the engine registers the built-ins: reading the registry here would find it
+		// empty and every pass in a loaded graph would be reported as an unknown type. That call registers
+		// first, and registering twice is harmless.
+		PassTypes = BuildRenderGraphPassTypes();
+
 		// The graph the engine itself runs, so opening the panel shows what is actually rendering rather than
 		// an unrelated sample.
 		SetTextBuffer(PathBuffer, sizeof(PathBuffer), (GetDefaultLoadDirectory() / "DefaultGraph.json").string());

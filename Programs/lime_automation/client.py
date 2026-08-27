@@ -207,9 +207,12 @@ class LimeClient:
 
         Lets a test address a project pass without hardcoding a name that the project is free to
         change.
+
+        Uses the engine's own `isBuiltin` flag rather than a list of names kept here, which would have to
+        be edited every time the engine gains a pass.
         """
         for entry in self.list_passes():
-            if exclude_engine and entry["name"] == "ImGui":
+            if exclude_engine and entry.get("isBuiltin"):
                 continue
             if entry.get("hasSettings"):
                 return entry["name"]

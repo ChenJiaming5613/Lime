@@ -146,6 +146,13 @@ namespace Lime
 	{
 		if (!Compiled.bSucceeded)
 		{
+			// Kept rather than discarded. Nothing runs either way, but a caller asking why gets the issues
+			// instead of an empty result that looks like no graph was ever configured.
+			SceneGraphPlan.Reset();
+			SceneGraphPlan.Compiled = std::move(Compiled);
+			SceneGraphResources.Release();
+			GraphResourceWidth = 0;
+			GraphResourceHeight = 0;
 			return false;
 		}
 

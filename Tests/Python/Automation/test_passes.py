@@ -16,11 +16,17 @@ def test_passes_are_enumerable(engine: LimeClient) -> None:
     assert passes, "no render passes are registered"
 
     names = {entry["name"] for entry in passes}
-    assert "ImGui" in names, "the engine's own ImGui pass should be registered"
+    assert "EditorUI" in names, "the engine's own editor UI pass should be registered"
 
     for entry in passes:
         assert "priority" in entry
         assert "hasSettings" in entry
+        # Lets a script tell the engine's passes from the project's without knowing their names.
+        assert "isBuiltin" in entry
+
+    # Both kinds are expected in an editor build: the engine's render graph passes and the project's own.
+    assert any(entry["isBuiltin"] for entry in passes), "no engine pass was reported as built in"
+    assert any(not entry["isBuiltin"] for entry in passes), "no project pass was reported"
 
 
 def test_describe_reports_types_and_metadata(engine: LimeClient, triangle_pass: str) -> None:

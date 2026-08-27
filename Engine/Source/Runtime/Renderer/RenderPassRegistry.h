@@ -26,6 +26,12 @@ namespace Lime
 		const char* Name = nullptr;
 		ERenderPassPriority Priority = ERenderPassPriority::Scene;
 		FFactory Factory;
+		// True for passes the engine itself provides, false for a project's own.
+		//
+		// Recorded rather than inferred from the name: a script that wants to drive the project's pass has
+		// to be able to tell them apart, and a list of engine pass names kept outside the engine goes stale
+		// the moment one is added or renamed.
+		bool bIsBuiltin = false;
 	};
 
 	class FRenderPassRegistry
@@ -33,7 +39,9 @@ namespace Lime
 	public:
 		static FRenderPassRegistry& Get();
 
-		void Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory);
+		// bIsBuiltin defaults to false, so a project registering through LIME_REGISTER_RENDER_PASS is
+		// correctly reported as its own without having to say so.
+		void Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory, bool bIsBuiltin = false);
 
 		// Creates and registers every entry, ordered by priority. Called once by FEngine after the
 		// device exists, so passes always see a usable renderer.

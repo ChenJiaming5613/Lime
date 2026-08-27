@@ -569,6 +569,13 @@ namespace Lime
 					LIME_LOG_WARNING(LIME_LOG_CATEGORY_CORE, "Invalid automation port '{}'; keeping {}", Value, AutomationPort);
 				}
 			}
+			else if (MatchOption(Argument, "--render-graph", Value))
+			{
+				// Overriding the graph on the command line rather than only in the file, so a different
+				// pipeline can be tried without editing the project. It is also the only way to start the
+				// engine with a graph chosen by a test, which is what makes the fallback path testable.
+				RenderGraphPath = std::string(Value);
+			}
 			else if (MatchOption(Argument, "--project", Value))
 			{
 				// Consumed before this point; listed here so it is not reported as unknown.

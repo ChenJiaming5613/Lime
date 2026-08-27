@@ -83,7 +83,8 @@ namespace Lime
 		// Registered rather than added directly so it is ordered by priority together with the
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
 		// the linker would be free to discard a translation unit that only registers.
-		FRenderPassRegistry::Get().Register("EditorUI", FEditorUIPass::Priority, [] { return std::make_shared<FEditorUIPass>(); });
+		FRenderPassRegistry::Get().Register("EditorUI", FEditorUIPass::Priority,
+		                                    [] { return std::make_shared<FEditorUIPass>(); }, /*bIsBuiltin*/ true);
 
 		// The scene goes to an offscreen target so it can be shown inside the viewport panel. The
 		// initial size is the back buffer; the panel corrects it on the first frame it is drawn.

@@ -1,0 +1,8 @@
+{
+	"name": "Broken (intentionally)",
+	"passes": [
+		{ "name": "ForwardLit", "type": "BlinnPhongForwardLit" }
+	],
+	"edges": [],
+	"graphOutputs": []
+}

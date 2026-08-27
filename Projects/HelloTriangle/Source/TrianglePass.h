@@ -15,8 +15,15 @@ namespace HelloTriangle
 
 		const char* GetName() const override { return "Triangle"; }
 
+		// Declares what the pass writes, so a render graph can name it and give it a target.
+		//
+		// Required rather than optional: rendering is driven by the graph, and a pass that describes no
+		// outputs has nowhere to draw and would never be executed.
+		void Reflect(Lime::FRenderGraphPassTypeDesc& OutType) const override;
+
 		bool Initialize(Lime::FRenderer& Renderer) override;
 		void Shutdown() override;
+		bool Compile(Lime::FRenderer& Renderer, const Lime::FRenderGraphPassResources& Resources) override;
 		void OnBeginFrame(Lime::FRenderer& Renderer, const Lime::FFrameContext& Context) override;
 		void Render(const Lime::FFrameContext& Context) override;
 		void OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer) override;

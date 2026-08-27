@@ -153,6 +153,33 @@ namespace HelloTriangle
 		return true;
 	}
 
+	void FTrianglePass::Reflect(FRenderGraphPassTypeDesc& OutType) const
+	{
+		OutType.Description = "Draws a single rotating triangle.";
+
+		// Size and format left to the graph, so the same pass works whether it draws into the viewport or a
+		// smaller target. Nothing here is read, so there are no inputs to declare.
+		FRenderGraphResourceDesc Colour = Lime::MakeTextureResource("color", ERenderGraphResourceVisibility::Output);
+		Colour.Description = "The triangle, on the clear colour.";
+		OutType.Outputs.push_back(std::move(Colour));
+	}
+
+	bool FTrianglePass::Compile(FRenderer& Renderer, const FRenderGraphPassResources& Resources)
+	{
+		LIME_UNUSED(Renderer);
+
+		// The pipeline is compiled against the target's formats, so it can only be built once the graph has
+		// allocated one.
+		nvrhi::IFramebuffer* Framebuffer = Resources.GetFramebuffer();
+		if (Framebuffer == nullptr)
+		{
+			return false;
+		}
+
+		Pipeline = nullptr;
+		return CreatePipeline(Framebuffer);
+	}
+
 	void FTrianglePass::OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer)
 	{
 		Pipeline = nullptr;
@@ -187,7 +214,14 @@ namespace HelloTriangle
 
 	void FTrianglePass::Render(const FFrameContext& Context)
 	{
-		if (Pipeline == nullptr && !CreatePipeline(Context.Framebuffer))
+		// The graph's target when one is driving this pass, otherwise whatever the renderer set up.
+		nvrhi::IFramebuffer* Framebuffer = Context.Resources != nullptr ? Context.Resources->GetFramebuffer() : Context.Framebuffer;
+		if (Framebuffer == nullptr)
+		{
+			return;
+		}
+
+		if (Pipeline == nullptr && !CreatePipeline(Framebuffer))
 		{
 			return;
 		}
@@ -211,7 +245,7 @@ namespace HelloTriangle
 		const nvrhi::GraphicsState State =
 		    nvrhi::GraphicsState()
 		        .setPipeline(Pipeline)
-		        .setFramebuffer(Context.Framebuffer)
+		        .setFramebuffer(Framebuffer)
 		        .addBindingSet(BindingSet)
 		        .addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(VertexBuffer).setSlot(0).setOffset(0))
 		        .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(

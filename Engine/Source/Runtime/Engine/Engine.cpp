@@ -225,7 +225,13 @@ namespace Lime
 		std::filesystem::path Path = Settings.RenderGraphPath;
 		if (Path.is_relative())
 		{
-			Path = FPlatformPaths::GetContentDirectory() / "RenderGraph" / Path;
+			// Two candidates, because engine graphs and project graphs are deployed to different places:
+			// the engine's land in Content/RenderGraph, a project's in Content/<Project>/RenderGraph. Trying
+			// both lets a project write "HelloTriangle/RenderGraph/TriangleGraph.json" rather than a path
+			// that has to climb out of the engine's directory to get there.
+			const std::filesystem::path ContentDirectory = FPlatformPaths::GetContentDirectory();
+			const std::filesystem::path EngineCandidate = ContentDirectory / "RenderGraph" / Path;
+			Path = std::filesystem::exists(EngineCandidate) ? EngineCandidate : ContentDirectory / Path;
 		}
 
 		if (!std::filesystem::exists(Path))
@@ -256,7 +262,8 @@ namespace Lime
 			return false;
 		}
 
-		const FRenderGraphCompileResult Compiled = CompileRenderGraph(Graph, PassTypes);
+		// Not const: it is handed to the renderer by move, on the failure path as well as the success one.
+		FRenderGraphCompileResult Compiled = CompileRenderGraph(Graph, PassTypes);
 		for (const FRenderGraphIssue& Issue : Compiled.Issues)
 		{
 			if (Issue.IsError())
@@ -271,16 +278,24 @@ namespace Lime
 
 		if (!Compiled.bSucceeded)
 		{
+			// Handed over even though it cannot run, so the reason survives past this function. The renderer
+			// keeps it for anything asking why nothing is being drawn; returning here without it would leave
+			// a failed graph indistinguishable from no graph at all.
+			Renderer.SetRenderGraph(std::move(Compiled));
 			return false;
 		}
 
-		if (!Renderer.SetRenderGraph(Compiled))
+		// Read before the move, since the result is about to be handed over.
+		const SizeType PassCount = Compiled.ExecutionOrder.size();
+		const SizeType ResourceCount = Compiled.Resources.size();
+
+		if (!Renderer.SetRenderGraph(std::move(Compiled)))
 		{
 			return false;
 		}
 
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}' compiled: {} pass(es), {} resource(s)", Settings.RenderGraphPath,
-		              Compiled.ExecutionOrder.size(), Compiled.Resources.size());
+		              PassCount, ResourceCount);
 		return true;
 	}
 
