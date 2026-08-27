@@ -102,6 +102,100 @@ namespace Lime
 		return SourceRoot / SettingsFileName;
 	}
 
+	std::filesystem::path FProjectSettings::ResolveRenderGraphPath(std::vector<std::filesystem::path>* OutSearched) const
+	{
+		if (OutSearched != nullptr)
+		{
+			OutSearched->clear();
+		}
+
+		if (RenderGraphPath.empty())
+		{
+			return {};
+		}
+
+		const std::filesystem::path Configured = RenderGraphPath;
+		if (!Configured.is_relative())
+		{
+			// Taken as given rather than searched for, so there is only ever one place to report.
+			if (OutSearched != nullptr)
+			{
+				OutSearched->push_back(Configured);
+			}
+			return std::filesystem::exists(Configured) ? Configured : std::filesystem::path{};
+		}
+
+		const std::filesystem::path& ContentDirectory = FPlatformPaths::GetContentDirectory();
+		const std::filesystem::path Candidates[] = {
+			ContentDirectory / "RenderGraph" / Configured,
+			FPlatformPaths::GetExecutableDirectory() / Configured,
+			ContentDirectory / Configured,
+		};
+
+		std::filesystem::path Found;
+		for (const std::filesystem::path& Candidate : Candidates)
+		{
+			if (OutSearched != nullptr)
+			{
+				OutSearched->push_back(Candidate);
+			}
+
+			// The walk continues after a hit so OutSearched still describes the whole search, which is what
+			// makes the failure message worth printing. The guard keeps it from touching the disk again.
+			if (Found.empty() && std::filesystem::exists(Candidate))
+			{
+				Found = Candidate;
+			}
+		}
+
+		return Found;
+	}
+
+	std::filesystem::path FProjectSettings::ResolveRenderGraphProjectRelativePath() const
+	{
+		const std::filesystem::path Configured = RenderGraphPath;
+		if (Configured.empty() || !Configured.is_relative())
+		{
+			// An absolute path already names one specific file, so it has no project relative form and no
+			// second copy to keep in step.
+			return {};
+		}
+
+		if (Configured.has_parent_path())
+		{
+			// Already written the way the project lays it out, such as "Content/RenderGraph/MyGraph.json".
+			return Configured;
+		}
+
+		// A bare name, which is how an engine graph is referred to. Placed under the directory a project
+		// keeps its graphs in, so taking over an engine default lands somewhere sensible rather than loose
+		// in the project root.
+		return std::filesystem::path("Content") / "RenderGraph" / Configured;
+	}
+
+	std::filesystem::path FProjectSettings::ResolveRenderGraphAuthoringPath() const
+	{
+		const std::filesystem::path Relative = ResolveRenderGraphProjectRelativePath();
+		const std::filesystem::path& SourceRoot = FPlatformPaths::GetProjectSourceDirectory();
+		if (Relative.empty() || SourceRoot.empty())
+		{
+			return {};
+		}
+
+		return SourceRoot / Relative;
+	}
+
+	std::filesystem::path FProjectSettings::ResolveRenderGraphDeployedPath() const
+	{
+		const std::filesystem::path Relative = ResolveRenderGraphProjectRelativePath();
+		if (Relative.empty())
+		{
+			return {};
+		}
+
+		return FPlatformPaths::GetExecutableDirectory() / Relative;
+	}
+
 	bool FProjectSettings::SaveToFile() const
 	{
 		const std::filesystem::path AuthoringPath = ResolveAuthoringPath();

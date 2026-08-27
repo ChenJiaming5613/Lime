@@ -20,6 +20,6 @@
 		"port": 5613
 	},
 	"scene": {
-		"renderGraph": "HelloTriangle/RenderGraph/TriangleGraph.json"
+		"renderGraph": "Content/RenderGraph/TriangleGraph.json"
 	}
 }

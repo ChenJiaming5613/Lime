@@ -57,6 +57,8 @@ namespace Lime
 			Result["name"] = Graph.GetName();
 			Result["passCount"] = Graph.GetPasses().size();
 			Result["edgeCount"] = Graph.GetEdges().size();
+			// Not necessarily where it was loaded from, which is the whole point of reporting it.
+			Result["savePath"] = Panel.GetSavePath();
 
 			FJson Passes = FJson::array();
 			for (const FRenderGraphPassInstance& Pass : Graph.GetPasses())

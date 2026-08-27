@@ -121,6 +121,11 @@ namespace Lime
 		// different format and the pass that produced it does not know what the editor wants.
 		void PresentRenderGraphOutput();
 
+		// The output format last reported as unable to reach the viewport. Remembered so the warning is
+		// logged once rather than every frame, and reset on a successful copy so a later mismatch is
+		// reported again.
+		nvrhi::Format ReportedPresentFormatMismatch = nvrhi::Format::UNKNOWN;
+
 		IDeviceManager* DeviceManager = nullptr;
 		nvrhi::IDevice* Device = nullptr;
 		// Reused across frames; NVRHI object creation is not cheap enough to do per frame.

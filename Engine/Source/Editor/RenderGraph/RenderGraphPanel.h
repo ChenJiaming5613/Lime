@@ -26,6 +26,8 @@ namespace ax::NodeEditor
 
 namespace Lime
 {
+	struct FProjectSettings;
+
 	class FRenderGraphPanel final : public IEditorPanel
 	{
 	public:
@@ -34,6 +36,13 @@ namespace Lime
 
 		LIME_NON_COPYABLE(FRenderGraphPanel);
 		LIME_NON_MOVABLE(FRenderGraphPanel);
+
+		// Opens the graph the project is configured to run, so the panel shows what is actually rendering
+		// rather than an unrelated sample.
+		//
+		// Separate from the constructor because the path comes from the project settings, which the panel
+		// has no way to reach on its own.
+		void Initialize(const FProjectSettings& ProjectSettings);
 
 		// Stable across runs, since it doubles as the ImGui window title used for layout persistence.
 		const char* GetName() const override { return "Render Graph"; }
@@ -53,6 +62,11 @@ namespace Lime
 		bool SaveToFile(const std::filesystem::path& Path);
 
 		const FRenderGraphDesc& GetGraph() const { return Graph; }
+
+		// Where Save writes, which is not always where the graph was loaded from: a project editing one of
+		// the engine's graphs saves its own copy instead of writing back into shared content. Exposed so a
+		// test can assert that rather than infer it from the filesystem.
+		std::string GetSavePath() const { return PathBuffer; }
 		const FRenderGraphPassTypeRegistry& GetPassTypes() const { return PassTypes; }
 		const std::vector<FRenderGraphIssue>& GetIssues() const { return Issues; }
 		const std::string& GetLastLoadedPath() const { return PathBuffer; }
@@ -88,6 +102,10 @@ namespace Lime
 		// Runs Validate and stores the result for the issue list, so the panel does not revalidate per frame.
 		void RefreshIssues();
 
+		// Copies a just saved graph over the one beside the executable, which is what the engine loads.
+		// Without it a save would only take effect after a rebuild.
+		void RefreshDeployedCopy(const std::filesystem::path& AuthoredPath);
+
 		FRenderGraphDesc Graph;
 		FRenderGraphPassTypeRegistry PassTypes;
 		std::vector<FRenderGraphNodePlacement> Placements;
@@ -96,6 +114,16 @@ namespace Lime
 		std::vector<FRenderGraphNodeSize> NodeSizes;
 		std::vector<FRenderGraphIssue> Issues;
 		FRenderGraphIdMap Ids;
+
+		// Where this project's copy of the graph belongs, and the deployed copy the engine loads. Both come
+		// from the project settings and are fixed for the run.
+		//
+		// Held rather than recomputed per save, because a save has to reach the project even when what is on
+		// screen was loaded from the engine's content: writing the project's copy is how it takes over a
+		// default it has been running unchanged. Empty in an installed build, where there is no source tree
+		// and a save can only go where it is told.
+		std::filesystem::path AuthoringPath;
+		std::filesystem::path DeployedPath;
 
 		// Owned rather than borrowed from the demo panel: two canvases sharing one context would share
 		// selection and view state.

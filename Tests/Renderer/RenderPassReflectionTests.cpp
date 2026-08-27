@@ -33,6 +33,35 @@ TEST_CASE("The built-in passes reflect themselves into pass types", "[Renderer][
 	REQUIRE_FALSE(Types.IsEmpty());
 }
 
+TEST_CASE("The debug visualizer converts anything into a presentable colour", "[Renderer][RenderGraph]")
+{
+	// This pass is the sanctioned way to look at a resource that cannot be presented, so the properties that
+	// make it work as one are worth pinning: an input that accepts any format, and an output that is colour.
+	const FRenderGraphPassTypeRegistry& Types = BuiltinTypes();
+	const FRenderGraphPassTypeDesc* Visualizer = Types.Find("DebugVisualizer");
+	REQUIRE(Visualizer != nullptr);
+
+	SECTION("The source accepts any format")
+	{
+		// Unspecified is what lets one pass serve depth and colour alike: pinning a format here would make it
+		// connectable to only one kind of resource.
+		const FRenderGraphResourceDesc* Source = Visualizer->FindInput("source");
+		REQUIRE(Source != nullptr);
+		REQUIRE(Source->Format == nvrhi::Format::UNKNOWN);
+		// Required, because a visualiser with nothing connected would draw a flat colour that looks exactly
+		// like a broken graph.
+		REQUIRE_FALSE(Source->bOptional);
+	}
+
+	SECTION("The output is presentable")
+	{
+		const FRenderGraphResourceDesc* Colour = Visualizer->FindOutput("color");
+		REQUIRE(Colour != nullptr);
+		// Not depth, or the compiler's rule would reject the very pass that exists to satisfy it.
+		REQUIRE_FALSE(Colour->IsDepth());
+	}
+}
+
 TEST_CASE("The forward lit pass declares the fields a graph connects", "[Renderer][RenderGraph]")
 {
 	const FRenderGraphPassTypeRegistry& Types = BuiltinTypes();

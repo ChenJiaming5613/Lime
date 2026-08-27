@@ -39,6 +39,15 @@ namespace
 		Sink.Outputs.push_back(MakeTextureResource("out", ERenderGraphResourceVisibility::Output, nvrhi::Format::RGBA8_UNORM));
 		Registry.Register(std::move(Sink));
 
+		// Writes a colour and a depth target, so a graph can try to present either. Stands in for a lit pass,
+		// which is the case where marking the wrong one is an easy mistake to make.
+		FRenderGraphPassTypeDesc Lit;
+		Lit.Name = "Lit";
+		Lit.Inputs.push_back(MakeTextureResource("in", ERenderGraphResourceVisibility::Input));
+		Lit.Outputs.push_back(MakeTextureResource("color", ERenderGraphResourceVisibility::Output, nvrhi::Format::RGBA8_UNORM));
+		Lit.Outputs.push_back(MakeTextureResource("depth", ERenderGraphResourceVisibility::Output, nvrhi::Format::D32));
+		Registry.Register(std::move(Lit));
+
 		return Registry;
 	}
 
@@ -102,10 +111,81 @@ TEST_CASE("A chain compiles into producer before consumer order", "[RenderGraph]
 	REQUIRE(IndexOf(Result, "B") < IndexOf(Result, "C"));
 }
 
+TEST_CASE("A depth graph output is rejected", "[RenderGraph][Compiler]")
+{
+	// Presenting copies the output to the viewport, and that copy needs a colour format. Left to run, a
+	// depth output makes the copy silently skip and the viewport stay black on a graph reporting success —
+	// indistinguishable from a rendering bug, which is why it has to fail here instead.
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+
+	FRenderGraphDesc Graph;
+	FRenderGraphIssue Issue;
+	REQUIRE(Graph.AddPass("A", "Source", Types, Issue));
+	REQUIRE(Graph.AddPass("Lit", "Lit", Types, Issue));
+	REQUIRE(Graph.AddEdge(MakeEdge("A", "out", "Lit", "in"), Types, Issue));
+	REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "Lit", "depth" }, Types, Issue));
+
+	const FRenderGraphCompileResult Result = CompileRenderGraph(Graph, Types);
+
+	REQUIRE_FALSE(Result.bSucceeded);
+	REQUIRE(Result.CountErrors() > 0);
+
+	// Nothing is reported as runnable. The order is built before the outputs are checked, so leaving it
+	// populated would tell a reader those passes are about to run when the graph will not execute at all.
+	REQUIRE(Result.ExecutionOrder.empty());
+	REQUIRE(Result.OutputResourceIndices.empty());
+
+	// The message has to name the way out, or the error only says no.
+	const auto Found = std::find_if(Result.Issues.begin(), Result.Issues.end(), [](const FRenderGraphIssue& Candidate)
+	                                { return Candidate.Message.find("DebugVisualizer") != std::string::npos; });
+	REQUIRE(Found != Result.Issues.end());
+}
+
+TEST_CASE("A colour output beside a depth one is still rejected", "[RenderGraph][Compiler]")
+{
+	// Only the first output reaches the viewport today, so a graph listing depth first would present nothing
+	// even though a usable colour output exists. Rejecting the whole graph rather than quietly picking the
+	// colour keeps the marked order meaningful.
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+
+	FRenderGraphDesc Graph;
+	FRenderGraphIssue Issue;
+	REQUIRE(Graph.AddPass("A", "Source", Types, Issue));
+	REQUIRE(Graph.AddPass("Lit", "Lit", Types, Issue));
+	REQUIRE(Graph.AddEdge(MakeEdge("A", "out", "Lit", "in"), Types, Issue));
+	REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "Lit", "color" }, Types, Issue));
+	REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "Lit", "depth" }, Types, Issue));
+
+	const FRenderGraphCompileResult Result = CompileRenderGraph(Graph, Types);
+
+	REQUIRE_FALSE(Result.bSucceeded);
+}
+
+TEST_CASE("A colour graph output compiles", "[RenderGraph][Compiler]")
+{
+	// The counterpart to the rejection above: the depth rule must not catch the case it is meant to allow.
+	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
+
+	FRenderGraphDesc Graph;
+	FRenderGraphIssue Issue;
+	REQUIRE(Graph.AddPass("A", "Source", Types, Issue));
+	REQUIRE(Graph.AddPass("Lit", "Lit", Types, Issue));
+	REQUIRE(Graph.AddEdge(MakeEdge("A", "out", "Lit", "in"), Types, Issue));
+	REQUIRE(Graph.ToggleGraphOutput(FRenderGraphResourceRef{ "Lit", "color" }, Types, Issue));
+
+	const FRenderGraphCompileResult Result = CompileRenderGraph(Graph, Types);
+
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.CountErrors() == 0);
+	// The depth target is still allocated, because the pass writes it whether or not it is presented.
+	REQUIRE(Result.Resources.size() == 3);
+}
+
 TEST_CASE("An edge makes both ends share one resource", "[RenderGraph][Compiler]")
 {
 	// An edge is not a copy: the producer and consumer name the same texture. Two resources here would mean
 	// the chain allocated twice the memory and read the wrong one.
+
 	const FRenderGraphPassTypeRegistry Types = MakeTestRegistry();
 	const FRenderGraphDesc Graph = MakeChain(Types);
 

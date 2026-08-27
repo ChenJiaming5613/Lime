@@ -1,6 +1,7 @@
 #include "Editor/RenderGraph/RenderGraphPanel.h"
 
 #include "Core/Logging/LogManager.h"
+#include "Engine/ProjectSettings.h"
 #include "Platform/PlatformPaths.h"
 #include "Renderer/Passes/BuiltinPasses.h"
 
@@ -121,9 +122,56 @@ namespace Lime
 		// first, and registering twice is harmless.
 		PassTypes = BuildRenderGraphPassTypes();
 
-		// The graph the engine itself runs, so opening the panel shows what is actually rendering rather than
-		// an unrelated sample.
-		SetTextBuffer(PathBuffer, sizeof(PathBuffer), (GetDefaultLoadDirectory() / "DefaultGraph.json").string());
+		// A placeholder only, so the field is not empty before Initialize supplies the project's own graph.
+		// Nothing is loaded here: the path lives in the project settings, which the constructor cannot see.
+		SetTextBuffer(PathBuffer, sizeof(PathBuffer), GetDefaultLoadDirectory().string());
+	}
+
+	void FRenderGraphPanel::Initialize(const FProjectSettings& ProjectSettings)
+	{
+		AuthoringPath = ProjectSettings.ResolveRenderGraphAuthoringPath();
+		DeployedPath = ProjectSettings.ResolveRenderGraphDeployedPath();
+
+		// The project's own copy when it has one, so what is on screen is what a save writes back.
+		//
+		// Otherwise whatever the engine resolved, which for a project that never named a graph is the
+		// engine's default. Showing that rather than nothing is the point: it is what the project is
+		// actually running, and it is the sensible thing to start editing from.
+		const bool bHasOwnCopy = !AuthoringPath.empty() && std::filesystem::exists(AuthoringPath);
+		const std::filesystem::path LoadPath = bHasOwnCopy ? AuthoringPath : ProjectSettings.ResolveRenderGraphPath();
+
+		if (LoadPath.empty())
+		{
+			// Not fatal, and not the panel's business to explain: the engine has already reported why it has
+			// no graph to run. Leaving the field pointing somewhere useful is what lets one be loaded by hand.
+			if (!AuthoringPath.empty())
+			{
+				SetTextBuffer(PathBuffer, sizeof(PathBuffer), AuthoringPath.string());
+			}
+			else if (!ProjectSettings.RenderGraphPath.empty())
+			{
+				SetTextBuffer(PathBuffer, sizeof(PathBuffer), ProjectSettings.RenderGraphPath);
+			}
+
+			StatusMessage = ProjectSettings.RenderGraphPath.empty() ? "No render graph is configured for this project"
+			                                                       : "Could not find " + ProjectSettings.RenderGraphPath;
+			bStatusIsError = true;
+			return;
+		}
+
+		if (!LoadFromFile(LoadPath) || bHasOwnCopy || AuthoringPath.empty())
+		{
+			return;
+		}
+
+		// The field names where a save belongs rather than what was just loaded.
+		//
+		// They differ only here, when the graph came from the engine's content. Saving back there would be
+		// wrong twice over: the next build overwrites that directory, and it is shared by every project, so
+		// one project's edit would follow the others around. Writing the project's own copy instead is what
+		// lets it take the graph over.
+		SetTextBuffer(PathBuffer, sizeof(PathBuffer), AuthoringPath.string());
+		StatusMessage += ", engine default - Save writes this project's own copy";
 	}
 
 	FRenderGraphPanel::~FRenderGraphPanel()
@@ -225,7 +273,44 @@ namespace Lime
 		StatusMessage = "Saved " + Path.filename().string();
 		bStatusIsError = false;
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Saved render graph to '{}'", Path.string());
+
+		// Only for the project's own copy. An explicit path from a script is a scratch file and has nothing
+		// to do with what the engine loads, so mirroring it would be wrong.
+		if (!AuthoringPath.empty() && !DeployedPath.empty() && Path == AuthoringPath && DeployedPath != AuthoringPath)
+		{
+			RefreshDeployedCopy(Path);
+		}
+
 		return true;
+	}
+
+	void FRenderGraphPanel::RefreshDeployedCopy(const std::filesystem::path& AuthoredPath)
+	{
+		// The engine loads the deployed copy, so without this a save would take effect only after a rebuild.
+		// Mirrors what FProjectSettings::SaveToFile does for the settings file, and for the same reason.
+		//
+		// This is also what makes a project take over an engine default on the next launch rather than the
+		// one after: the copy it writes here sits at the path the engine already resolves to, because
+		// project content is deployed over engine content at matching relative paths.
+		std::error_code ErrorCode;
+		if (DeployedPath.has_parent_path())
+		{
+			std::filesystem::create_directories(DeployedPath.parent_path(), ErrorCode);
+		}
+
+		std::filesystem::copy_file(AuthoredPath, DeployedPath, std::filesystem::copy_options::overwrite_existing, ErrorCode);
+		if (ErrorCode)
+		{
+			// Not fatal: the authored file is already correct and the next build will copy it out.
+			LIME_LOG_WARNING(LIME_LOG_CATEGORY_EDITOR, "Saved the render graph but could not refresh '{}': {}",
+			                 DeployedPath.string(), ErrorCode.message());
+			StatusMessage += " - rebuild needed to apply";
+			return;
+		}
+
+		// The graph is compiled once at startup, so an edit cannot reach the running frame.
+		StatusMessage += " - restart to apply";
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Refreshed the deployed render graph at '{}'", DeployedPath.string());
 	}
 
 	void FRenderGraphPanel::RequestRelayout()

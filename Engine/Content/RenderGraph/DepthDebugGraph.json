@@ -1,0 +1,13 @@
+{
+	"name": "Depth Debug",
+	"passes": [
+		{ "name": "ShadowCaster", "type": "ShadowCaster" },
+		{ "name": "ForwardLit", "type": "BlinnPhongForwardLit" },
+		{ "name": "DepthView", "type": "DebugVisualizer" }
+	],
+	"edges": [
+		{ "from": "ShadowCaster.shadowDepth", "to": "ForwardLit.shadowDepth" },
+		{ "from": "ForwardLit.depth", "to": "DepthView.source" }
+	],
+	"graphOutputs": [ "DepthView.color" ]
+}

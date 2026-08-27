@@ -419,9 +419,25 @@ namespace Lime
 		if (SourceDesc.format != DestinationDesc.format || SourceDesc.width != DestinationDesc.width ||
 		    SourceDesc.height != DestinationDesc.height)
 		{
+			// Reported, because the visible result is a black viewport on a graph that compiled and is
+			// running — which looks like a rendering bug rather than a mismatch that was skipped on purpose.
+			//
+			// A size difference lasts a frame after a resize and is not worth mentioning; a format difference
+			// never resolves on its own, so only that is logged. Once per offending format rather than per
+			// frame, or the log fills at frame rate while the viewport shows nothing.
+			if (SourceDesc.format != DestinationDesc.format && SourceDesc.format != ReportedPresentFormatMismatch)
+			{
+				ReportedPresentFormatMismatch = SourceDesc.format;
+				LIME_LOG_WARNING(LIME_LOG_CATEGORY_RENDERER,
+				                 "The graph output '{}' is {} but the viewport is {}, so it cannot be copied and the viewport will stay "
+				                 "black. End the graph in a pass that writes the viewport's format.",
+				                 SourceDesc.debugName, nvrhi::utils::FormatToString(SourceDesc.format),
+				                 nvrhi::utils::FormatToString(DestinationDesc.format));
+			}
 			return;
 		}
 
+		ReportedPresentFormatMismatch = nvrhi::Format::UNKNOWN;
 		CommandList->copyTexture(Destination, nvrhi::TextureSlice(), Output, nvrhi::TextureSlice());
 	}
 

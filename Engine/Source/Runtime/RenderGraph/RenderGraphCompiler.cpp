@@ -480,13 +480,44 @@ namespace Lime
 			Result.ExecutionOrder.push_back(std::move(Compiled));
 		}
 
+		bool bPresentableOutputs = true;
 		for (const FRenderGraphResourceRef& Output : Graph.GetGraphOutputs())
 		{
 			const auto Found = ResourceByField.find(MakeFieldKey(Output.PassName, Output.ResourceName));
-			if (Found != ResourceByField.end())
+			if (Found == ResourceByField.end())
 			{
-				Result.OutputResourceIndices.push_back(Found->second);
+				continue;
 			}
+
+			// A graph output is copied to the viewport, and that copy needs a colour format. A depth
+			// resource cannot satisfy it: the formats do not match, so the copy is skipped and the viewport
+			// stays black with nothing to say why.
+			//
+			// Rejected here rather than left to fail at presentation, because the two are indistinguishable
+			// on screen — a graph that compiled and shows black looks exactly like a rendering bug. Depth is
+			// also not viewable as it stands: a perspective depth buffer is non-linear, so most of its range
+			// sits within a few values of 1.
+			if (Result.Resources[Found->second].bIsDepth)
+			{
+				Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Error,
+				                                  "Graph output '" + Output.ToString() +
+				                                      "' is a depth resource, which cannot be displayed directly. Feed it to a "
+				                                      "DebugVisualizer pass and mark that pass's colour output instead."));
+				bPresentableOutputs = false;
+				continue;
+			}
+
+			Result.OutputResourceIndices.push_back(Found->second);
+		}
+
+		if (!bPresentableOutputs)
+		{
+			// Cleared because the order was built before the outputs were checked, and reporting an order for
+			// a graph that failed to compile invites the reader to believe those passes will run. Every other
+			// failure returns before the order exists, so this is the one place it has to be undone.
+			Result.ExecutionOrder.clear();
+			Result.OutputResourceIndices.clear();
+			return Result;
 		}
 
 		// A graph whose outputs are all produced by culled passes would leave nothing to execute, which is

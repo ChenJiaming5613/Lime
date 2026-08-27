@@ -131,13 +131,6 @@ function(lime_add_project)
 		VERBATIM
 	)
 
-	add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_directory
-			"${LIME_ENGINE_DIR}/Content" "${ProjectOutputDir}/Content"
-		COMMENT "Copying engine content"
-		VERBATIM
-	)
-
 	# Settings are copied next to the executable so it runs without the source tree.
 	#
 	# Driven by a file level dependency rather than POST_BUILD. A POST_BUILD command only runs when the
@@ -181,20 +174,53 @@ function(lime_add_project)
 		add_dependencies(${LIME_PROJ_NAME} ${LIME_PROJ_NAME}Settings)
 	endif()
 
-	# Project content, if any.
+	# Content, engine first and then the project's.
 	#
-	# Still POST_BUILD, which means adding a file here does not trigger a copy on its own; a rebuild of the
-	# executable does. Left as is because a directory cannot be expressed as a custom command output the way
-	# a single file can, and no project currently ships content. Worth revisiting with a stamp file when one
-	# does.
+	# Both land in the same Content directory, so the runtime layout mirrors the source layout: what a
+	# project puts under its own Content appears at Content, at the same relative path. That is what lets a
+	# settings file name its own graph as "Content/RenderGraph/TriangleGraph.json" rather than a path that
+	# has to know it was namespaced on the way out.
+	#
+	# The order is what decides a collision, so it is made explicit through the stamps rather than left to
+	# whichever command happens to run first: a project file at the same relative path replaces the
+	# engine's, which is the only useful way round if a project wants to override a default.
+	#
+	# Driven by stamp files rather than POST_BUILD. POST_BUILD only runs when the executable is relinked,
+	# and editing a content file changes nothing the linker cares about, so the deployed copy would go
+	# stale while the source tree looked correct. That was tolerable while content was inert; it is not now
+	# that render graphs live here and decide what the engine draws.
+	set(EngineContentStamp "${CMAKE_CURRENT_BINARY_DIR}/${LIME_PROJ_NAME}EngineContent.stamp")
+	file(GLOB_RECURSE EngineContentFiles CONFIGURE_DEPENDS "${LIME_ENGINE_DIR}/Content/*")
+	add_custom_command(
+		OUTPUT "${EngineContentStamp}"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory "${LIME_ENGINE_DIR}/Content" "${ProjectOutputDir}/Content"
+		COMMAND ${CMAKE_COMMAND} -E touch "${EngineContentStamp}"
+		DEPENDS ${EngineContentFiles}
+		COMMENT "Copying engine content for ${LIME_PROJ_NAME}"
+		VERBATIM
+	)
+	set(ContentStamps "${EngineContentStamp}")
+
 	if(EXISTS "${ProjectDir}/Content")
-		add_custom_command(TARGET ${LIME_PROJ_NAME} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_directory
-				"${ProjectDir}/Content" "${ProjectOutputDir}/Content/${LIME_PROJ_NAME}"
-			COMMENT "Copying project content"
+		set(ProjectContentStamp "${CMAKE_CURRENT_BINARY_DIR}/${LIME_PROJ_NAME}ProjectContent.stamp")
+		file(GLOB_RECURSE ProjectContentFiles CONFIGURE_DEPENDS "${ProjectDir}/Content/*")
+		add_custom_command(
+			OUTPUT "${ProjectContentStamp}"
+			COMMAND ${CMAKE_COMMAND} -E copy_directory "${ProjectDir}/Content" "${ProjectOutputDir}/Content"
+			COMMAND ${CMAKE_COMMAND} -E touch "${ProjectContentStamp}"
+			# The engine stamp is a dependency for ordering alone, so the project's files are copied second.
+			DEPENDS ${ProjectContentFiles} "${EngineContentStamp}"
+			COMMENT "Copying project content for ${LIME_PROJ_NAME}"
 			VERBATIM
 		)
+		list(APPEND ContentStamps "${ProjectContentStamp}")
 	endif()
+
+	# A target of its own, for the same reason the staged settings need one: a custom command's output is
+	# only built when something depends on it, and the executable does not consume these files.
+	add_custom_target(${LIME_PROJ_NAME}Content DEPENDS ${ContentStamps})
+	set_target_properties(${LIME_PROJ_NAME}Content PROPERTIES FOLDER "Projects")
+	add_dependencies(${LIME_PROJ_NAME} ${LIME_PROJ_NAME}Content)
 
 	# Says whether the project brought code of its own, which is the quickest way to see that a
 	# configuration only project was picked up as intended.

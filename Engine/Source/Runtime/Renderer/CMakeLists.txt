@@ -29,6 +29,8 @@ lime_add_module(
 		Passes/ShadowCasterPass.cpp
 		Passes/PostProcessPass.h
 		Passes/PostProcessPass.cpp
+		Passes/DebugVisualizerPass.h
+		Passes/DebugVisualizerPass.cpp
 		Passes/BuiltinPasses.h
 		Passes/BuiltinPasses.cpp
 		ImGui/EditorUIPass.h

@@ -1,8 +1,22 @@
 {
 	"name": "HelloTriangle",
 	"passes": [
-		{ "name": "Triangle", "type": "Triangle" }
+		{
+			"name": "Triangle",
+			"type": "Triangle"
+		},
+		{
+			"name": "DebugVisualizer",
+			"type": "DebugVisualizer"
+		}
 	],
-	"edges": [],
-	"graphOutputs": [ "Triangle.color" ]
+	"edges": [
+		{
+			"from": "Triangle.color",
+			"to": "DebugVisualizer.source"
+		}
+	],
+	"graphOutputs": [
+		"DebugVisualizer.color"
+	]
 }

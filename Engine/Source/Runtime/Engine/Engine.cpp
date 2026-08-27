@@ -222,21 +222,20 @@ namespace Lime
 			return false;
 		}
 
-		std::filesystem::path Path = Settings.RenderGraphPath;
-		if (Path.is_relative())
+		// Resolved through the settings rather than here, so the editor panel opens the same file this runs
+		// instead of the two disagreeing about where a relative name points.
+		std::vector<std::filesystem::path> Searched;
+		const std::filesystem::path Path = Settings.ResolveRenderGraphPath(&Searched);
+		if (Path.empty())
 		{
-			// Two candidates, because engine graphs and project graphs are deployed to different places:
-			// the engine's land in Content/RenderGraph, a project's in Content/<Project>/RenderGraph. Trying
-			// both lets a project write "HelloTriangle/RenderGraph/TriangleGraph.json" rather than a path
-			// that has to climb out of the engine's directory to get there.
-			const std::filesystem::path ContentDirectory = FPlatformPaths::GetContentDirectory();
-			const std::filesystem::path EngineCandidate = ContentDirectory / "RenderGraph" / Path;
-			Path = std::filesystem::exists(EngineCandidate) ? EngineCandidate : ContentDirectory / Path;
-		}
+			std::string Tried;
+			for (const std::filesystem::path& Candidate : Searched)
+			{
+				Tried += Tried.empty() ? "" : ", ";
+				Tried += Candidate.string();
+			}
 
-		if (!std::filesystem::exists(Path))
-		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}' was not found at '{}'", Settings.RenderGraphPath, Path.string());
+			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}' was not found. Tried: {}", Settings.RenderGraphPath, Tried);
 			return false;
 		}
 

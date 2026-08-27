@@ -2,6 +2,7 @@
 
 #include "Core/CoreTypes.h"
 #include "Renderer/Passes/BlinnPhongForwardLitPass.h"
+#include "Renderer/Passes/DebugVisualizerPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
 #include "Renderer/Passes/ShadowCasterPass.h"
 #include "Renderer/RenderPassRegistry.h"
@@ -35,6 +36,7 @@ namespace Lime
 			RegisterPass<FShadowCasterPass>();
 			RegisterPass<FBlinnPhongForwardLitPass>();
 			RegisterPass<FPostProcessPass>();
+			RegisterPass<FDebugVisualizerPass>();
 			return true;
 		}();
 		LIME_UNUSED(bRegistered);

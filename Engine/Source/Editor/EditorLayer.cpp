@@ -190,6 +190,7 @@ namespace Lime
 		// Held as well as listed, so the automation commands can drive it without searching the panel list
 		// and casting; the render graph commands need the concrete type.
 		RenderGraphPanel = std::make_shared<FRenderGraphPanel>();
+		RenderGraphPanel->Initialize(ProjectSettings);
 		Panels.push_back(RenderGraphPanel);
 #endif
 

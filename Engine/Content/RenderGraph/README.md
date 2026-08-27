@@ -44,9 +44,56 @@ The passes the engine provides:
 | `ShadowCaster` | — | `shadowDepth` (D32, 2048×2048) |
 | `BlinnPhongForwardLit` | `shadowDepth` (optional) | `color`, `depth` (D32) |
 | `PostProcess` | `sceneColor` | `color` |
+| `DebugVisualizer` | `source` (any format) | `color` |
 
 An optional input may be left unconnected and the pass degrades: `BlinnPhongForwardLit` without a shadow
 map simply draws everything lit.
+
+## Looking at a resource that is not a picture
+
+Most render targets cannot be displayed as they stand, so marking one as a graph output does not work:
+
+- **Depth is non-linear.** A perspective depth buffer puts nearly its whole range within a few values of 1,
+  so shown raw it is a white rectangle.
+- **Depth is not a colour format.** Presenting copies the output into the viewport, and that copy needs
+  matching formats. Marking a depth resource as a graph output is therefore **rejected at compile time**
+  rather than left to produce a black viewport with nothing to explain it.
+
+`DebugVisualizer` is the way to look at one. It takes any resource and writes a colour target:
+
+```json
+{
+  "passes": [
+    { "name": "ForwardLit", "type": "BlinnPhongForwardLit" },
+    { "name": "DepthView", "type": "DebugVisualizer" }
+  ],
+  "edges": [
+    { "from": "ForwardLit.depth", "to": "DepthView.source" }
+  ],
+  "graphOutputs": [ "DepthView.color" ]
+}
+```
+
+Depth is detected from the connected resource's format and linearised automatically, so nothing needs
+configuring to get a readable image. The rest is in the inspector:
+
+| Setting | Effect |
+| --- | --- |
+| `Red` / `Green` / `Blue` / `Alpha` | One toggle per channel. **A single enabled channel is shown as greyscale**, which is how packed data such as roughness, metallic or occlusion is meant to be read: a lone channel left in its own slot tints the whole image, and a tint is much harder to read a magnitude from than a grey ramp. With more than one enabled each keeps its slot and the rest read as zero, for comparing channels against each other. Alpha is only displayable on its own. Turning everything off gives black. |
+| `Range Min` / `Range Max` | The input range mapped onto 0..1. Narrowing it is what makes low contrast data readable. |
+| `Enabled` | Off shows the source unchanged, for confirming what the raw values look like. |
+
+Depth ignores the channel toggles: a depth resource has one meaningful channel, and green and blue read as
+zero, which linearises to the near plane rather than to black.
+
+`DepthDebugGraph.json` ships as a working example:
+
+```
+HelloTriangle.exe --render-graph=DepthDebugGraph.json
+```
+
+The pass samples with point filtering rather than linear, deliberately: interpolation would show a value
+that is in no texel, and an average of two depths means nothing.
 
 ## Resources are pins, not entities
 
@@ -80,6 +127,7 @@ Loading only proves the file parsed. Compiling is what decides whether the graph
 - **Unsatisfied inputs** — a required input with no edge into it.
 - **Conflicting specifications** — the two ends of an edge pinning different formats or sizes.
 - **No graph output** — the graph would produce nothing.
+- **A depth graph output** — it cannot be copied to the viewport. Feed it to a `DebugVisualizer` instead.
 - **Unreachable passes** — a pass that cannot reach any graph output is dropped rather than run, since
   nothing consumes what it writes. This is a note, not an error.
 
@@ -99,7 +147,31 @@ one run:
 HelloTriangle.exe --render-graph=BrokenGraph.json
 ```
 
-Relative names are resolved against the engine's render graph content directory.
+Relative names are tried in a few places, so a graph can be named whichever way reads best:
+
+| Written as | Found at |
+| --- | --- |
+| `DefaultGraph.json` | the engine's `Content/RenderGraph` |
+| `Content/RenderGraph/MyGraph.json` | next to the executable, which mirrors the project's own layout |
+| `RenderGraph/MyGraph.json` | the content root |
+
+A project's own `Content` directory is deployed to `Content`, at the same relative paths it uses in the
+source tree, which is why the second form works. A project file at the same relative path as an engine one
+replaces it.
+
+## Taking over a default
+
+A project that names no graph runs the engine's default, and the panel opens that — what it is running,
+rather than nothing. Saving does **not** write back into the engine's content, though: that directory is
+overwritten by the next build and is shared by every project, so one project's edit would follow the
+others around.
+
+Save writes the project's own copy instead, at `Content/RenderGraph/` in the project's source tree, and
+refreshes the deployed copy so a restart picks it up without a rebuild. From then on the project loads its
+own graph, because project content is deployed over engine content at matching relative paths. No change
+to ProjectSettings.json is needed.
+
+The panel shows where a save will land, which is not always where the graph came from.
 
 ## Changes need a restart
 
@@ -108,23 +180,6 @@ next time the engine starts. Recompiling live would mean reallocating every text
 pipeline mid-frame, which is not worth the complexity yet.
 
 ## No layout
-
-These files contain no positions, no zoom and no window state. The panel computes the layout with a
-layered (Sugiyama) algorithm every time it loads a graph.
-
-That is deliberate: a stored layout and a computed one would disagree the moment either changed, and
-there would be no way to tell which was right. It also means the layout is a function of the graph alone,
-so the same file always looks the same — reordering `passes` in the file does not move anything, because
-ties are broken by name rather than by position in the array.
-
-## Editing by hand
-
-These files are meant to be readable and writable without the editor. Identity is by name throughout, so
-there are no numeric ids to keep in sync.
-
-A file with one bad element still opens: an edge naming a pass that does not exist, or a resource the
-pass type does not declare, is dropped and reported in the panel's issue list. Only a document that is
-not valid JSON, or one without a `passes` array, fails to load outright.
 
 These files contain no positions, no zoom and no window state. The panel computes the layout with a
 layered (Sugiyama) algorithm every time it loads a graph.
