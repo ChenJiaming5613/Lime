@@ -85,9 +85,9 @@ namespace Lime
 			FJson Node = FJson::object();
 			Node["id"] = entt::to_integral(Entity);
 
-			if (const FNameComponent* Name = Registry.try_get<FNameComponent>(Entity))
+			if (const FNodeComponent* NodeComponent = Registry.try_get<FNodeComponent>(Entity))
 			{
-				Node["name"] = Name->Name;
+				Node["name"] = NodeComponent->Name;
 			}
 
 			if (const FMeshRendererComponent* MeshRenderer = Registry.try_get<FMeshRendererComponent>(Entity))
@@ -105,17 +105,17 @@ namespace Lime
 				Node["light"] = true;
 			}
 
-			if (const FWorldTransformComponent* World = Registry.try_get<FWorldTransformComponent>(Entity))
+			if (const FTransformComponent* Transform = Registry.try_get<FTransformComponent>(Entity))
 			{
-				Node["worldPosition"] = ToJson(World->GetWorldPosition());
+				Node["worldPosition"] = ToJson(Transform->GetWorldPosition());
 			}
 
-			if (const FHierarchyComponent* Hierarchy = Registry.try_get<FHierarchyComponent>(Entity))
+			if (const FNodeComponent* NodeComponent = Registry.try_get<FNodeComponent>(Entity))
 			{
-				if (!Hierarchy->Children.empty())
+				if (!NodeComponent->Children.empty())
 				{
 					FJson Children = FJson::array();
-					for (const entt::entity Child : Hierarchy->Children)
+					for (const entt::entity Child : NodeComponent->Children)
 					{
 						if (Registry.valid(Child))
 						{

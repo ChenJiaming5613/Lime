@@ -183,7 +183,7 @@ namespace Lime
 			OutputTextures.push_back(Textures[ResourceIndex]);
 		}
 
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Render graph resources allocated: {} texture(s), {} pass(es), {}x{}", Textures.size(),
+		LIME_LOG_TRACE(LIME_LOG_CATEGORY_RENDERER, "Render graph resources allocated: {} texture(s), {} pass(es), {}x{}", Textures.size(),
 		              Views.size(), InWidth, InHeight);
 		return true;
 	}

@@ -49,6 +49,8 @@ namespace Lime
 		bool SetParent(entt::entity Child, entt::entity Parent);
 		void DetachFromParent(entt::entity Child);
 
+		void SetEntityEnabled(const entt::entity& Entity, bool Enabled);
+
 		const std::vector<entt::entity>& GetRootEntities() const { return RootEntities; }
 
 		// First entity with this name, or entt::null. Linear, intended for tooling and tests rather than

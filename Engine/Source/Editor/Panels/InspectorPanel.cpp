@@ -1,7 +1,6 @@
 #include "Editor/Panels/InspectorPanel.h"
 
 #include "Editor/EditorSelection.h"
-#include "Editor/PropertyDrawer.h"
 #include "Renderer/Renderer.h"
 
 #include "Scene/Scene.h"
@@ -17,35 +16,23 @@ namespace Lime
 		// control that silently loses its value on the next load would be worse than a label.
 		void DrawSelectedEntity(const FEditorContext& Context, FScene& Scene, entt::entity Entity)
 		{
-			const entt::registry& Registry = Scene.GetRegistry();
+			entt::registry& Registry = Scene.GetRegistry();
 			LIME_UNUSED(Context);
 
-			if (const FNameComponent* Name = Registry.try_get<FNameComponent>(Entity))
+			FNodeComponent& NodeComponent = Registry.get<FNodeComponent>(Entity);
+			if (ImGui::Checkbox("Entity: ", &NodeComponent.Enabled))
 			{
-				ImGui::SeparatorText(Name->Name.c_str());
+				Scene.SetEntityEnabled(Entity, NodeComponent.Enabled);
 			}
+			ImGui::SameLine();
+			ImGui::Text("%s", NodeComponent.Name.c_str());
 
-			if (const FTransformComponent* Transform = Registry.try_get<FTransformComponent>(Entity))
+			const FTransformComponent& Transform = Registry.get<FTransformComponent>(Entity);
+			if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
 			{
-				if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
-				{
-					ImGui::Text("Translation  %.3f, %.3f, %.3f", Transform->Translation.X, Transform->Translation.Y,
-					            Transform->Translation.Z);
-					ImGui::Text("Rotation     %.3f, %.3f, %.3f, %.3f", Transform->Rotation.X, Transform->Rotation.Y, Transform->Rotation.Z,
-					            Transform->Rotation.W);
-					ImGui::Text("Scale        %.3f, %.3f, %.3f", Transform->Scale.X, Transform->Scale.Y, Transform->Scale.Z);
-				}
-			}
-
-			if (const FWorldTransformComponent* World = Registry.try_get<FWorldTransformComponent>(Entity))
-			{
-				if (ImGui::CollapsingHeader("World"))
-				{
-					// Worth showing separately from the local transform: a child's world position is what
-					// explains where it actually ended up.
-					const FVector3 Position = World->GetWorldPosition();
-					ImGui::Text("Position     %.3f, %.3f, %.3f", Position.X, Position.Y, Position.Z);
-				}
+				ImGui::Text("Position     %.3f, %.3f, %.3f", Transform.Position.X, Transform.Position.Y, Transform.Position.Z);
+				ImGui::Text("Rotation     %.3f, %.3f, %.3f, %.3f", Transform.Rotation.X, Transform.Rotation.Y, Transform.Rotation.Z, Transform.Rotation.W);
+				ImGui::Text("Scale        %.3f, %.3f, %.3f", Transform.Scale.X, Transform.Scale.Y, Transform.Scale.Z);
 			}
 
 			if (const FMeshRendererComponent* MeshRenderer = Registry.try_get<FMeshRendererComponent>(Entity))
@@ -78,24 +65,6 @@ namespace Lime
 					ImGui::Text("Intensity    %.3f", Light->Intensity);
 				}
 			}
-
-			if (const FHierarchyComponent* Hierarchy = Registry.try_get<FHierarchyComponent>(Entity))
-			{
-				if (Hierarchy->Parent != entt::null || !Hierarchy->Children.empty())
-				{
-					if (ImGui::CollapsingHeader("Hierarchy"))
-					{
-						ImGui::Text("Children     %zu", Hierarchy->Children.size());
-						if (Hierarchy->Parent != entt::null)
-						{
-							if (const FNameComponent* ParentName = Registry.try_get<FNameComponent>(Hierarchy->Parent))
-							{
-								ImGui::Text("Parent       %s", ParentName->Name.c_str());
-							}
-						}
-					}
-				}
-			}
 		}
 	} // namespace
 
@@ -120,36 +89,36 @@ namespace Lime
 		if (Scene != nullptr && Context.Selection != nullptr && Context.Selection->Has())
 		{
 			DrawSelectedEntity(Context, *Scene, Context.Selection->Get());
-			ImGui::Spacing();
-			ImGui::SeparatorText("Render Passes");
+			// ImGui::Spacing();
+			// ImGui::SeparatorText("Render Passes");
 		}
 
-		int32 DrawnCount = 0;
-		for (const std::shared_ptr<IRenderPass>& Pass : Context.Renderer->GetPasses())
-		{
-			const FReflectedRef Settings = Pass->GetReflectedSettings();
-			if (!Settings.IsValid())
-			{
-				// Passes without reflected settings simply do not appear.
-				continue;
-			}
-
-			++DrawnCount;
-			// Unique ID per pass so two passes with the same header label stay independent.
-			ImGui::PushID(Pass.get());
-			if (ImGui::CollapsingHeader(Pass->GetName(), ImGuiTreeNodeFlags_DefaultOpen))
-			{
-				FPropertyDrawer::Draw(Settings);
-			}
-			ImGui::PopID();
-		}
-
-		if (DrawnCount == 0)
-		{
-			ImGui::TextWrapped("No render pass exposes reflected settings.");
-			ImGui::Spacing();
-			ImGui::TextDisabled("Add LIME_REFLECT to a settings struct and return it from\nGetReflectedSettings to populate this panel.");
-		}
+		// int32 DrawnCount = 0;
+		// for (const std::shared_ptr<IRenderPass>& Pass : Context.Renderer->GetPasses())
+		// {
+		// 	const FReflectedRef Settings = Pass->GetReflectedSettings();
+		// 	if (!Settings.IsValid())
+		// 	{
+		// 		// Passes without reflected settings simply do not appear.
+		// 		continue;
+		// 	}
+		//
+		// 	++DrawnCount;
+		// 	// Unique ID per pass so two passes with the same header label stay independent.
+		// 	ImGui::PushID(Pass.get());
+		// 	if (ImGui::CollapsingHeader(Pass->GetName(), ImGuiTreeNodeFlags_DefaultOpen))
+		// 	{
+		// 		FPropertyDrawer::Draw(Settings);
+		// 	}
+		// 	ImGui::PopID();
+		// }
+		//
+		// if (DrawnCount == 0)
+		// {
+		// 	ImGui::TextWrapped("No render pass exposes reflected settings.");
+		// 	ImGui::Spacing();
+		// 	ImGui::TextDisabled("Add LIME_REFLECT to a settings struct and return it from\nGetReflectedSettings to populate this panel.");
+		// }
 
 		ImGui::End();
 	}

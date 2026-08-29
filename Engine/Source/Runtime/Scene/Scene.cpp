@@ -9,12 +9,8 @@ namespace Lime
 	entt::entity FScene::CreateEntity(const std::string& Name)
 	{
 		const entt::entity Entity = Registry.create();
-		Registry.emplace<FNameComponent>(Entity, Name);
+		Registry.emplace<FNodeComponent>(Entity, true, Name);
 		Registry.emplace<FTransformComponent>(Entity);
-		Registry.emplace<FWorldTransformComponent>(Entity);
-		// Added unconditionally so that walking the hierarchy never has to check whether the component
-		// exists; an entity with no parent and no children is simply an isolated root.
-		Registry.emplace<FHierarchyComponent>(Entity);
 
 		RootEntities.push_back(Entity);
 		return Entity;
@@ -30,8 +26,8 @@ namespace Lime
 				return true;
 			}
 
-			const FHierarchyComponent* Hierarchy = Registry.try_get<FHierarchyComponent>(Current);
-			Current = Hierarchy != nullptr ? Hierarchy->Parent : entt::null;
+			const FNodeComponent* NodeComponent = Registry.try_get<FNodeComponent>(Current);
+			Current = NodeComponent != nullptr ? NodeComponent->Parent : entt::null;
 		}
 		return false;
 	}
@@ -64,8 +60,8 @@ namespace Lime
 
 		DetachFromParent(Child);
 
-		Registry.get<FHierarchyComponent>(Child).Parent = Parent;
-		Registry.get<FHierarchyComponent>(Parent).Children.push_back(Child);
+		Registry.get<FNodeComponent>(Child).Parent = Parent;
+		Registry.get<FNodeComponent>(Parent).Children.push_back(Child);
 
 		// No longer a root now that it has a parent.
 		std::erase(RootEntities, Child);
@@ -79,28 +75,38 @@ namespace Lime
 			return;
 		}
 
-		FHierarchyComponent& Hierarchy = Registry.get<FHierarchyComponent>(Child);
-		if (Hierarchy.Parent == entt::null)
+		FNodeComponent& NodeComponent = Registry.get<FNodeComponent>(Child);
+		if (NodeComponent.Parent == entt::null)
 		{
 			return;
 		}
 
-		if (Registry.valid(Hierarchy.Parent))
+		if (Registry.valid(NodeComponent.Parent))
 		{
-			std::erase(Registry.get<FHierarchyComponent>(Hierarchy.Parent).Children, Child);
+			std::erase(Registry.get<FNodeComponent>(NodeComponent.Parent).Children, Child);
 		}
 
-		Hierarchy.Parent = entt::null;
+		NodeComponent.Parent = entt::null;
 		RootEntities.push_back(Child);
+	}
+
+	void FScene::SetEntityEnabled(const entt::entity& Entity, bool Enabled)
+	{
+		FNodeComponent& NodeComponent = Registry.get<FNodeComponent>(Entity);
+		NodeComponent.Enabled = Enabled;
+		for (entt::entity& Child : NodeComponent.Children)
+		{
+			SetEntityEnabled(Child, Enabled);
+		}
 	}
 
 	entt::entity FScene::FindByName(const std::string& Name) const
 	{
 		// A view rather than a map: glTF node names are not unique, so an index keyed by name would have to
 		// pick a winner and would then disagree with the hierarchy panel about which entity that name means.
-		for (const auto [Entity, NameComponent] : Registry.view<const FNameComponent>().each())
+		for (const auto [Entity, NodeComponent] : Registry.view<const FNodeComponent>().each())
 		{
-			if (NameComponent.Name == Name)
+			if (NodeComponent.Name == Name)
 			{
 				return Entity;
 			}
@@ -133,27 +139,27 @@ namespace Lime
 			}
 
 			const FTransformComponent& Local = Registry.get<FTransformComponent>(Entity);
-			const FHierarchyComponent& Hierarchy = Registry.get<FHierarchyComponent>(Entity);
-			FWorldTransformComponent& World = Registry.get<FWorldTransformComponent>(Entity);
+			const FNodeComponent& NodeComponent = Registry.get<FNodeComponent>(Entity);
+			FTransformComponent& Transform = Registry.get<FTransformComponent>(Entity);
 
 			const FMatrix4x4 LocalMatrix = Local.ToMatrix();
-			if (Hierarchy.Parent != entt::null && Registry.valid(Hierarchy.Parent))
+			if (NodeComponent.Parent != entt::null && Registry.valid(NodeComponent.Parent))
 			{
 				// Parent first, then local: composing the other way round would apply the child's rotation to
 				// the parent's translation and make children orbit the origin.
-				World.Matrix = Multiply(Registry.get<FWorldTransformComponent>(Hierarchy.Parent).Matrix, LocalMatrix);
+				Transform.LocalToWorldMatrix = Multiply(Registry.get<FTransformComponent>(NodeComponent.Parent).LocalToWorldMatrix, LocalMatrix);
 			}
 			else
 			{
-				World.Matrix = LocalMatrix;
+				Transform.LocalToWorldMatrix = LocalMatrix;
 			}
 
 			// Inverse transpose, so normals stay perpendicular to the surface when the scale is non uniform.
 			// With a uniform scale this reduces to the world matrix, but the general form costs the same here
 			// and removes a special case.
-			World.NormalMatrix = World.Matrix.GetInverse().GetTransposed();
+			Transform.NormalMatrix = Transform.LocalToWorldMatrix.GetInverse().GetTransposed();
 
-			for (const entt::entity Child : Hierarchy.Children)
+			for (const entt::entity Child : NodeComponent.Children)
 			{
 				TraversalStack.push_back(Child);
 			}
@@ -171,7 +177,7 @@ namespace Lime
 	FSceneStats FScene::GetStats() const
 	{
 		FSceneStats Stats;
-		Stats.EntityCount = static_cast<uint32>(Registry.view<const FNameComponent>().size());
+		Stats.EntityCount = static_cast<uint32>(Registry.view<const FNodeComponent>().size());
 		Stats.MaterialCount = static_cast<uint32>(Materials.size());
 
 		for (const FImageData& Image : Images)
@@ -200,8 +206,8 @@ namespace Lime
 	{
 		FBoundingBox Result;
 
-		for (const auto [Entity, MeshRenderer, World] :
-		     Registry.view<const FMeshRendererComponent, const FWorldTransformComponent>().each())
+		for (const auto [Entity, MeshRenderer, Transform] :
+		     Registry.view<const FMeshRendererComponent, const FTransformComponent>().each())
 		{
 			if (!MeshRenderer.bVisible || MeshRenderer.MeshIndex >= Meshes.size())
 			{
@@ -224,7 +230,7 @@ namespace Lime
 					(Corner & 2) != 0 ? Local.Max.Y : Local.Min.Y,
 					(Corner & 4) != 0 ? Local.Max.Z : Local.Min.Z,
 				};
-				Result.Include(World.Matrix.TransformPosition(Point));
+				Result.Include(Transform.LocalToWorldMatrix.TransformPosition(Point));
 			}
 		}
 

@@ -12,6 +12,10 @@
 		{
 			"name": "PostProcess",
 			"type": "PostProcess"
+		},
+		{
+			"name": "DebugVisualizer",
+			"type": "DebugVisualizer"
 		}
 	],
 	"edges": [
@@ -22,9 +26,13 @@
 		{
 			"from": "ForwardLit.color",
 			"to": "PostProcess.sceneColor"
+		},
+		{
+			"from": "ForwardLit.depth",
+			"to": "DebugVisualizer.source"
 		}
 	],
 	"graphOutputs": [
-		"PostProcess.color"
+		"DebugVisualizer.color"
 	]
 }

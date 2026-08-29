@@ -41,9 +41,9 @@ namespace Lime
 			return false;
 		}
 
-		if (const FNameComponent* Name = Registry.try_get<FNameComponent>(Entity))
+		if (const FNodeComponent* NodeComponent = Registry.try_get<FNodeComponent>(Entity))
 		{
-			if (ContainsCaseInsensitive(Name->Name, Filter))
+			if (ContainsCaseInsensitive(NodeComponent->Name, Filter))
 			{
 				return true;
 			}
@@ -51,9 +51,9 @@ namespace Lime
 
 		// A parent is kept when a descendant matches, otherwise the match would be unreachable: it would sit
 		// inside a branch that the filter itself had hidden.
-		if (const FHierarchyComponent* Hierarchy = Registry.try_get<FHierarchyComponent>(Entity))
+		if (const FNodeComponent* NodeComponent = Registry.try_get<FNodeComponent>(Entity))
 		{
-			for (const entt::entity Child : Hierarchy->Children)
+			for (const entt::entity Child : NodeComponent->Children)
 			{
 				if (MatchesFilter(Scene, Child))
 				{
@@ -73,13 +73,10 @@ namespace Lime
 			return;
 		}
 
-		const FHierarchyComponent& Hierarchy = Registry.get<FHierarchyComponent>(Entity);
-		const FNameComponent& Name = Registry.get<FNameComponent>(Entity);
-		const bool bHasMesh = Registry.try_get<FMeshRendererComponent>(Entity) != nullptr;
-		const bool bIsLight = Registry.try_get<FDirectionalLightComponent>(Entity) != nullptr;
+		FNodeComponent& NodeComponent = Registry.get<FNodeComponent>(Entity);
 
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-		if (Hierarchy.Children.empty())
+		if (NodeComponent.Children.empty())
 		{
 			// Leaf gets no arrow, which is what makes the indentation read as structure rather than as
 			// decoration.
@@ -95,15 +92,17 @@ namespace Lime
 			Flags |= ImGuiTreeNodeFlags_DefaultOpen;
 		}
 
-		// A character rather than an icon font: the editor ships no icon atlas, and distinguishing meshes
-		// from empty grouping nodes at a glance is the point.
-		const char* Marker = bHasMesh ? "[M]" : (bIsLight ? "[L]" : "[ ]");
-		const std::string Label = std::string(Marker) + " " + Name.Name;
+		const std::string Label = NodeComponent.Name;
 
 		// The entity id keys the node, so two nodes sharing a name stay independent; glTF names are not
 		// unique. PushID with the integer overload rather than casting it to a void*, which ImGui also
 		// accepts but which costs an int-to-pointer round trip.
 		ImGui::PushID(static_cast<int>(entt::to_integral(Entity)));
+		if (ImGui::Checkbox("", &NodeComponent.Enabled))
+		{
+			Scene.SetEntityEnabled(Entity, NodeComponent.Enabled);
+		}
+		ImGui::SameLine();
 		const bool bOpen = ImGui::TreeNodeEx(Label.c_str(), Flags);
 
 		// Checked before recursing, so clicking a parent selects the parent rather than a child.
@@ -112,10 +111,10 @@ namespace Lime
 			Context.Selection->Set(Entity);
 		}
 
-		if (bOpen && !Hierarchy.Children.empty())
+		if (bOpen && !NodeComponent.Children.empty())
 		{
 			// Copied because selecting or filtering can invalidate the registry's storage while iterating.
-			const std::vector<entt::entity> Children = Hierarchy.Children;
+			const std::vector<entt::entity> Children = NodeComponent.Children;
 			for (const entt::entity Child : Children)
 			{
 				DrawEntity(Context, Scene, Child);
@@ -144,11 +143,6 @@ namespace Lime
 			ImGui::End();
 			return;
 		}
-
-		const FSceneStats Stats = Scene->GetStats();
-		ImGui::Text("%u entities  %u meshes", Stats.EntityCount, Stats.MeshEntityCount);
-		ImGui::TextDisabled("%u triangles", Stats.TriangleCount);
-		ImGui::Separator();
 
 		// A fixed buffer rather than binding the std::string directly: ImGui's text input needs a mutable
 		// char array, and copying in and out each frame keeps the widget stateless.

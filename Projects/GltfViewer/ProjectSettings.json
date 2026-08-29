@@ -20,7 +20,7 @@
 		"port": 5614
 	},
 	"scene": {
-		"gltf": "RTXDI-Assets/bistro/bistro.gltf",
+		"gltf": "glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf",
 		"cameraFieldOfView": 60.0,
 		"cameraMoveSpeed": 3.0,
 		"lightIntensity": 3.0,

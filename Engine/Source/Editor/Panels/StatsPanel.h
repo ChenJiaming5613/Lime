@@ -11,6 +11,7 @@ namespace Lime
 	public:
 		const char* GetName() const override { return "Stats"; }
 		EEditorDockSlot GetDefaultDockSlot() const override { return EEditorDockSlot::Right; }
+		bool IsVisibleByDefault() const override { return false; }
 
 		void OnDrawUI(const FEditorContext& Context) override;
 

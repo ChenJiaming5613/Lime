@@ -26,7 +26,7 @@ namespace Lime
 
 		std::vector<FLogEntry> Snapshot;
 		std::vector<const FLogEntry*> FilteredEntries;
-		std::array<bool, static_cast<SizeType>(ELogLevel::Count)> LevelFilter{ true, true, true, true, true, true };
+		std::array<bool, static_cast<SizeType>(ELogLevel::Count)> LevelFilter{ false, true, true, true, true, true };
 		std::string SearchText;
 		uint64 LastRevision = 0;
 		bool bAutoScroll = true;

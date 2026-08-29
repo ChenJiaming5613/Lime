@@ -44,7 +44,7 @@ namespace Lime
 			const entt::entity Entity = Scene.CreateEntity(MakeNodeName(Node, Index));
 
 			FTransformComponent& Transform = Registry.get<FTransformComponent>(Entity);
-			Transform.Translation = Node.Translation;
+			Transform.Position = Node.Translation;
 			Transform.Rotation = Node.Rotation;
 			Transform.Scale = Node.Scale;
 
@@ -76,7 +76,7 @@ namespace Lime
 		LightComponent.Direction = FVector3{ -0.4f, -0.8f, 0.45f }.GetNormalized();
 		Result.bAddedDefaultLight = true;
 
-		Result.EntityCount = static_cast<uint32>(Registry.view<const FNameComponent>().size());
+		Result.EntityCount = static_cast<uint32>(Registry.view<const FNodeComponent>().size());
 
 		// Run once here so that world matrices are valid before anything reads them, in particular the
 		// bounds query used to frame the camera.

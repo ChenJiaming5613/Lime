@@ -63,17 +63,17 @@ TEST_CASE("Creating entities", "[Scene]")
 		REQUIRE(Scene.GetRootEntities().size() == 1);
 		REQUIRE(Scene.GetRootEntities()[0] == Entity);
 		REQUIRE(Scene.GetRegistry().get<FNameComponent>(Entity).Name == "First");
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Entity).Translation, FVector3::Zero()));
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Entity).Position, FVector3::Zero()));
 	}
 
 	SECTION("Every entity has a hierarchy component")
 	{
 		// Added unconditionally so that walking the tree never has to test for its presence.
 		const entt::entity Entity = Scene.CreateEntity("First");
-		REQUIRE(Scene.GetRegistry().try_get<FHierarchyComponent>(Entity) != nullptr);
+		REQUIRE(Scene.GetRegistry().try_get<FNodeComponent>(Entity) != nullptr);
 		// Parenthesised so Catch2 does not decompose the expression: entt::null_t has templated symmetric
 		// comparison operators, and the decomposed form makes the overload ambiguous.
-		REQUIRE((Scene.GetRegistry().get<FHierarchyComponent>(Entity).Parent == entt::null));
+		REQUIRE((Scene.GetRegistry().get<FNodeComponent>(Entity).Parent == entt::null));
 	}
 
 	SECTION("An empty scene reports as empty")
@@ -104,8 +104,8 @@ TEST_CASE("Parenting", "[Scene]")
 		REQUIRE(Scene.SetParent(Child, Parent));
 		REQUIRE(Scene.GetRootEntities().size() == 1);
 		REQUIRE(Scene.GetRootEntities()[0] == Parent);
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(Child).Parent == Parent);
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(Parent).Children.size() == 1);
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Child).Parent == Parent);
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Parent).Children.size() == 1);
 	}
 
 	SECTION("Detaching makes it a root again")
@@ -114,8 +114,8 @@ TEST_CASE("Parenting", "[Scene]")
 		Scene.DetachFromParent(Child);
 
 		REQUIRE(Scene.GetRootEntities().size() == 2);
-		REQUIRE((Scene.GetRegistry().get<FHierarchyComponent>(Child).Parent == entt::null));
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(Parent).Children.empty());
+		REQUIRE((Scene.GetRegistry().get<FNodeComponent>(Child).Parent == entt::null));
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Parent).Children.empty());
 	}
 
 	SECTION("Reparenting removes the entity from the previous parent")
@@ -126,9 +126,9 @@ TEST_CASE("Parenting", "[Scene]")
 		REQUIRE(Scene.SetParent(Child, Parent));
 		REQUIRE(Scene.SetParent(Child, Other));
 
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(Parent).Children.empty());
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(Other).Children.size() == 1);
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(Child).Parent == Other);
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Parent).Children.empty());
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Other).Children.size() == 1);
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Child).Parent == Other);
 	}
 
 	SECTION("A cycle is refused")
@@ -136,7 +136,7 @@ TEST_CASE("Parenting", "[Scene]")
 		// A cycle would make UpdateTransforms walk forever, so this is a hang rather than a wrong result.
 		REQUIRE(Scene.SetParent(Child, Parent));
 		REQUIRE_FALSE(Scene.SetParent(Parent, Child));
-		REQUIRE((Scene.GetRegistry().get<FHierarchyComponent>(Parent).Parent == entt::null));
+		REQUIRE((Scene.GetRegistry().get<FNodeComponent>(Parent).Parent == entt::null));
 	}
 
 	SECTION("A deeper cycle is refused too")
@@ -165,7 +165,7 @@ TEST_CASE("Parenting", "[Scene]")
 		Scene.SetParent(Second, Parent);
 		Scene.SetParent(Third, Parent);
 
-		const std::vector<entt::entity>& Children = Scene.GetRegistry().get<FHierarchyComponent>(Parent).Children;
+		const std::vector<entt::entity>& Children = Scene.GetRegistry().get<FNodeComponent>(Parent).Children;
 		REQUIRE(Children.size() == 3);
 		REQUIRE(Children[0] == First);
 		REQUIRE(Children[1] == Second);
@@ -180,7 +180,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 	SECTION("A root's world matrix is its local matrix")
 	{
 		const entt::entity Entity = Scene.CreateEntity("Root");
-		Scene.GetRegistry().get<FTransformComponent>(Entity).Translation = { 1.0f, 2.0f, 3.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Entity).Position = { 1.0f, 2.0f, 3.0f };
 		Scene.UpdateTransforms();
 
 		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Entity).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }));
@@ -192,8 +192,8 @@ TEST_CASE("World transform propagation", "[Scene]")
 		const entt::entity Child = Scene.CreateEntity("Child");
 		Scene.SetParent(Child, Parent);
 
-		Scene.GetRegistry().get<FTransformComponent>(Parent).Translation = { 10.0f, 0.0f, 0.0f };
-		Scene.GetRegistry().get<FTransformComponent>(Child).Translation = { 0.0f, 5.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Parent).Position = { 10.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Child).Position = { 0.0f, 5.0f, 0.0f };
 		Scene.UpdateTransforms();
 
 		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(), FVector3{ 10.0f, 5.0f, 0.0f },
@@ -210,7 +210,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 
 		// A quarter turn about Y maps the child's +X offset onto -Z.
 		Scene.GetRegistry().get<FTransformComponent>(Parent).Rotation = FQuat::FromAxisAngle(FVector3::UnitY(), HalfPi);
-		Scene.GetRegistry().get<FTransformComponent>(Child).Translation = { 1.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Child).Position = { 1.0f, 0.0f, 0.0f };
 		Scene.UpdateTransforms();
 
 		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(), FVector3{ 0.0f, 0.0f, -1.0f },
@@ -224,7 +224,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.SetParent(Child, Parent);
 
 		Scene.GetRegistry().get<FTransformComponent>(Parent).Scale = { 2.0f, 2.0f, 2.0f };
-		Scene.GetRegistry().get<FTransformComponent>(Child).Translation = { 3.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Child).Position = { 3.0f, 0.0f, 0.0f };
 		Scene.UpdateTransforms();
 
 		REQUIRE(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition().X == Approx(6.0f).margin(1.0e-4f));
@@ -238,9 +238,9 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.SetParent(B, A);
 		Scene.SetParent(C, B);
 
-		Scene.GetRegistry().get<FTransformComponent>(A).Translation = { 1.0f, 0.0f, 0.0f };
-		Scene.GetRegistry().get<FTransformComponent>(B).Translation = { 0.0f, 2.0f, 0.0f };
-		Scene.GetRegistry().get<FTransformComponent>(C).Translation = { 0.0f, 0.0f, 3.0f };
+		Scene.GetRegistry().get<FTransformComponent>(A).Position = { 1.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(B).Position = { 0.0f, 2.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(C).Position = { 0.0f, 0.0f, 3.0f };
 		Scene.UpdateTransforms();
 
 		REQUIRE(
@@ -258,12 +258,12 @@ TEST_CASE("World transform propagation", "[Scene]")
 		constexpr int32 Depth = 4000;
 
 		entt::entity Previous = Scene.CreateEntity("Level0");
-		Scene.GetRegistry().get<FTransformComponent>(Previous).Translation = { 1.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Previous).Position = { 1.0f, 0.0f, 0.0f };
 
 		for (int32 Level = 1; Level < Depth; ++Level)
 		{
 			const entt::entity Current = Scene.CreateEntity("Level" + std::to_string(Level));
-			Scene.GetRegistry().get<FTransformComponent>(Current).Translation = { 1.0f, 0.0f, 0.0f };
+			Scene.GetRegistry().get<FTransformComponent>(Current).Position = { 1.0f, 0.0f, 0.0f };
 			Scene.SetParent(Current, Previous);
 			Previous = Current;
 		}
@@ -299,7 +299,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		const entt::entity Parent = Scene.CreateEntity("Parent");
 		const entt::entity Child = Scene.CreateEntity("Child");
 		Scene.SetParent(Child, Parent);
-		Scene.GetRegistry().get<FTransformComponent>(Parent).Translation = { 4.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Parent).Position = { 4.0f, 0.0f, 0.0f };
 
 		Scene.UpdateTransforms();
 		const FMatrix4x4 First = Scene.GetRegistry().get<FWorldTransformComponent>(Child).Matrix;
@@ -344,7 +344,7 @@ TEST_CASE("Scene statistics and bounds", "[Scene]")
 	{
 		const entt::entity Entity = Scene.CreateEntity("Cube");
 		Scene.GetRegistry().emplace<FMeshRendererComponent>(Entity, 0u, true);
-		Scene.GetRegistry().get<FTransformComponent>(Entity).Translation = { 10.0f, 0.0f, 0.0f };
+		Scene.GetRegistry().get<FTransformComponent>(Entity).Position = { 10.0f, 0.0f, 0.0f };
 		Scene.UpdateTransforms();
 
 		const FBoundingBox Bounds = Scene.ComputeWorldBounds();
@@ -451,7 +451,7 @@ TEST_CASE("Building a scene from imported data", "[Scene][Builder]")
 	{
 		const entt::entity RootEntity = Scene.FindByName("Root");
 		const entt::entity ChildEntity = Scene.FindByName("Child");
-		REQUIRE(Scene.GetRegistry().get<FHierarchyComponent>(ChildEntity).Parent == RootEntity);
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(ChildEntity).Parent == RootEntity);
 	}
 
 	SECTION("World transforms are valid immediately after building")

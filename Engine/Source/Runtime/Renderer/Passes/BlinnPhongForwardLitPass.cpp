@@ -430,10 +430,10 @@ namespace Lime
 
 		const std::vector<FMaterialData>& Materials = Scene.GetMaterials();
 
-		for (const auto [Entity, MeshRenderer, World] :
-		     Scene.GetRegistry().view<const FMeshRendererComponent, const FWorldTransformComponent>().each())
+		for (const auto [Entity, NodeComponent, MeshRenderer, Transform] :
+		     Scene.GetRegistry().view<const FNodeComponent, const FMeshRendererComponent, const FTransformComponent>().each())
 		{
-			if (!MeshRenderer.bVisible)
+			if (!NodeComponent.Enabled || !MeshRenderer.bVisible)
 			{
 				continue;
 			}
@@ -457,8 +457,8 @@ namespace Lime
 				        : GetDefaultMaterial();
 
 				FDrawConstants DrawConstants;
-				DrawConstants.World = World.Matrix;
-				DrawConstants.NormalMatrix = World.NormalMatrix;
+				DrawConstants.World = Transform.LocalToWorldMatrix;
+				DrawConstants.NormalMatrix = Transform.NormalMatrix;
 				DrawConstants.BaseColorFactor = Material.BaseColorFactor;
 				DrawConstants.AlphaCutoff = Material.AlphaCutoff;
 				DrawConstants.SpecularPower = Settings.SpecularPower;

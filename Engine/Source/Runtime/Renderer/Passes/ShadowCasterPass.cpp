@@ -287,10 +287,10 @@ namespace Lime
 			return;
 		}
 
-		for (const auto [Entity, MeshRenderer, World] :
-		     Scene.GetRegistry().view<const FMeshRendererComponent, const FWorldTransformComponent>().each())
+		for (const auto [Entity, NodeComponent, MeshRenderer, Transform] :
+		     Scene.GetRegistry().view<const FNodeComponent, const FMeshRendererComponent, const FTransformComponent>().each())
 		{
-			if (!MeshRenderer.bVisible)
+			if (!NodeComponent.Enabled || !MeshRenderer.bVisible)
 			{
 				continue;
 			}
@@ -302,7 +302,7 @@ namespace Lime
 			}
 
 			FDrawConstants DrawConstants;
-			DrawConstants.World = World.Matrix;
+			DrawConstants.World = Transform.LocalToWorldMatrix;
 			Context.CommandList->writeBuffer(DrawConstantBuffer, &DrawConstants, sizeof(DrawConstants));
 
 			const FMeshData& Mesh = Scene.GetMeshes()[MeshRenderer.MeshIndex];
