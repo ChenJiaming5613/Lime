@@ -2,6 +2,7 @@
 #include "Renderer/RenderPassRegistry.h"
 
 #include "Core/Logging/LogManager.h"
+#include "Core/Reflection/JsonArchive.h"
 #include "Platform/PlatformPaths.h"
 #include "RHI/DeviceManager.h"
 
@@ -236,6 +237,18 @@ namespace Lime
 			if (LastSceneFramebuffer != nullptr)
 			{
 				Pass->OnFramebufferChanged(LastSceneFramebuffer);
+			}
+
+			// Parameter overrides carried by the compiled entry are applied to the freshly initialized
+			// instance through reflection. Missing fields keep the pass defaults, and a value that does
+			// not fit its field is ignored with a warning.
+			if (!CompiledPass.Settings.is_null() && CompiledPass.Settings.is_object())
+			{
+				const FReflectedRef Ref = Pass->GetReflectedSettings();
+				if (Ref.IsValid())
+				{
+					FJsonArchive::LoadFields(Ref.Type, Ref.Instance, CompiledPass.Settings);
+				}
 			}
 
 			Resolved.push_back(std::move(Pass));

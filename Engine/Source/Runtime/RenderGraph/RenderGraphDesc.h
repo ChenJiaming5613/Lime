@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include "Core/Json/JsonUtils.h"
 #include "RenderGraph/RenderGraphPassType.h"
 
 #include <string>
@@ -27,6 +28,10 @@ namespace Lime
 		// Unique within the graph; this is how edges refer to it.
 		std::string Name;
 		std::string TypeName;
+		// Parameter overrides keyed by reflected field name. Null means the pass runs with its defaults;
+		// the fields present otherwise override them. Serialized into the graph file so a pass can be
+		// tuned without recompiling.
+		FJson Settings;
 	};
 
 	class FRenderGraphDesc
@@ -45,6 +50,9 @@ namespace Lime
 		void Clear();
 
 		const FRenderGraphPassInstance* FindPass(std::string_view PassName) const;
+
+		// Writes back the settings for a named pass. Returns false when the pass is not in the graph.
+		bool SetPassSettings(std::string_view PassName, FJson Settings);
 
 		// Adds a pass instance. Fails when the name is taken or the type is unknown, since either would
 		// leave edges unable to say which pass they mean.

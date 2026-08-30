@@ -3,23 +3,57 @@
 	"passes": [
 		{
 			"name": "ShadowCaster",
-			"type": "ShadowCaster"
+			"type": "ShadowCaster",
+			"settings": {
+				"bEnabled": true,
+				"DepthBias": 0.001500000013038516,
+				"SlopeScaledBias": 2.0
+			}
 		},
 		{
 			"name": "ForwardLit",
-			"type": "BlinnPhongForwardLit"
+			"type": "BlinnPhongForwardLit",
+			"settings": {
+				"bEnabled": true,
+				"LightIntensity": 3.0,
+				"AmbientStrength": 0.25,
+				"SpecularPower": 32.0
+			}
 		},
 		{
 			"name": "PostProcess",
-			"type": "PostProcess"
+			"type": "PostProcess",
+			"settings": {
+				"bEnabled": true,
+				"Exposure": 1.0,
+				"Gamma": 2.200000047683716
+			}
 		},
 		{
 			"name": "DebugVisualizer",
-			"type": "DebugVisualizer"
+			"type": "DebugVisualizer",
+			"settings": {
+				"bEnabled": true,
+				"bShowRed": true,
+				"bShowGreen": true,
+				"bShowBlue": true,
+				"bShowAlpha": false,
+				"RangeMin": 0.0,
+				"RangeMax": 1.0
+			}
 		},
 		{
 			"name": "DebugVisualizer2",
-			"type": "DebugVisualizer"
+			"type": "DebugVisualizer",
+			"settings": {
+				"bEnabled": false,
+				"bShowRed": true,
+				"bShowGreen": true,
+				"bShowBlue": true,
+				"bShowAlpha": false,
+				"RangeMin": 0.0,
+				"RangeMax": 1.0
+			}
 		}
 	],
 	"edges": [

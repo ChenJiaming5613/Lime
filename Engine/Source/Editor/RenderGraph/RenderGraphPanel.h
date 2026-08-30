@@ -27,6 +27,7 @@ namespace ax::NodeEditor
 namespace Lime
 {
 	struct FProjectSettings;
+	class FRenderer;
 
 	class FRenderGraphPanel final : public IEditorPanel
 	{
@@ -106,6 +107,10 @@ namespace Lime
 		// Without it a save would only take effect after a rebuild.
 		void RefreshDeployedCopy(const std::filesystem::path& AuthoredPath);
 
+		// Pulls the running instances' current settings back into the description, so a save captures
+		// whatever was tuned this session.
+		void SyncSettingsFromRenderer();
+
 		FRenderGraphDesc Graph;
 		FRenderGraphPassTypeRegistry PassTypes;
 		std::vector<FRenderGraphNodePlacement> Placements;
@@ -131,6 +136,10 @@ namespace Lime
 
 		// Selection is local. FEditorSelection holds an entt::entity, which a pass is not.
 		std::string SelectedPass;
+
+		// Borrowed from the frame context each draw; used to read running pass settings on save. Null
+		// until the panel has been drawn once.
+		FRenderer* Renderer = nullptr;
 
 		// Set for one frame after a load or a relayout. Positions are pushed to the widget only then.
 		bool bApplyPositions = false;

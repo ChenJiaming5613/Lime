@@ -38,9 +38,10 @@ namespace Lime
 		// Name of the supported type behind a value, for diagnostics. "unsupported" when unknown.
 		static const char* GetValueTypeName(const entt::meta_any& Value);
 
-	private:
-		// Instance is passed as an opaque pointer and rebound through meta_type::from_void, which is
-		// the only way to obtain a writable meta_handle without knowing the static type here.
+		// Type-erased batch save/load, for a caller holding a reflected object without its static type
+		// (an FReflectedRef). Instance is passed as an opaque pointer and rebound through
+		// meta_type::from_void. SaveFields writes every non-transient, non-read-only field; LoadFields
+		// applies matching fields and leaves absent ones untouched.
 		static void SaveFields(const entt::meta_type& MetaType, void* Instance, FJson& OutJson);
 		static void LoadFields(const entt::meta_type& MetaType, void* Instance, const FJson& InJson);
 	};

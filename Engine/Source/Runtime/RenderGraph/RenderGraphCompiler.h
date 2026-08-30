@@ -61,6 +61,10 @@ namespace Lime
 		std::string TypeName;
 		std::vector<FCompiledPassBinding> Bindings;
 
+		// Parameter overrides copied from the description, applied to the pass instance at runtime.
+		// Null means "run with defaults".
+		FJson Settings;
+
 		// True when this pass writes something the graph was asked to output, directly or through others.
 		// Passes that do not are culled and never appear here; the flag is kept for diagnostics.
 		bool bContributesToOutput = true;

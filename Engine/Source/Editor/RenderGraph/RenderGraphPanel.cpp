@@ -1,6 +1,7 @@
 #include "Editor/RenderGraph/RenderGraphPanel.h"
 
 #include "Core/Logging/LogManager.h"
+#include "Core/Reflection/JsonArchive.h"
 #include "Editor/PropertyDrawer.h"
 #include "Engine/ProjectSettings.h"
 #include "Platform/PlatformPaths.h"
@@ -263,8 +264,40 @@ namespace Lime
 		return true;
 	}
 
+	void FRenderGraphPanel::SyncSettingsFromRenderer()
+	{
+		if (Renderer == nullptr)
+		{
+			return;
+		}
+
+		for (const FRenderGraphPassInstance& Pass : Graph.GetPasses())
+		{
+			IRenderPass* RunningPass = Renderer->FindGraphPass(Pass.Name);
+			if (RunningPass == nullptr)
+			{
+				// Not in the running graph (added but not applied, or a different file); leave its
+				// stored settings alone.
+				continue;
+			}
+
+			const FReflectedRef Ref = RunningPass->GetReflectedSettings();
+			if (!Ref.IsValid())
+			{
+				continue;
+			}
+
+			FJson Settings;
+			FJsonArchive::SaveFields(Ref.Type, Ref.Instance, Settings);
+			Graph.SetPassSettings(Pass.Name, std::move(Settings));
+		}
+	}
+
 	bool FRenderGraphPanel::SaveToFile(const std::filesystem::path& Path)
 	{
+		// The running instances carry the tuned values; pull them back so the file records them.
+		SyncSettingsFromRenderer();
+
 		if (!FRenderGraphJson::SaveToFile(Path, Graph))
 		{
 			StatusMessage = "Could not write " + Path.filename().string();
@@ -337,6 +370,9 @@ namespace Lime
 
 	void FRenderGraphPanel::OnDrawUI(const FEditorContext& Context)
 	{
+		// Remembered so a later save can read the running passes' settings; the context is per frame.
+		Renderer = Context.Renderer;
+
 		// A graph needs room, and the canvas is asked to fill whatever space it gets. A freshly opened panel
 		// would otherwise be a strip too small to show a single node.
 		ImGui::SetNextWindowSize(ImVec2(1100.0f, 640.0f), ImGuiCond_FirstUseEver);

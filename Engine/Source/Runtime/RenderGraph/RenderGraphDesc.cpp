@@ -32,6 +32,18 @@ namespace Lime
 		return Found != Passes.end() ? &*Found : nullptr;
 	}
 
+	bool FRenderGraphDesc::SetPassSettings(std::string_view PassName, FJson Settings)
+	{
+		const auto Found =
+		    std::find_if(Passes.begin(), Passes.end(), [PassName](const FRenderGraphPassInstance& Pass) { return Pass.Name == PassName; });
+		if (Found == Passes.end())
+		{
+			return false;
+		}
+		Found->Settings = std::move(Settings);
+		return true;
+	}
+
 	bool FRenderGraphDesc::AddPass(std::string InstanceName, std::string TypeName, const FRenderGraphPassTypeRegistry& Types,
 	                              FRenderGraphIssue& OutIssue)
 	{

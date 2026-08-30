@@ -456,6 +456,7 @@ namespace Lime
 			FCompiledPass Compiled;
 			Compiled.PassName = Context.Instance->Name;
 			Compiled.TypeName = Context.Instance->TypeName;
+			Compiled.Settings = Context.Instance->Settings;
 
 			// Bindings are listed outputs first, matching the order the resources were declared in, so a
 			// reader of the compiled result sees a pass the same way the pass declared itself.

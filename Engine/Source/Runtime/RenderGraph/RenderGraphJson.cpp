@@ -67,6 +67,12 @@ namespace Lime
 				FJson Entry;
 				Entry["name"] = Pass.Name;
 				Entry["type"] = Pass.TypeName;
+				// Only written when the pass carries overrides, so a graph that was never tuned stays byte
+				// for byte what it was.
+				if (!Pass.Settings.is_null() && !Pass.Settings.empty())
+				{
+					Entry["settings"] = Pass.Settings;
+				}
 				Passes.push_back(std::move(Entry));
 			}
 			Document["passes"] = std::move(Passes);
@@ -161,7 +167,25 @@ namespace Lime
 			// Routed through AddPass so the file cannot introduce a state the editor would refuse to create:
 			// duplicate names and unknown types are rejected identically either way.
 			FRenderGraphIssue Issue;
-			if (!OutGraph.AddPass(PassName, TypeName, Types, Issue))
+			if (OutGraph.AddPass(PassName, TypeName, Types, Issue))
+			{
+				// Settings ride on the pass, and are read only after the pass exists, so a rejected entry
+				// never leaves an orphaned settings block behind.
+				const auto SettingsIt = Entry.find("settings");
+				if (SettingsIt != Entry.end())
+				{
+					if (SettingsIt->is_object())
+					{
+						OutGraph.SetPassSettings(PassName, *SettingsIt);
+					}
+					else
+					{
+						Result.Issues.push_back(MakeIssue(FRenderGraphIssue::ESeverity::Warning,
+						                                  "Pass '" + PassName + "' has a 'settings' field that is not an object; ignored."));
+					}
+				}
+			}
+			else
 			{
 				Issue.Severity = FRenderGraphIssue::ESeverity::Warning;
 				Result.Issues.push_back(std::move(Issue));

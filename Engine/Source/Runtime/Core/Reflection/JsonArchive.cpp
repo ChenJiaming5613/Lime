@@ -54,7 +54,9 @@ namespace Lime
 		bool ShouldSkip(const entt::meta_data& Data)
 		{
 			const FPropertyMeta* Meta = GetPropertyMeta(Data);
-			return Meta != nullptr && Meta->bTransient;
+			// Transient state is never persisted, and read only fields are derived by the owning code, so
+			// writing them back would be overwritten on the next frame anyway.
+			return Meta != nullptr && (Meta->bTransient || Meta->bReadOnly);
 		}
 	} // namespace
 
