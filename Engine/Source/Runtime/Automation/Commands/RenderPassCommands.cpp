@@ -33,6 +33,13 @@ namespace Lime
 				return nullptr;
 			}
 
+			// Graph passes are addressed by their instance name in the graph, which is how the render
+			// graph panel names them and how two passes of one type stay distinct.
+			if (IRenderPass* GraphPass = Renderer->FindGraphPass(PassName))
+			{
+				return GraphPass;
+			}
+
 			for (const std::shared_ptr<IRenderPass>& Pass : Renderer->GetPasses())
 			{
 				if (PassName == Pass->GetName())
@@ -60,15 +67,18 @@ namespace Lime
 				                  return;
 			                  }
 
-			                  FJson Passes = FJson::array();
 			                  const std::vector<FRenderPassRegistration>& Registrations = FRenderPassRegistry::Get().GetRegistrations();
-			                  for (const std::shared_ptr<IRenderPass>& Pass : Renderer->GetPasses())
+
+			                  // Emits one entry for a pass. The name differs between permanent passes (their
+			                  // display name) and graph passes (their instance name in the graph), which is how
+			                  // pass.get/pass.set address them.
+			                  auto Emit = [&](FJson& Passes, const std::string& Name, IRenderPass& Pass)
 			                  {
 				                  FJson Entry = FJson::object();
-				                  Entry["name"] = Pass->GetName();
-				                  Entry["priority"] = static_cast<int32>(Pass->GetPriority());
+				                  Entry["name"] = Name;
+				                  Entry["priority"] = static_cast<int32>(Pass.GetPriority());
 				                  // Tells a script whether pass.get and pass.set will work on it.
-				                  Entry["hasSettings"] = Pass->GetReflectedSettings().IsValid();
+				                  Entry["hasSettings"] = Pass.GetReflectedSettings().IsValid();
 
 				                  // Whether the engine provides it or the project does. Reported so a script can
 				                  // address the project's own pass without keeping a list of engine pass names,
@@ -79,7 +89,7 @@ namespace Lime
 				                  bool bIsBuiltin = false;
 				                  for (const FRenderPassRegistration& Registration : Registrations)
 				                  {
-					                  if (Registration.Name != nullptr && Pass->GetTypeName() == Registration.Name)
+					                  if (Registration.Name != nullptr && Pass.GetTypeName() == Registration.Name)
 					                  {
 						                  bIsBuiltin = Registration.bIsBuiltin;
 						                  break;
@@ -88,6 +98,19 @@ namespace Lime
 				                  Entry["isBuiltin"] = bIsBuiltin;
 
 				                  Passes.push_back(std::move(Entry));
+			                  };
+
+			                  FJson Passes = FJson::array();
+			                  for (const std::shared_ptr<IRenderPass>& Pass : Renderer->GetPasses())
+			                  {
+				                  Emit(Passes, Pass->GetName(), *Pass);
+			                  }
+			                  for (const auto& [Name, Pass] : Renderer->GetGraphPasses())
+			                  {
+				                  if (Pass != nullptr)
+				                  {
+					                  Emit(Passes, std::string(Name), *Pass);
+				                  }
 			                  }
 
 			                  Invocation.GetResult()["passes"] = std::move(Passes);

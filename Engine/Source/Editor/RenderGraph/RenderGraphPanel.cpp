@@ -1,9 +1,11 @@
 #include "Editor/RenderGraph/RenderGraphPanel.h"
 
 #include "Core/Logging/LogManager.h"
+#include "Editor/PropertyDrawer.h"
 #include "Engine/ProjectSettings.h"
 #include "Platform/PlatformPaths.h"
 #include "Renderer/Passes/BuiltinPasses.h"
+#include "Renderer/Renderer.h"
 
 #include <imgui_node_editor.h>
 
@@ -335,8 +337,6 @@ namespace Lime
 
 	void FRenderGraphPanel::OnDrawUI(const FEditorContext& Context)
 	{
-		LIME_UNUSED(Context);
-
 		// A graph needs room, and the canvas is asked to fill whatever space it gets. A freshly opened panel
 		// would otherwise be a strip too small to show a single node.
 		ImGui::SetNextWindowSize(ImVec2(1100.0f, 640.0f), ImGuiCond_FirstUseEver);
@@ -381,7 +381,7 @@ namespace Lime
 		{
 			ImGui::SameLine();
 			ImGui::BeginChild("##Details", ImVec2(0.0f, 0.0f), true);
-			DrawSelectionDetails();
+			DrawSelectionDetails(Context);
 			ImGui::Separator();
 			DrawIssueList();
 			ImGui::EndChild();
@@ -834,7 +834,7 @@ namespace Lime
 		}
 	}
 
-	void FRenderGraphPanel::DrawSelectionDetails()
+	void FRenderGraphPanel::DrawSelectionDetails(const FEditorContext& Context)
 	{
 		ImGui::TextUnformatted("Selected Pass");
 		ImGui::Separator();
@@ -919,6 +919,33 @@ namespace Lime
 					Line += "  [out " + std::to_string(Slot) + "]";
 				}
 				DrawWrappedBullet(Line);
+			}
+		}
+
+		// Settings for the running instance of this pass, if the graph on screen matches the one the
+		// renderer is executing. Editing writes straight into that instance, and two passes of the same
+		// type are distinct instances, so their settings stay independent.
+		if (Context.Renderer != nullptr)
+		{
+			if (IRenderPass* RunningPass = Context.Renderer->FindGraphPass(SelectedPass))
+			{
+				const FReflectedRef Settings = RunningPass->GetReflectedSettings();
+				if (Settings.IsValid())
+				{
+					ImGui::Separator();
+					ImGui::TextDisabled("Settings");
+					// Unique ID per instance so two passes of the same type never share ImGui id state.
+					ImGui::PushID(RunningPass);
+					FPropertyDrawer::Draw(Settings);
+					ImGui::PopID();
+				}
+			}
+			else
+			{
+				// On screen but not running: added without applying, or the running graph came from a
+				// different file.
+				ImGui::Separator();
+				ImGui::TextDisabled("Not in the running graph");
 			}
 		}
 

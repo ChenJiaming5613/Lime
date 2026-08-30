@@ -85,7 +85,7 @@ namespace Lime
 		void DrawToolbar();
 		void DrawPassTypeList();
 		void DrawGraphCanvas();
-		void DrawSelectionDetails();
+		void DrawSelectionDetails(const FEditorContext& Context);
 		void DrawIssueList();
 
 		// Edits requested by the canvas, applied after drawing finishes: adding or removing a pass changes

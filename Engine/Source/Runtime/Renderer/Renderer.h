@@ -23,6 +23,8 @@
 
 #include <functional>
 #include <memory>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Lime
@@ -65,6 +67,16 @@ namespace Lime
 		}
 
 		const std::vector<std::shared_ptr<IRenderPass>>& GetPasses() const { return Passes; }
+
+		// Resolves a graph pass by its instance name in the graph (e.g. "DebugVisualizer2" rather than the
+		// type name). Two graph instances of the same type are distinct, so this is how the render graph
+		// panel and the automation commands address a specific one. Returns nullptr when no graph is
+		// loaded or the name is not in it.
+		IRenderPass* FindGraphPass(std::string_view PassName) const;
+
+		// The running graph's passes as (instance name, pass) pairs, in execution order. Empty when no
+		// graph is loaded. The names are what FindGraphPass and the render graph panel address passes by.
+		std::vector<std::pair<std::string_view, IRenderPass*>> GetGraphPasses() const;
 
 		// Adopts a compiled graph as the scene plan, matching each compiled entry to a registered pass.
 		//

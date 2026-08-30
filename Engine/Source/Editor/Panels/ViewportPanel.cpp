@@ -86,7 +86,13 @@ namespace Lime
 	{
 		// No padding, so the image lines up with the panel edges.
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		const bool bOpen = ImGui::Begin(GetName(), GetVisiblePtr());
+		// The panel is a fixed image, not a scrollable surface. Without disabling the scrollbar, a
+		// secondary viewport whose aspect-scaled image is taller than the panel pushes content past the
+		// bottom edge, which makes ImGui show a vertical scrollbar. That scrollbar narrows the available
+		// width, which shrinks the width-scaled image height and can bring it back inside the panel,
+		// hiding the scrollbar again — a feedback loop that reads as a jittering scrollbar.
+		constexpr ImGuiWindowFlags WindowFlags = ImGuiWindowFlags_NoScrollbar;
+		const bool bOpen = ImGui::Begin(GetName(), GetVisiblePtr(), WindowFlags);
 		ImGui::PopStyleVar();
 
 		if (!bOpen)

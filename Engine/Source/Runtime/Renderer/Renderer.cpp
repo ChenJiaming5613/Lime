@@ -7,6 +7,7 @@
 
 #include <nvrhi/utils.h>
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 
@@ -289,6 +290,33 @@ namespace Lime
 			}
 		}
 		return nullptr;
+	}
+
+	IRenderPass* FRenderer::FindGraphPass(std::string_view PassName) const
+	{
+		const std::vector<FCompiledPass>& Order = SceneGraphPlan.Compiled.ExecutionOrder;
+		const SizeType Count = std::min(Order.size(), SceneGraphPlan.Passes.size());
+		for (SizeType Index = 0; Index < Count; ++Index)
+		{
+			if (Order[Index].PassName == PassName)
+			{
+				return SceneGraphPlan.Passes[Index].get();
+			}
+		}
+		return nullptr;
+	}
+
+	std::vector<std::pair<std::string_view, IRenderPass*>> FRenderer::GetGraphPasses() const
+	{
+		std::vector<std::pair<std::string_view, IRenderPass*>> Result;
+		const std::vector<FCompiledPass>& Order = SceneGraphPlan.Compiled.ExecutionOrder;
+		const SizeType Count = std::min(Order.size(), SceneGraphPlan.Passes.size());
+		Result.reserve(Count);
+		for (SizeType Index = 0; Index < Count; ++Index)
+		{
+			Result.emplace_back(Order[Index].PassName, SceneGraphPlan.Passes[Index].get());
+		}
+		return Result;
 	}
 
 	void FRenderer::NotifySceneFramebuffer(nvrhi::IFramebuffer* Framebuffer)
