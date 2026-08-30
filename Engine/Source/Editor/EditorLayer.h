@@ -8,6 +8,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorSettings.h"
+#include "Editor/Panels/CameraSettingsPanel.h"
 #include "Editor/Panels/EditorPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/ViewportPanel.h"

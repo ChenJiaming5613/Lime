@@ -13,6 +13,8 @@ set(EditorSources
 	EditorSettings.cpp
 	PropertyDrawer.h
 	PropertyDrawer.cpp
+	Panels/CameraSettingsPanel.h
+	Panels/CameraSettingsPanel.cpp
 	Panels/ConsolePanel.h
 	Panels/ConsolePanel.cpp
 	Panels/EditorPanel.h

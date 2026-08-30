@@ -31,6 +31,8 @@ lime_add_module(
 		Passes/PostProcessPass.cpp
 		Passes/DebugVisualizerPass.h
 		Passes/DebugVisualizerPass.cpp
+		Passes/SkyboxPass.h
+		Passes/SkyboxPass.cpp
 		Passes/BuiltinPasses.h
 		Passes/BuiltinPasses.cpp
 		ImGui/EditorUIPass.h
@@ -41,5 +43,8 @@ lime_add_module(
 		LimeScene
 		LimeRenderGraph
 		imgui
+	# stb_image comes from the tinygltf target, which already compiles its implementation. The skybox pass
+	# includes only the declarations and decodes the HDR through that single copy.
+	PRIVATE_DEPS tinygltf
 	FOLDER "Engine/Runtime"
 )

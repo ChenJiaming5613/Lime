@@ -2,6 +2,28 @@
 	"name": "Untitled",
 	"passes": [
 		{
+			"name": "DebugVisualizer2",
+			"type": "DebugVisualizer",
+			"settings": {
+				"bEnabled": false,
+				"bShowRed": true,
+				"bShowGreen": true,
+				"bShowBlue": true,
+				"bShowAlpha": false,
+				"RangeMin": 0.0,
+				"RangeMax": 1.0
+			}
+		},
+		{
+			"name": "Skybox",
+			"type": "Skybox",
+			"settings": {
+				"bEnabled": true,
+				"Exposure": 0.2160000056028366,
+				"EnvironmentMapPath": "EnvironmentMaps/sunny_country_road_4k.hdr"
+			}
+		},
+		{
 			"name": "ShadowCaster",
 			"type": "ShadowCaster",
 			"settings": {
@@ -11,7 +33,7 @@
 			}
 		},
 		{
-			"name": "ForwardLit",
+			"name": "BlinnPhongForwardLit",
 			"type": "BlinnPhongForwardLit",
 			"settings": {
 				"bEnabled": true,
@@ -31,52 +53,64 @@
 		},
 		{
 			"name": "DebugVisualizer",
-			"type": "DebugVisualizer",
-			"settings": {
-				"bEnabled": true,
-				"bShowRed": true,
-				"bShowGreen": true,
-				"bShowBlue": true,
-				"bShowAlpha": false,
-				"RangeMin": 0.0,
-				"RangeMax": 1.0
-			}
+			"type": "DebugVisualizer"
 		},
 		{
-			"name": "DebugVisualizer2",
-			"type": "DebugVisualizer",
-			"settings": {
-				"bEnabled": false,
-				"bShowRed": true,
-				"bShowGreen": true,
-				"bShowBlue": true,
-				"bShowAlpha": false,
-				"RangeMin": 0.0,
-				"RangeMax": 1.0
-			}
+			"name": "DebugVisualizer3",
+			"type": "DebugVisualizer"
+		},
+		{
+			"name": "DebugVisualizer4",
+			"type": "DebugVisualizer"
+		},
+		{
+			"name": "DebugVisualizer5",
+			"type": "DebugVisualizer"
 		}
 	],
 	"edges": [
 		{
 			"from": "ShadowCaster.shadowDepth",
-			"to": "ForwardLit.shadowDepth"
+			"to": "BlinnPhongForwardLit.shadowDepth"
 		},
 		{
-			"from": "ForwardLit.color",
+			"from": "BlinnPhongForwardLit.color",
+			"to": "Skybox.sceneColor"
+		},
+		{
+			"from": "BlinnPhongForwardLit.depth",
+			"to": "Skybox.sceneDepth"
+		},
+		{
+			"from": "Skybox.color",
 			"to": "PostProcess.sceneColor"
 		},
 		{
-			"from": "ForwardLit.depth",
+			"from": "PostProcess.color",
 			"to": "DebugVisualizer.source"
 		},
 		{
-			"from": "ShadowCaster.shadowDepth",
+			"from": "BlinnPhongForwardLit.color",
 			"to": "DebugVisualizer2.source"
+		},
+		{
+			"from": "BlinnPhongForwardLit.depth",
+			"to": "DebugVisualizer3.source"
+		},
+		{
+			"from": "ShadowCaster.shadowDepth",
+			"to": "DebugVisualizer4.source"
+		},
+		{
+			"from": "Skybox.color",
+			"to": "DebugVisualizer5.source"
 		}
 	],
 	"graphOutputs": [
-		"PostProcess.color",
 		"DebugVisualizer.color",
-		"DebugVisualizer2.color"
+		"DebugVisualizer2.color",
+		"DebugVisualizer3.color",
+		"DebugVisualizer4.color",
+		"DebugVisualizer5.color"
 	]
 }

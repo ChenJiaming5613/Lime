@@ -3,6 +3,7 @@
 #include "Core/Math/Vector.h"
 
 #include <imgui.h>
+#include <imgui_stdlib.h>
 
 namespace Lime
 {
@@ -161,11 +162,10 @@ namespace Lime
 		{
 			return DrawFloatVector<2>(Label, Meta, &Vector2->X);
 		}
-		if (const std::string* StringValue = Value.try_cast<std::string>())
+		if (std::string* StringValue = Value.try_cast<std::string>())
 		{
-			// Read only: editing strings needs a resizable buffer, which is not worth it yet.
-			ImGui::LabelText(Label, "%s", StringValue->c_str());
-			return false;
+			// Resizes through ImGui's callback so a path can be pasted without a fixed buffer to overflow.
+			return ImGui::InputText(Label, StringValue);
 		}
 
 		ImGui::TextDisabled("%s: unsupported type", Label);

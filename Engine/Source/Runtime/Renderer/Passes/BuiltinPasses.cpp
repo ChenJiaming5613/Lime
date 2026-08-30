@@ -5,6 +5,7 @@
 #include "Renderer/Passes/DebugVisualizerPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
 #include "Renderer/Passes/ShadowCasterPass.h"
+#include "Renderer/Passes/SkyboxPass.h"
 #include "Renderer/RenderPassRegistry.h"
 
 #include <memory>
@@ -37,6 +38,7 @@ namespace Lime
 			RegisterPass<FBlinnPhongForwardLitPass>();
 			RegisterPass<FPostProcessPass>();
 			RegisterPass<FDebugVisualizerPass>();
+			RegisterPass<FSkyboxPass>();
 			return true;
 		}();
 		LIME_UNUSED(bRegistered);

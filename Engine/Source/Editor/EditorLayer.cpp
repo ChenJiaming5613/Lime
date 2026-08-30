@@ -207,6 +207,7 @@ namespace Lime
 		Panels.push_back(std::make_shared<FConsolePanel>());
 		Panels.push_back(std::make_shared<FStatsPanel>());
 		Panels.push_back(std::make_shared<FInspectorPanel>());
+		Panels.push_back(std::make_shared<FCameraSettingsPanel>());
 
 		auto SettingsPanel = std::make_shared<FProjectSettingsPanel>();
 		SettingsPanel->Initialize(ProjectSettings);
