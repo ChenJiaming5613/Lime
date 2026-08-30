@@ -1,4 +1,5 @@
 #include "Renderer/Renderer.h"
+#include "Renderer/RenderPassRegistry.h"
 
 #include "Core/Logging/LogManager.h"
 #include "Platform/PlatformPaths.h"
@@ -6,8 +7,13 @@
 
 #include <nvrhi/utils.h>
 
+#include <string>
+#include <unordered_map>
+
 namespace Lime
 {
+	FRenderer::FRenderer() : ViewportTargets{std::vector<FViewportTarget>(1)} {}
+
 	FRenderer::~FRenderer()
 	{
 		Shutdown();
@@ -46,8 +52,8 @@ namespace Lime
 			return;
 		}
 
-		// Released before the passes, since the plan holds the same pass instances and its views hold
-		// textures the passes may still be bound to.
+		// Released before the permanent passes, since the graph plan's resources hold textures the graph
+		// passes may still be bound to.
 		ClearRenderGraph();
 
 		// Passes are torn down before the command list so their handles are released first.
@@ -58,7 +64,10 @@ namespace Lime
 		Passes.clear();
 
 		ViewportResizedDelegate = nullptr;
-		ViewportTarget.Shutdown();
+		for (auto& ViewportTarget : ViewportTargets)
+		{
+			ViewportTarget.Shutdown();
+		}
 		bOffscreenEnabled = false;
 
 		CommandList = nullptr;
@@ -81,18 +90,25 @@ namespace Lime
 			return true;
 		}
 
-		// Same format as the back buffer, so the UI pass samples it without a conversion.
-		if (!ViewportTarget.Initialize(Device, DeviceManager->GetBackBufferFormat(), Width, Height))
+		bool Failed = false;
+		for (auto& ViewportTarget : ViewportTargets)
 		{
-			return false;
+			// Same format as the back buffer, so the UI pass samples it without a conversion.
+			if (!ViewportTarget.Initialize(Device, DeviceManager->GetBackBufferFormat(), Width, Height))
+			{
+				Failed = true;
+				break;
+			}
+
+			LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Scene renders into the viewport target ({}x{})", ViewportTarget.GetWidth(),
+					  ViewportTarget.GetHeight());
 		}
+
+		if (Failed) return false;
 
 		bOffscreenEnabled = true;
 		// Scene passes were built against the back buffer layout and must be rebuilt.
 		NotifySceneFramebuffer(nullptr);
-
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Scene renders into the viewport target ({}x{})", ViewportTarget.GetWidth(),
-		              ViewportTarget.GetHeight());
 		return true;
 	}
 
@@ -108,7 +124,10 @@ namespace Lime
 		{
 			Device->waitForIdle();
 		}
-		ViewportTarget.Shutdown();
+		for (auto& ViewportTarget : ViewportTargets)
+		{
+			ViewportTarget.Shutdown();
+		}
 		bOffscreenEnabled = false;
 	}
 
@@ -147,45 +166,83 @@ namespace Lime
 		if (!Compiled.bSucceeded)
 		{
 			// Kept rather than discarded. Nothing runs either way, but a caller asking why gets the issues
-			// instead of an empty result that looks like no graph was ever configured.
-			SceneGraphPlan.Reset();
+			// instead of an empty result that looks like no graph was ever configured. The previous plan
+			// is torn down so its passes are shut down properly.
+			ClearRenderGraph();
 			SceneGraphPlan.Compiled = std::move(Compiled);
-			SceneGraphResources.Release();
-			GraphResourceWidth = 0;
-			GraphResourceHeight = 0;
 			return false;
 		}
 
-		// Resolved against the passes this build actually has. A compiled graph proves the file was
-		// consistent with the reflected types, not that an instance exists to run each entry, and those can
-		// differ: a pass whose Initialize failed was never added.
+		// One instance per compiled entry, created from the registry's factory. Sharing a single
+		// instance across graph instances of the same type aliases their per-source state (a binding
+		// set, a pipeline) and the second instance ends up rendering with the first one's resources,
+		// which is the bug this resolves. A graph that names an unregistered pass fails here rather
+		// than silently substituting.
+		std::unordered_map<std::string, FRenderPassRegistration::FFactory> FactoriesByType;
+		for (const FRenderPassRegistration& Registration : FRenderPassRegistry::Get().GetRegistrations())
+		{
+			if (Registration.Factory != nullptr && Registration.Name != nullptr)
+			{
+				FactoriesByType.emplace(Registration.Name, Registration.Factory);
+			}
+		}
+
 		std::vector<std::shared_ptr<IRenderPass>> Resolved;
 		Resolved.reserve(Compiled.ExecutionOrder.size());
 
 		for (const FCompiledPass& CompiledPass : Compiled.ExecutionOrder)
 		{
-			std::shared_ptr<IRenderPass> Match;
-			for (const std::shared_ptr<IRenderPass>& Candidate : Passes)
+			const auto FactoryIt = FactoriesByType.find(CompiledPass.TypeName);
+			if (FactoryIt == FactoriesByType.end() || FactoryIt->second == nullptr)
 			{
-				if (CompiledPass.TypeName == Candidate->GetTypeName())
+				// The previous plan is left alone. Replacing half of it would leave the renderer
+				// executing a graph that matches neither what was asked for nor what it had.
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER,
+				               "Render graph names pass type '{}', which this build has no factory for", CompiledPass.TypeName);
+				for (auto& Created : Resolved)
 				{
-					Match = Candidate;
-					break;
+					Created->Shutdown();
 				}
-			}
-
-			if (Match == nullptr)
-			{
-				// The previous plan is left alone. Replacing half of it would leave the renderer executing a
-				// graph that matches neither what was asked for nor what it had.
-				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render graph names pass type '{}', which this build has no instance of",
-				               CompiledPass.TypeName);
 				return false;
 			}
 
-			Resolved.push_back(std::move(Match));
+			std::shared_ptr<IRenderPass> Pass = FactoryIt->second();
+			if (Pass == nullptr)
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Factory for pass type '{}' returned null", CompiledPass.TypeName);
+				for (auto& Created : Resolved)
+				{
+					Created->Shutdown();
+				}
+				return false;
+			}
+
+			if (!Pass->Initialize(*this))
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "Render pass '{}' failed to initialize and was not retained",
+				               Pass->GetName());
+				Pass->Shutdown();
+				for (auto& Created : Resolved)
+				{
+					Created->Shutdown();
+				}
+				return false;
+			}
+
+			// A pass added after the first frame must not wait for a framebuffer change to build its
+			// pipeline, so it is given the framebuffer of the stage it belongs to. Graph passes are
+			// always scene stage.
+			if (LastSceneFramebuffer != nullptr)
+			{
+				Pass->OnFramebufferChanged(LastSceneFramebuffer);
+			}
+
+			Resolved.push_back(std::move(Pass));
 		}
 
+		// Install only after the new instances are fully built, so a failure leaves the old plan
+		// untouched.
+		ClearRenderGraph();
 		SceneGraphPlan.Compiled = std::move(Compiled);
 		SceneGraphPlan.Passes = std::move(Resolved);
 
@@ -201,6 +258,12 @@ namespace Lime
 
 	void FRenderer::ClearRenderGraph()
 	{
+		// Passes torn down in reverse so anything a later pass holds is released first, then the
+		// resources that referenced them.
+		for (auto Iterator = SceneGraphPlan.Passes.rbegin(); Iterator != SceneGraphPlan.Passes.rend(); ++Iterator)
+		{
+			(*Iterator)->Shutdown();
+		}
 		SceneGraphPlan.Reset();
 		SceneGraphResources.Release();
 		GraphResourceWidth = 0;
@@ -210,6 +273,15 @@ namespace Lime
 	IRenderPass* FRenderer::FindPassByTypeId(FRenderPassTypeId TypeId) const
 	{
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
+		{
+			if (Pass->GetTypeId() == TypeId)
+			{
+				return Pass.get();
+			}
+		}
+		// Graph passes live on the plan, not in the permanent list. The permanent list is searched
+		// first so a registration marked permanent (the editor UI pass) takes precedence.
+		for (const std::shared_ptr<IRenderPass>& Pass : SceneGraphPlan.Passes)
 		{
 			if (Pass->GetTypeId() == TypeId)
 			{
@@ -227,6 +299,11 @@ namespace Lime
 			{
 				Pass->OnFramebufferChanged(Framebuffer);
 			}
+		}
+		// Graph passes are scene stage and live on the plan.
+		for (const std::shared_ptr<IRenderPass>& Pass : SceneGraphPlan.Passes)
+		{
+			Pass->OnFramebufferChanged(Framebuffer);
 		}
 		LastSceneFramebuffer = Framebuffer;
 	}
@@ -258,16 +335,16 @@ namespace Lime
 
 		// A resize requested by the viewport panel last frame is applied here, before anything binds
 		// the target.
-		if (bOffscreenEnabled && ViewportTarget.ApplyPendingResize())
+		if (bOffscreenEnabled && GetMainViewportTarget().ApplyPendingResize())
 		{
 			NotifySceneFramebuffer(nullptr);
 			if (ViewportResizedDelegate != nullptr)
 			{
-				ViewportResizedDelegate(ViewportTarget);
+				ViewportResizedDelegate(GetMainViewportTarget());
 			}
 		}
 
-		nvrhi::IFramebuffer* SceneFramebuffer = bOffscreenEnabled ? ViewportTarget.GetFramebuffer() : BackBuffer;
+		nvrhi::IFramebuffer* SceneFramebuffer = bOffscreenEnabled ? GetMainViewportTarget().GetFramebuffer() : BackBuffer;
 		if (SceneFramebuffer == nullptr)
 		{
 			return false;
@@ -290,8 +367,8 @@ namespace Lime
 		SceneContext.Scene = Scene;
 		SceneContext.Camera = Camera;
 		SceneContext.bIsOffscreen = bOffscreenEnabled;
-		SceneContext.ViewportWidth = bOffscreenEnabled ? ViewportTarget.GetWidth() : DeviceManager->GetBackBufferWidth();
-		SceneContext.ViewportHeight = bOffscreenEnabled ? ViewportTarget.GetHeight() : DeviceManager->GetBackBufferHeight();
+		SceneContext.ViewportWidth = bOffscreenEnabled ? GetMainViewportTarget().GetWidth() : DeviceManager->GetBackBufferWidth();
+		SceneContext.ViewportHeight = bOffscreenEnabled ? GetMainViewportTarget().GetHeight() : DeviceManager->GetBackBufferHeight();
 
 		EditorUIContext = SceneContext;
 		EditorUIContext.Framebuffer = BackBuffer;
@@ -303,6 +380,11 @@ namespace Lime
 		for (const std::shared_ptr<IRenderPass>& Pass : Passes)
 		{
 			Pass->OnBeginFrame(*this, IsEditorUIPass(*Pass) ? EditorUIContext : SceneContext);
+		}
+		// Graph passes live on the plan and always run in the scene stage.
+		for (const std::shared_ptr<IRenderPass>& Pass : SceneGraphPlan.Passes)
+		{
+			Pass->OnBeginFrame(*this, SceneContext);
 		}
 
 		bFrameOpen = true;
@@ -349,7 +431,10 @@ namespace Lime
 		// here would only cover one of the graph's targets.
 		ExecuteRenderGraph(SceneGraphPlan, SceneGraphResources, SceneContext, ClearColor);
 
-		PresentRenderGraphOutput();
+		for (SizeType Slot = 0; Slot < SceneGraphResources.GetOutputCount(); ++Slot)
+		{
+			PresentRenderGraphOutput(Slot);
+		}
 
 		CommandList->close();
 		Device->executeCommandList(CommandList);
@@ -392,20 +477,35 @@ namespace Lime
 			}
 		}
 
+		SizeType Count = SceneGraphResources.GetOutputCount();
+		ViewportTargets.resize(Count);
+		for (SizeType Index = 1; Index < Count; ++Index)
+		{
+			const auto& MainViewportTarget = GetMainViewportTarget();
+			// Same format as the back buffer, so the UI pass samples it without a conversion.
+			if (!ViewportTargets[Index].Initialize(Device, DeviceManager->GetBackBufferFormat(), MainViewportTarget.GetWidth(), MainViewportTarget.GetHeight()))
+			{
+				continue;
+			}
+
+			LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Scene renders into the viewport target ({}x{})", ViewportTargets[Index].GetWidth(),
+					  ViewportTargets[Index].GetHeight());
+		}
+
 		return true;
 	}
 
-	void FRenderer::PresentRenderGraphOutput()
+	void FRenderer::PresentRenderGraphOutput(SizeType Slot)
 	{
 		// Only meaningful offscreen: when the scene renders straight to the back buffer there is no viewport
 		// texture for the editor to sample.
-		if (!bOffscreenEnabled || !ViewportTarget.IsValid())
+		if (!bOffscreenEnabled || Slot >= ViewportTargets.size() || !ViewportTargets[Slot].IsValid())
 		{
 			return;
 		}
 
-		nvrhi::ITexture* Output = SceneGraphResources.FindOutputTexture(0);
-		nvrhi::ITexture* Destination = ViewportTarget.GetTexture();
+		nvrhi::ITexture* Output = SceneGraphResources.FindOutputTexture(Slot);
+		nvrhi::ITexture* Destination = ViewportTargets[Slot].GetTexture();
 		if (Output == nullptr || Destination == nullptr)
 		{
 			return;

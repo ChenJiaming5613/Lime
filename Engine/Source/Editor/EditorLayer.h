@@ -109,10 +109,10 @@ namespace Lime
 		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();
 		// Rebinds the scene texture after the viewport target was recreated.
-		void RefreshViewportTexture();
+		void RefreshViewportTexture(SizeType Index);
 
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
-		std::shared_ptr<FViewportPanel> ViewportPanel;
+		std::vector<std::shared_ptr<FViewportPanel>> ViewportPanels;
 #if LIME_WITH_NODE_EDITOR
 		// Held by concrete type so the automation commands can load and save through it. Also in Panels,
 		// which is what draws it; this is a second reference, not a second panel.
@@ -126,7 +126,7 @@ namespace Lime
 #if LIME_WITH_IMGUI_TEST_ENGINE
 		FEditorTestEngine TestEngine;
 #endif
-		ImTextureID ViewportTextureId = ImTextureID_Invalid;
+		std::vector<ImTextureID> ViewportTextureIds;
 		std::string LayoutFilePath;
 		bool bInitialized = false;
 		// True when an ini file already existed, so the default layout must not overwrite it.

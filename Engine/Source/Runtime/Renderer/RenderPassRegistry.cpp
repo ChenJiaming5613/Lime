@@ -37,13 +37,13 @@ namespace Lime
 	}
 
 	void FRenderPassRegistry::Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory,
-	                                  bool bIsBuiltin)
+	                                  bool bIsBuiltin, bool bIsPermanent)
 	{
 		if (Factory == nullptr)
 		{
 			return;
 		}
-		Registrations.push_back(FRenderPassRegistration{ Name, Priority, std::move(Factory), bIsBuiltin });
+		Registrations.push_back(FRenderPassRegistration{ Name, Priority, std::move(Factory), bIsBuiltin, bIsPermanent });
 	}
 
 	std::vector<FRenderPassRegistration> FRenderPassRegistry::GetSortedRegistrations() const
@@ -66,6 +66,24 @@ namespace Lime
 		std::string Summary;
 		for (const FRenderPassRegistration& Registration : Sorted)
 		{
+			// Graph-only passes are created on demand by the render graph, one per graph instance. A
+			// single shared instance would alias their per-source state, which is the bug that moved
+			// them out of the renderer's permanent list. Listed in the summary with a marker so a
+			// missing registration is still visible in the log.
+			if (!Registration.bIsPermanent)
+			{
+				if (!Summary.empty())
+				{
+					Summary += ", ";
+				}
+				Summary += Registration.Name;
+				Summary += '(';
+				Summary += ToString(Registration.Priority);
+				Summary += ", graph";
+				Summary += ')';
+				continue;
+			}
+
 			std::shared_ptr<IRenderPass> Pass = Registration.Factory();
 			if (Pass == nullptr)
 			{

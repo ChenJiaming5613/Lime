@@ -32,6 +32,11 @@ namespace Lime
 		// to be able to tell them apart, and a list of engine pass names kept outside the engine goes stale
 		// the moment one is added or renamed.
 		bool bIsBuiltin = false;
+		// True when the pass should be added to the renderer as a permanent instance. False when the
+		// pass is created on demand by the render graph, one per graph instance, which is the normal
+		// case: a single shared instance would alias per-source state (a binding set, a pipeline)
+		// across graph instances of the same type.
+		bool bIsPermanent = false;
 	};
 
 	class FRenderPassRegistry
@@ -41,7 +46,8 @@ namespace Lime
 
 		// bIsBuiltin defaults to false, so a project registering through LIME_REGISTER_RENDER_PASS is
 		// correctly reported as its own without having to say so.
-		void Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory, bool bIsBuiltin = false);
+		void Register(const char* Name, ERenderPassPriority Priority, FRenderPassRegistration::FFactory Factory, bool bIsBuiltin = false,
+	              bool bIsPermanent = false);
 
 		// Creates and registers every entry, ordered by priority. Called once by FEngine after the
 		// device exists, so passes always see a usable renderer.

@@ -16,6 +16,10 @@
 		{
 			"name": "DebugVisualizer",
 			"type": "DebugVisualizer"
+		},
+		{
+			"name": "DebugVisualizer2",
+			"type": "DebugVisualizer"
 		}
 	],
 	"edges": [
@@ -30,9 +34,15 @@
 		{
 			"from": "ForwardLit.depth",
 			"to": "DebugVisualizer.source"
+		},
+		{
+			"from": "ShadowCaster.shadowDepth",
+			"to": "DebugVisualizer2.source"
 		}
 	],
 	"graphOutputs": [
-		"DebugVisualizer.color"
+		"PostProcess.color",
+		"DebugVisualizer.color",
+		"DebugVisualizer2.color"
 	]
 }

@@ -130,7 +130,7 @@ namespace Lime
 				OutError = "The viewport target only exists while the editor is active; capture the back buffer instead";
 				return nullptr;
 			}
-			Texture = Renderer->GetViewportTarget().GetTexture();
+			Texture = Renderer->GetMainViewportTarget().GetTexture();
 		}
 		else
 		{

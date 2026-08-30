@@ -73,6 +73,15 @@ namespace Lime
 		}
 	} // namespace
 
+	uint32 FViewportPanel::ViewportCount = 0;
+
+	FViewportPanel::FViewportPanel()
+	{
+		Name = std::format("Viewport{}", ViewportCount);
+		ViewportIndex = ViewportCount;
+		ViewportCount++;
+	}
+
 	void FViewportPanel::OnDrawUI(const FEditorContext& Context)
 	{
 		// No padding, so the image lines up with the panel edges.
@@ -98,7 +107,22 @@ namespace Lime
 
 		if (TextureId != ImTextureID_Invalid && Available.x >= 1.0f && Available.y >= 1.0f)
 		{
-			ImGui::Image(TextureId, Available);
+			// The main viewport fills the panel: its texture is recreated to match the panel size, so any
+			// mismatch is the one frame a resize takes to apply. Secondary viewports only display their
+			// output, so they keep the texture's aspect ratio instead of stretching: the width fills the
+			// panel and the height follows the ratio, centred vertically so a shorter image letterboxes and
+			// a taller one crops evenly top and bottom.
+			if (ViewportIndex == 0 || TextureWidth == 0 || TextureHeight == 0)
+			{
+				ImGui::Image(TextureId, Available);
+			}
+			else
+			{
+				const float DisplayHeight = Available.x * static_cast<float>(TextureHeight) / static_cast<float>(TextureWidth);
+				const float OffsetY = (Available.y - DisplayHeight) * 0.5f;
+				ImGui::SetCursorPosY(ImGui::GetCursorPosY() + OffsetY);
+				ImGui::Image(TextureId, ImVec2(Available.x, DisplayHeight));
+			}
 		}
 		else
 		{

@@ -32,7 +32,7 @@ namespace Lime
 	class FRenderer
 	{
 	public:
-		FRenderer() = default;
+		FRenderer();
 		~FRenderer();
 
 		LIME_NON_COPYABLE(FRenderer);
@@ -45,7 +45,12 @@ namespace Lime
 		bool EnableOffscreenRendering(uint32 Width, uint32 Height);
 		void DisableOffscreenRendering();
 		bool IsOffscreenRenderingEnabled() const { return bOffscreenEnabled; }
-		FViewportTarget& GetViewportTarget() { return ViewportTarget; }
+		FViewportTarget& GetMainViewportTarget() { return ViewportTargets[0]; }
+		FViewportTarget* GetViewportTarget(SizeType Index = 0)
+		{
+			if (Index >= ViewportTargets.size()) return nullptr;
+			return &ViewportTargets[Index];
+		}
 
 		// Initializes the pass and inserts it by priority. Returns false when initialization failed,
 		// in which case the pass is not retained.
@@ -119,7 +124,7 @@ namespace Lime
 		// Copies the graph's first marked output into the viewport target, which is what the editor samples.
 		// A blit rather than rendering straight into the target, because the graph's own output may be a
 		// different format and the pass that produced it does not know what the editor wants.
-		void PresentRenderGraphOutput();
+		void PresentRenderGraphOutput(SizeType Slot);
 
 		// The output format last reported as unable to reach the viewport. Remembered so the warning is
 		// logged once rather than every frame, and reset on a successful copy so a later mismatch is
@@ -141,7 +146,7 @@ namespace Lime
 		uint32 GraphResourceWidth = 0;
 		uint32 GraphResourceHeight = 0;
 
-		FViewportTarget ViewportTarget;
+		std::vector<FViewportTarget> ViewportTargets;
 		FViewportResizedDelegate ViewportResizedDelegate;
 
 		FFrameContext SceneContext;

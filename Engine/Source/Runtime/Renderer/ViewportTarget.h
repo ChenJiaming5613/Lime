@@ -19,8 +19,8 @@ namespace Lime
 		FViewportTarget() = default;
 		~FViewportTarget();
 
-		LIME_NON_COPYABLE(FViewportTarget);
-		LIME_NON_MOVABLE(FViewportTarget);
+		// LIME_NON_COPYABLE(FViewportTarget);
+		// LIME_NON_MOVABLE(FViewportTarget);
 
 		bool Initialize(nvrhi::IDevice* InDevice, nvrhi::Format InFormat, uint32 Width, uint32 Height);
 		void Shutdown();

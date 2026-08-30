@@ -108,8 +108,8 @@ namespace Lime
 				                  Result["offscreenRendering"] = Context.Renderer->IsOffscreenRenderingEnabled();
 				                  if (Context.Renderer->IsOffscreenRenderingEnabled())
 				                  {
-					                  Result["viewportWidth"] = Context.Renderer->GetViewportTarget().GetWidth();
-					                  Result["viewportHeight"] = Context.Renderer->GetViewportTarget().GetHeight();
+					                  Result["viewportWidth"] = Context.Renderer->GetMainViewportTarget().GetWidth();
+					                  Result["viewportHeight"] = Context.Renderer->GetMainViewportTarget().GetHeight();
 				                  }
 			                  }
 		                  });

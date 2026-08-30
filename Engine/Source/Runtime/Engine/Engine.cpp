@@ -431,13 +431,14 @@ namespace Lime
 
 		// Set every frame because the viewport can be resized at any time; a stale ratio shows as a
 		// horizontally stretched image.
-		const uint32 Width =
-		    Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetWidth() : DeviceManager->GetBackBufferWidth();
-		const uint32 Height =
-		    Renderer.IsOffscreenRenderingEnabled() ? Renderer.GetViewportTarget().GetHeight() : DeviceManager->GetBackBufferHeight();
-		if (Height > 0)
+		if (FViewportTarget* ViewportTarget = Renderer.GetViewportTarget(); ViewportTarget != nullptr)
 		{
-			Camera.SetAspectRatio(static_cast<float>(Width) / static_cast<float>(Height));
+			const uint32 Width = Renderer.IsOffscreenRenderingEnabled() ? ViewportTarget->GetWidth() : DeviceManager->GetBackBufferWidth();
+			const uint32 Height = Renderer.IsOffscreenRenderingEnabled() ? ViewportTarget->GetHeight() : DeviceManager->GetBackBufferHeight();
+			if (Height > 0)
+			{
+				Camera.SetAspectRatio(static_cast<float>(Width) / static_cast<float>(Height));
+			}
 		}
 
 		// Rebuilt after the camera moves so that the matrices the passes read are for this frame.

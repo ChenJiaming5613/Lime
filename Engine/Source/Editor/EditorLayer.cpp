@@ -84,7 +84,7 @@ namespace Lime
 		// project passes. Self registration is not usable here: LimeRenderer is a static library, and
 		// the linker would be free to discard a translation unit that only registers.
 		FRenderPassRegistry::Get().Register("EditorUI", FEditorUIPass::Priority,
-		                                    [] { return std::make_shared<FEditorUIPass>(); }, /*bIsBuiltin*/ true);
+		                                    [] { return std::make_shared<FEditorUIPass>(); }, /*bIsBuiltin*/ true, /*bIsPermanent*/ true);
 
 		// The scene goes to an offscreen target so it can be shown inside the viewport panel. The
 		// initial size is the back buffer; the panel corrects it on the first frame it is drawn.
@@ -105,16 +105,22 @@ namespace Lime
 		}
 
 		// The texture object changes on resize, so the binding set has to be rebuilt each time.
-		InRenderer.SetViewportResizedDelegate([this](FViewportTarget&) { RefreshViewportTexture(); });
+		InRenderer.SetViewportResizedDelegate([this](FViewportTarget&)
+		{
+			for (SizeType Index = 0; Index < ViewportTextureIds.size(); ++Index)
+			{
+				RefreshViewportTexture(Index);
+			}
+		});
 
 		bInitialized = true;
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_EDITOR, "Editor initialized with {} panel(s)", Panels.size());
 		return true;
 	}
 
-	void FEditorLayer::RefreshViewportTexture()
+	void FEditorLayer::RefreshViewportTexture(SizeType Index)
 	{
-		if (Renderer == nullptr || ViewportPanel == nullptr)
+		if (Renderer == nullptr || Index >= ViewportPanels.size() || Index >= ViewportTextureIds.size())
 		{
 			return;
 		}
@@ -126,44 +132,77 @@ namespace Lime
 			return;
 		}
 
-		nvrhi::ITexture* Texture = Renderer->GetViewportTarget().GetTexture();
+		if (ViewportPanels[Index] == nullptr)
+		{
+			return;
+		}
+
+		FViewportTarget* ViewportTarget = Renderer->GetViewportTarget(Index);
+		if (ViewportTarget == nullptr)
+		{
+			return;
+		}
+
+		// The panel keeps the dimensions so it can preserve the texture's aspect ratio when the panel and
+		// the texture disagree, instead of stretching.
+		ViewportPanels[Index]->SetTextureSize(ViewportTarget->GetWidth(), ViewportTarget->GetHeight());
+
+		nvrhi::ITexture* Texture = ViewportTarget->GetTexture();
 		if (Texture == nullptr)
 		{
 			return;
 		}
 
 		// Reusing the id keeps the panel's handle stable across resizes.
-		const ImTextureID TextureId = ImGuiPass->RegisterTexture(Texture, ViewportTextureId);
+		const ImTextureID TextureId = ImGuiPass->RegisterTexture(Texture, ViewportTextureIds[Index]);
 		if (TextureId != ImTextureID_Invalid)
 		{
-			ViewportTextureId = TextureId;
-			ViewportPanel->SetTextureId(TextureId);
+			ViewportTextureIds[Index] = TextureId;
+			ViewportPanels[Index]->SetTextureId(TextureId);
 		}
 	}
 
 	void FEditorLayer::SubmitViewportSize()
 	{
-		if (Renderer == nullptr || ViewportPanel == nullptr || !Renderer->IsOffscreenRenderingEnabled())
+		if (Renderer == nullptr || ViewportPanels.empty() || !Renderer->IsOffscreenRenderingEnabled())
 		{
 			return;
 		}
 
-		// Applied at the start of the next frame, before anything binds the target.
-		Renderer->GetViewportTarget().RequestResize(ViewportPanel->GetDesiredWidth(), ViewportPanel->GetDesiredHeight());
+		// Only the main viewport drives the resolution of the graph's textures. Secondary panels display
+		// their output but must not feed their size back, or resizing one of them would rebuild the graph.
+		const auto& MainViewportPanel = ViewportPanels[0];
+		if (MainViewportPanel != nullptr)
+		{
+			// Applied at the start of the next frame, before anything binds the target.
+			if (FViewportTarget* ViewportTarget = Renderer->GetViewportTarget(0); ViewportTarget != nullptr)
+			{
+				ViewportTarget->RequestResize(MainViewportPanel->GetDesiredWidth(), MainViewportPanel->GetDesiredHeight());
+			}
+		}
 	}
 
 	bool FEditorLayer::IsViewportHovered() const
 	{
 		// False before the panel has been drawn once, which is the safe answer: it prevents the camera from
 		// starting on the very first frame, when no panel has reported hover state yet.
-		return ViewportPanel != nullptr && ViewportPanel->IsHovered();
+		for (const auto& ViewportPanel : ViewportPanels)
+		{
+			if (ViewportPanel != nullptr && ViewportPanel->IsHovered())
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	void FEditorLayer::CreatePanels(const FProjectSettings& ProjectSettings)
 	{
 		// Built-in panels first, then whatever the project registered.
-		ViewportPanel = std::make_shared<FViewportPanel>();
-		Panels.push_back(ViewportPanel);
+		ViewportPanels.emplace_back(std::make_shared<FViewportPanel>());
+		ViewportTextureIds.push_back(ImTextureID_Invalid);
+		Panels.push_back(ViewportPanels[0]);
 		Panels.push_back(std::make_shared<FSceneHierarchyPanel>());
 		Panels.push_back(std::make_shared<FConsolePanel>());
 		Panels.push_back(std::make_shared<FStatsPanel>());
@@ -243,12 +282,21 @@ namespace Lime
 			// The binding set references the viewport texture, so it goes before the target does.
 			if (FEditorUIPass* ImGuiPass = Renderer->FindPass<FEditorUIPass>())
 			{
-				ImGuiPass->UnregisterTexture(ViewportTextureId);
+				for (SizeType Index = 0; Index < ViewportTextureIds.size(); ++Index)
+				{
+					ImGuiPass->UnregisterTexture(ViewportTextureIds[Index]);
+					ViewportTextureIds[Index] = ImTextureID_Invalid;
+				}
 			}
 			Renderer->DisableOffscreenRendering();
 		}
-		ViewportTextureId = ImTextureID_Invalid;
-		ViewportPanel.reset();
+		for (auto& ViewportPanel : ViewportPanels)
+		{
+			if (ViewportPanel != nullptr)
+			{
+				ViewportPanel.reset();
+			}
+		}
 		Renderer = nullptr;
 
 		Panels.clear();
@@ -517,6 +565,14 @@ namespace Lime
 				ImGui::MenuItem(Panel->GetName(), nullptr, Panel->GetVisiblePtr());
 			}
 			ImGui::Separator();
+			if (ImGui::MenuItem("Add Viewport"))
+			{
+				auto NewViewportPanel = std::make_shared<FViewportPanel>();
+				ViewportPanels.emplace_back(NewViewportPanel);
+				ViewportTextureIds.push_back(ImTextureID_Invalid);
+				Panels.push_back(NewViewportPanel);
+			}
+			ImGui::Separator();
 			if (ImGui::MenuItem("Reset layout"))
 			{
 				RequestLayoutReset();
@@ -538,11 +594,14 @@ namespace Lime
 			return;
 		}
 
-		// The ImGui pass is instantiated after Initialize, so the first frame is where the viewport
-		// texture can finally be bound.
-		if (ViewportTextureId == ImTextureID_Invalid)
+		for (SizeType Index = 0; Index < ViewportTextureIds.size(); ++Index)
 		{
-			RefreshViewportTexture();
+			// The ImGui pass is instantiated after Initialize, so the first frame is where the viewport
+			// texture can finally be bound.
+			// if (ViewportTextureIds[Index] == ImTextureID_Invalid)
+			{
+				RefreshViewportTexture(Index);
+			}
 		}
 
 		DrawDockSpace();
