@@ -62,7 +62,7 @@ TEST_CASE("Creating entities", "[Scene]")
 
 		REQUIRE(Scene.GetRootEntities().size() == 1);
 		REQUIRE(Scene.GetRootEntities()[0] == Entity);
-		REQUIRE(Scene.GetRegistry().get<FNameComponent>(Entity).Name == "First");
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Entity).Name == "First");
 		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Entity).Position, FVector3::Zero()));
 	}
 
@@ -183,7 +183,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Entity).Position = { 1.0f, 2.0f, 3.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Entity).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }));
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Entity).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }));
 	}
 
 	SECTION("A child follows its parent's translation")
@@ -196,7 +196,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Child).Position = { 0.0f, 5.0f, 0.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(), FVector3{ 10.0f, 5.0f, 0.0f },
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Child).GetWorldPosition(), FVector3{ 10.0f, 5.0f, 0.0f },
 		                      1.0e-5f));
 	}
 
@@ -213,7 +213,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Child).Position = { 1.0f, 0.0f, 0.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition(), FVector3{ 0.0f, 0.0f, -1.0f },
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Child).GetWorldPosition(), FVector3{ 0.0f, 0.0f, -1.0f },
 		                      1.0e-4f));
 	}
 
@@ -227,7 +227,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Child).Position = { 3.0f, 0.0f, 0.0f };
 		Scene.UpdateTransforms();
 
-		REQUIRE(Scene.GetRegistry().get<FWorldTransformComponent>(Child).GetWorldPosition().X == Approx(6.0f).margin(1.0e-4f));
+		REQUIRE(Scene.GetRegistry().get<FTransformComponent>(Child).GetWorldPosition().X == Approx(6.0f).margin(1.0e-4f));
 	}
 
 	SECTION("Transforms accumulate across three levels")
@@ -244,7 +244,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.UpdateTransforms();
 
 		REQUIRE(
-		    IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(C).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }, 1.0e-5f));
+		    IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(C).GetWorldPosition(), FVector3{ 1.0f, 2.0f, 3.0f }, 1.0e-5f));
 	}
 
 	SECTION("A deep hierarchy does not overflow the stack")
@@ -271,7 +271,7 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.UpdateTransforms();
 
 		// Each level adds one unit, so the deepest node ends up at the depth.
-		REQUIRE(Scene.GetRegistry().get<FWorldTransformComponent>(Previous).GetWorldPosition().X ==
+		REQUIRE(Scene.GetRegistry().get<FTransformComponent>(Previous).GetWorldPosition().X ==
 		        Approx(static_cast<float>(Depth)).epsilon(0.01f));
 	}
 
@@ -283,11 +283,11 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Entity).Scale = { 1.0f, 0.25f, 1.0f };
 		Scene.UpdateTransforms();
 
-		const FWorldTransformComponent& World = Scene.GetRegistry().get<FWorldTransformComponent>(Entity);
+		const FTransformComponent& World = Scene.GetRegistry().get<FTransformComponent>(Entity);
 
 		// A surface in the XY plane has a tangent along X and a normal along Z before scaling. After a squash
 		// in Y, the transformed tangent and the corrected normal must still be perpendicular.
-		const FVector3 Tangent = World.Matrix.TransformDirection({ 0.0f, 1.0f, 0.0f });
+		const FVector3 Tangent = World.LocalToWorldMatrix.TransformDirection({ 0.0f, 1.0f, 0.0f });
 		const FVector3 Normal = World.NormalMatrix.TransformDirection({ 0.0f, 0.0f, 1.0f }).GetNormalized();
 
 		REQUIRE(Dot(Tangent.GetNormalized(), Normal) == Approx(0.0f).margin(1.0e-4f));
@@ -302,10 +302,10 @@ TEST_CASE("World transform propagation", "[Scene]")
 		Scene.GetRegistry().get<FTransformComponent>(Parent).Position = { 4.0f, 0.0f, 0.0f };
 
 		Scene.UpdateTransforms();
-		const FMatrix4x4 First = Scene.GetRegistry().get<FWorldTransformComponent>(Child).Matrix;
+		const FMatrix4x4 First = Scene.GetRegistry().get<FTransformComponent>(Child).LocalToWorldMatrix;
 		Scene.UpdateTransforms();
 
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(Child).Matrix, First));
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(Child).LocalToWorldMatrix, First));
 	}
 }
 
@@ -413,7 +413,7 @@ TEST_CASE("Clearing a scene", "[Scene]")
 		const entt::entity Entity = Scene.CreateEntity("Fresh");
 		Scene.UpdateTransforms();
 		REQUIRE(Scene.GetRootEntities().size() == 1);
-		REQUIRE(Scene.GetRegistry().get<FNameComponent>(Entity).Name == "Fresh");
+		REQUIRE(Scene.GetRegistry().get<FNodeComponent>(Entity).Name == "Fresh");
 	}
 }
 
@@ -458,7 +458,7 @@ TEST_CASE("Building a scene from imported data", "[Scene][Builder]")
 	{
 		// The camera framing query runs right after this, so the matrices cannot be left stale.
 		const entt::entity ChildEntity = Scene.FindByName("Child");
-		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FWorldTransformComponent>(ChildEntity).GetWorldPosition(),
+		REQUIRE(IsNearlyEqual(Scene.GetRegistry().get<FTransformComponent>(ChildEntity).GetWorldPosition(),
 		                      FVector3{ 1.0f, 2.0f, 0.0f }, 1.0e-5f));
 	}
 
