@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <system_error>
 
 namespace Lime
 {
@@ -58,6 +59,15 @@ namespace Lime
 		LayoutFilePath = FPlatformPaths::ToUtf8(LayoutPath);
 		IO.IniFilename = LayoutFilePath.c_str();
 
+		// The other half of the layout, which ImGui does not persist: the set of panels rather than their
+		// geometry. Read before CreatePanels because it decides what gets created, and only trusted when the
+		// ini exists too — a saved panel set without the docking to place it in would restore the panels
+		// into the default layout, which is a state neither file describes.
+		if (bHasSavedLayout)
+		{
+			LayoutState.LoadFromFile(FEditorLayoutState::ResolvePath());
+		}
+
 		ApplyTheme();
 
 		// Only the platform backend comes from ImGui; drawing goes through the NVRHI render pass so
@@ -70,6 +80,11 @@ namespace Lime
 		}
 
 		CreatePanels(ProjectSettings);
+
+		// Synced to what was actually created, which is not always what the file asked for: the viewport
+		// count is clamped, and a panel the file never mentioned falls back to its own default. Without this
+		// the first frame would see a difference and rewrite the file before anything had changed.
+		LayoutState = CaptureLayoutState();
 
 #if LIME_WITH_IMGUI_TEST_ENGINE
 		// After the platform backend, because the engine takes over the same ImGuiIO the backend
@@ -197,12 +212,30 @@ namespace Lime
 		return false;
 	}
 
+	std::shared_ptr<FViewportPanel> FEditorLayer::AddViewportPanel()
+	{
+		// FViewportPanel names itself from a running counter, so the nth call produces "Viewport<n-1>".
+		// Creation order is therefore what ties a panel to its entry in the saved ImGui layout, and the
+		// three callers all append rather than insert for that reason.
+		auto Panel = std::make_shared<FViewportPanel>();
+		ViewportPanels.push_back(Panel);
+		ViewportTextureIds.push_back(ImTextureID_Invalid);
+		Panels.push_back(Panel);
+		return Panel;
+	}
+
 	void FEditorLayer::CreatePanels(const FProjectSettings& ProjectSettings)
 	{
 		// Built-in panels first, then whatever the project registered.
-		ViewportPanels.emplace_back(std::make_shared<FViewportPanel>());
-		ViewportTextureIds.push_back(ImTextureID_Invalid);
-		Panels.push_back(ViewportPanels[0]);
+		//
+		// Every viewport the saved layout asked for is created here, before the other panels, so the names
+		// line up with the previous run: the counter FViewportPanel uses is global, so creating them in a
+		// different order would hand "Viewport1" to a different panel than the ini has geometry for.
+		for (uint32 Index = 0; Index < LayoutState.ViewportCount; ++Index)
+		{
+			AddViewportPanel();
+		}
+
 		Panels.push_back(std::make_shared<FSceneHierarchyPanel>());
 		Panels.push_back(std::make_shared<FConsolePanel>());
 		Panels.push_back(std::make_shared<FStatsPanel>());
@@ -251,10 +284,12 @@ namespace Lime
 			}
 		}
 
-		// Applied here so every panel, built-in or from a project, honours its declared default.
+		// Applied here so every panel, built-in or from a project, honours what the saved layout said about
+		// it, falling back to its declared default when the file has never seen it. That fallback is what
+		// makes a newly added panel appear without anyone editing EditorLayout.json.
 		for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
 		{
-			Panel->SetVisible(Panel->IsVisibleByDefault());
+			Panel->SetVisible(LayoutState.IsPanelVisible(*Panel));
 		}
 	}
 
@@ -270,12 +305,89 @@ namespace Lime
 		return Found != Panels.end() ? Found->get() : nullptr;
 	}
 
+	FEditorLayoutState FEditorLayer::CaptureLayoutState() const
+	{
+		FEditorLayoutState State;
+		State.ViewportCount = FEditorLayoutState::ClampViewportCount(static_cast<uint32>(ViewportPanels.size()));
+
+		for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
+		{
+			if (Panel != nullptr)
+			{
+				State.PanelVisibility[Panel->GetName()] = Panel->IsVisible();
+			}
+		}
+
+		return State;
+	}
+
+	void FEditorLayer::SaveLayoutState() const
+	{
+		CaptureLayoutState().SaveToFile(FEditorLayoutState::ResolvePath());
+	}
+
+	void FEditorLayer::FlushLayoutStateIfChanged()
+	{
+		// Compared rather than written every frame: this runs once per frame and the file is small, but
+		// rewriting it at frame rate would put a temporary file and a rename on the disk continuously, since
+		// FJsonUtils::SaveToFile writes atomically.
+		FEditorLayoutState Current = CaptureLayoutState();
+		if (Current == LayoutState)
+		{
+			return;
+		}
+
+		// Kept as the last written state whether or not the write succeeded. A failing write that is retried
+		// every frame would flood the log with the same error, and the reason it failed is not going to
+		// resolve itself between two frames.
+		LayoutState = std::move(Current);
+		LayoutState.SaveToFile(FEditorLayoutState::ResolvePath());
+	}
+
+	void FEditorLayer::RequestLayoutReset()
+	{
+		bLayoutBuilt = false;
+		bHasSavedLayout = false;
+
+		// The saved panel set goes too, so the next run starts from the defaults rather than restoring the
+		// viewports this session happened to have. Deleted rather than rewritten with defaults: absence is
+		// already the first run state, so there is one fewer way for the two files to disagree.
+		std::error_code ErrorCode;
+		std::filesystem::remove(FEditorLayoutState::ResolvePath(), ErrorCode);
+
+		// Panels closed this session are reopened to their defaults, so the reset is visible immediately
+		// rather than only after a restart. The docking is rebuilt on the next frame by DrawDockSpace.
+		for (const std::shared_ptr<IEditorPanel>& Panel : Panels)
+		{
+			if (Panel != nullptr)
+			{
+				Panel->SetVisible(Panel->IsVisibleByDefault());
+			}
+		}
+
+		// Synced to what the panels now say, so the per frame check does not immediately write the file back
+		// that was just deleted. The next genuine change recreates it, which is the same path a first run
+		// takes.
+		LayoutState = CaptureLayoutState();
+	}
+
+	const char* FEditorLayer::AddViewport()
+	{
+		const std::shared_ptr<FViewportPanel> Panel = AddViewportPanel();
+		// The name outlives this call: the panel owns the string and stays in the panel list.
+		return Panel->GetName();
+	}
+
 	void FEditorLayer::Shutdown()
 	{
 		if (!bInitialized)
 		{
 			return;
 		}
+
+		// Before the panels are torn down, since it reads the set of them. ImGui writes its own ini during
+		// DestroyContext below, so the two halves of the layout are saved within the same shutdown.
+		SaveLayoutState();
 
 		if (Renderer != nullptr)
 		{
@@ -568,10 +680,7 @@ namespace Lime
 			ImGui::Separator();
 			if (ImGui::MenuItem("Add Viewport"))
 			{
-				auto NewViewportPanel = std::make_shared<FViewportPanel>();
-				ViewportPanels.emplace_back(NewViewportPanel);
-				ViewportTextureIds.push_back(ImTextureID_Invalid);
-				Panels.push_back(NewViewportPanel);
+				AddViewportPanel();
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset layout"))
@@ -638,6 +747,10 @@ namespace Lime
 			TestEngine.DrawUI(&bShowTestEngineWindow);
 		}
 #endif
+
+		// After the panels, so closing one through its title bar is picked up on the frame it happens.
+		// Writes only on a change, so an idle editor touches nothing.
+		FlushLayoutStateIfChanged();
 	}
 
 	void FEditorLayer::EndFrame()

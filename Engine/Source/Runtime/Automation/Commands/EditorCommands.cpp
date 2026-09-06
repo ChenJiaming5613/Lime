@@ -98,6 +98,28 @@ namespace Lime
 			                  Invocation.GetResult()["visible"] = Panel->IsVisible();
 		                  });
 
+		Registry.Register("panel.addViewport", "Adds a viewport panel, as the Window menu does",
+		                  [](FAutomationInvocation& Invocation)
+		                  {
+			                  FEditorLayer* Editor = ResolveEditor(Invocation);
+			                  if (Editor == nullptr)
+			                  {
+				                  return;
+			                  }
+
+			                  // A render target per viewport, so the ceiling is the saved layout's rather
+			                  // than unbounded: a script in a loop would otherwise exhaust video memory.
+			                  if (Editor->GetViewportCount() >= FEditorLayoutState::MaxViewportCount)
+			                  {
+				                  Invocation.Fail(fmt::format("Already at the {} viewport limit",
+				                       FEditorLayoutState::MaxViewportCount));
+				                  return;
+			                  }
+
+			                  Invocation.GetResult()["panel"] = Editor->AddViewport();
+			                  Invocation.GetResult()["viewportCount"] = Editor->GetViewportCount();
+		                  });
+
 		Registry.Register("panel.resetLayout", "Discards the saved dock layout and rebuilds the default one",
 		                  [](FAutomationInvocation& Invocation)
 		                  {

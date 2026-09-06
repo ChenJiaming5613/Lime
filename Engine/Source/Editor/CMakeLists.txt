@@ -5,6 +5,8 @@ set(EditorSources
 	EditorContext.h
 	EditorLayer.h
 	EditorLayer.cpp
+	EditorLayoutState.h
+	EditorLayoutState.cpp
 	EditorPanelRegistry.h
 	EditorPanelRegistry.cpp
 	EditorSelection.h

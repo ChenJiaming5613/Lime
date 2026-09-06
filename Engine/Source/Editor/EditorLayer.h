@@ -6,6 +6,7 @@
 #pragma once
 
 #include "Editor/EditorContext.h"
+#include "Editor/EditorLayoutState.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorSettings.h"
 #include "Editor/Panels/CameraSettingsPanel.h"
@@ -81,6 +82,14 @@ namespace Lime
 		IEditorPanel* FindPanel(const char* Name) const;
 		const std::vector<std::shared_ptr<IEditorPanel>>& GetPanels() const { return Panels; }
 
+		// Adds a viewport panel, as the Window menu does. Exposed so a script can set up a multi viewport
+		// arrangement, which is otherwise only reachable by clicking and therefore untestable.
+		//
+		// Returns the new panel's name, which is assigned from a running counter and is what the saved
+		// layout keys on.
+		const char* AddViewport();
+		SizeType GetViewportCount() const { return ViewportPanels.size(); }
+
 #if LIME_WITH_NODE_EDITOR
 		// Null when the editor has not created its panels yet. The automation commands need the concrete
 		// type to load and save graphs, which FindPanel cannot give them.
@@ -97,20 +106,38 @@ namespace Lime
 		const FEditorSelection& GetSelection() const { return Selection; }
 
 		// Discards the saved arrangement and rebuilds the default layout on the next frame.
-		void RequestLayoutReset()
-		{
-			bLayoutBuilt = false;
-			bHasSavedLayout = false;
-		}
+		//
+		// Both halves of the layout are reset, not just the docking: leaving the panel list alone would
+		// rebuild the default docking around whatever set of viewports happened to be open, which is not
+		// the default layout and is impossible to explain to whoever pressed the button.
+		void RequestLayoutReset();
 
 	private:
 		void ApplyTheme();
 		void CreatePanels(const FProjectSettings& ProjectSettings);
+		// Adds one viewport panel and the bookkeeping that goes with it, returning the panel.
+		//
+		// Shared by the initial creation, the restore from a saved layout and the Add Viewport menu item, so
+		// the three cannot drift on what a new viewport needs. Order matters and is the caller's
+		// responsibility: FViewportPanel names itself from a running counter, so the nth panel created is
+		// always "Viewport<n-1>" and that name is what the saved ImGui layout keys on.
+		std::shared_ptr<FViewportPanel> AddViewportPanel();
 		void DrawDockSpace();
 		void BuildDefaultLayout(ImGuiID DockSpaceId, const ImVec2& DockSize);
 		void DrawMenuBar();
 		// Rebinds the scene texture after the viewport target was recreated.
 		void RefreshViewportTexture(SizeType Index);
+		// Records the current panel set into EditorLayout.json.
+		//
+		// Called from Shutdown and, when something changed, from the frame loop. Saving only on exit was
+		// enough to lose the whole arrangement to a crash or a kill, which is exactly when ImGui's own ini
+		// survives: it flushes on a timer. Matching that is what keeps the two halves of the layout from
+		// disagreeing after an abnormal exit.
+		void SaveLayoutState() const;
+		// Compares the current panel set against what was last written and saves when it differs.
+		void FlushLayoutStateIfChanged();
+		// The panel set as it stands, which is what gets compared and written.
+		FEditorLayoutState CaptureLayoutState() const;
 
 		std::vector<std::shared_ptr<IEditorPanel>> Panels;
 		std::vector<std::shared_ptr<FViewportPanel>> ViewportPanels;
@@ -124,6 +151,10 @@ namespace Lime
 		FRenderer* Renderer = nullptr;
 		// Appearance from EditorSettings.json, applied once during Initialize.
 		FEditorSettings Settings;
+		// The half of the layout ImGui does not persist: how many viewports exist and which panels are
+		// open. Loaded before the panels are created, since it decides what to create, and kept up to date
+		// as the last thing written so a change can be detected without rescanning the file.
+		FEditorLayoutState LayoutState;
 #if LIME_WITH_IMGUI_TEST_ENGINE
 		FEditorTestEngine TestEngine;
 #endif
