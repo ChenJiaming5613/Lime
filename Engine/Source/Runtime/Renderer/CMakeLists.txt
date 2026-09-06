@@ -28,6 +28,8 @@ lime_add_module(
 		ViewportTarget.cpp
 		Passes/BlinnPhongForwardLitPass.h
 		Passes/BlinnPhongForwardLitPass.cpp
+		Passes/ForwardLitPass.h
+		Passes/ForwardLitPass.cpp
 		Passes/ShadowCasterPass.h
 		Passes/ShadowCasterPass.cpp
 		Passes/PostProcessPass.h

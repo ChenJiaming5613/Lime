@@ -1,0 +1,66 @@
+{
+	"name": "PbrGraph",
+	"passes": [
+		{
+			"name": "ShadowCaster",
+			"type": "ShadowCaster",
+			"settings": {
+				"bEnabled": true,
+				"DepthBias": 0.001500000013038516,
+				"SlopeScaledBias": 2.0
+			}
+		},
+		{
+			"name": "ForwardLit",
+			"type": "ForwardLit",
+			"settings": {
+				"bEnabled": true,
+				"LightIntensity": 3.0,
+				"AmbientStrength": 0.1,
+				"bEnableNormalMaps": true,
+				"bEnableMetallicRoughnessMaps": true,
+				"bEnableOcclusionMaps": true,
+				"bEnableEmissive": true
+			}
+		},
+		{
+			"name": "Skybox",
+			"type": "Skybox",
+			"settings": {
+				"bEnabled": true,
+				"Exposure": 0.2160000056028366,
+				"EnvironmentMapPath": "EnvironmentMaps/sunny_country_road_4k.hdr"
+			}
+		},
+		{
+			"name": "PostProcess",
+			"type": "PostProcess",
+			"settings": {
+				"bEnabled": true,
+				"Exposure": 1.0,
+				"Gamma": 2.200000047683716
+			}
+		}
+	],
+	"edges": [
+		{
+			"from": "ShadowCaster.shadowDepth",
+			"to": "ForwardLit.shadowDepth"
+		},
+		{
+			"from": "ForwardLit.color",
+			"to": "Skybox.sceneColor"
+		},
+		{
+			"from": "ForwardLit.depth",
+			"to": "Skybox.sceneDepth"
+		},
+		{
+			"from": "Skybox.color",
+			"to": "PostProcess.sceneColor"
+		}
+	],
+	"graphOutputs": [
+		"PostProcess.color"
+	]
+}
