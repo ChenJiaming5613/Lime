@@ -70,7 +70,8 @@ namespace Lime
 		Release();
 		// Released only here, not in Release(): these do not depend on the scene, so recreating them on every
 		// scene change would be wasted work.
-		FallbackTexture = nullptr;
+		WhiteTexture = nullptr;
+		FlatNormalTexture = nullptr;
 		Sampler = nullptr;
 	}
 
@@ -94,34 +95,56 @@ namespace Lime
 		return true;
 	}
 
-	bool FSceneGpuResources::CreateFallbackTexture(nvrhi::IDevice* Device, nvrhi::ICommandList* CommandList)
+	bool FSceneGpuResources::CreateFallbackTextures(nvrhi::IDevice* Device, nvrhi::ICommandList* CommandList)
 	{
-		if (FallbackTexture != nullptr)
+		if (WhiteTexture != nullptr && FlatNormalTexture != nullptr)
 		{
 			return true;
 		}
 
-		// A 1x1 white texture stands in for an absent base colour map. Multiplying by white is a no-op, so
-		// the shader needs no branch and the pipeline needs no untextured variant.
-		const nvrhi::TextureDesc Desc = nvrhi::TextureDesc()
-		                                    .setDimension(nvrhi::TextureDimension::Texture2D)
-		                                    .setWidth(1)
-		                                    .setHeight(1)
-		                                    .setFormat(nvrhi::Format::RGBA8_UNORM)
-		                                    .setInitialState(nvrhi::ResourceStates::ShaderResource)
-		                                    .setKeepInitialState(true)
-		                                    .setDebugName("SceneWhiteTexture");
-
-		FallbackTexture = Device->createTexture(Desc);
-		if (FallbackTexture == nullptr)
+		// Creates one 1x1 texture holding the given RGBA bytes.
+		//
+		// UNORM rather than sRGB for both: these are neutral values chosen to be identities under the
+		// operations that consume them, and an sRGB decode would move them. White survives it, but the flat
+		// normal's 0.5 would not.
+		const auto CreateConstantTexture = [Device, CommandList](nvrhi::TextureHandle& OutTexture, const char* DebugName,
+		                                                         const std::array<uint8, 4>& Rgba)
 		{
-			LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "createTexture failed for the fallback white texture");
+			const nvrhi::TextureDesc Desc = nvrhi::TextureDesc()
+			                                    .setDimension(nvrhi::TextureDimension::Texture2D)
+			                                    .setWidth(1)
+			                                    .setHeight(1)
+			                                    .setFormat(nvrhi::Format::RGBA8_UNORM)
+			                                    .setInitialState(nvrhi::ResourceStates::ShaderResource)
+			                                    .setKeepInitialState(true)
+			                                    .setDebugName(DebugName);
+
+			OutTexture = Device->createTexture(Desc);
+			if (OutTexture == nullptr)
+			{
+				LIME_LOG_ERROR(LIME_LOG_CATEGORY_SCENE, "createTexture failed for the fallback texture '{}'", DebugName);
+				return false;
+			}
+
+			CommandList->writeTexture(OutTexture, 0, 0, Rgba.data(), Rgba.size());
+			return true;
+		};
+
+		// White is the identity for every slot whose factor multiplies it: base colour, emissive, occlusion
+		// and metallic-roughness all read their factor unchanged when the map is absent.
+		if (!CreateConstantTexture(WhiteTexture, "SceneWhiteTexture", { 255, 255, 255, 255 }))
+		{
 			return false;
 		}
 
-		const std::array<uint8, 4> White{ 255, 255, 255, 255 };
-		CommandList->writeTexture(FallbackTexture, 0, 0, White.data(), White.size());
-		return true;
+		// (0.5, 0.5, 1) unpacks to (0, 0, 1), the normal that leaves the interpolated vertex normal alone.
+		// White here would decode to (1, 1, 1) and tilt every surface that has no normal map.
+		return CreateConstantTexture(FlatNormalTexture, "SceneFlatNormalTexture", { 128, 128, 255, 255 });
+	}
+
+	nvrhi::ITexture* FSceneGpuResources::GetFallbackTexture(EMaterialTextureSlot Slot) const
+	{
+		return Slot == EMaterialTextureSlot::Normal ? FlatNormalTexture.Get() : WhiteTexture.Get();
 	}
 
 	bool FSceneGpuResources::UploadMeshes(nvrhi::IDevice* Device, nvrhi::ICommandList* CommandList, const FScene& Scene)
@@ -228,17 +251,34 @@ namespace Lime
 		}
 
 		// Resolved once here so that drawing needs no material to image to texture lookup chain, and so that
-		// every material is guaranteed a usable texture.
+		// every slot of every material is guaranteed a usable texture.
 		const std::vector<FMaterialData>& Materials = Scene.GetMaterials();
-		MaterialTextures.assign(Materials.size(), FallbackTexture.Get());
+		MaterialTextures.assign(Materials.size() * SlotCount, nullptr);
 
 		for (SizeType Index = 0; Index < Materials.size(); ++Index)
 		{
-			const int32 ImageIndex = Materials[Index].BaseColorImage;
-			if (ImageIndex >= 0 && static_cast<SizeType>(ImageIndex) < Textures.size() &&
-			    Textures[static_cast<SizeType>(ImageIndex)] != nullptr)
+			const FMaterialData& Material = Materials[Index];
+
+			// Parallel to EMaterialTextureSlot; the static_assert below is what keeps the two in step if a
+			// slot is ever inserted rather than appended.
+			const int32 SlotImages[SlotCount] = {
+				Material.BaseColorImage, Material.MetallicRoughnessImage, Material.NormalImage,
+				Material.EmissiveImage,  Material.OcclusionImage,
+			};
+			static_assert(SlotCount == 5, "SlotImages must list one image index per EMaterialTextureSlot");
+
+			for (SizeType Slot = 0; Slot < SlotCount; ++Slot)
 			{
-				MaterialTextures[Index] = Textures[static_cast<SizeType>(ImageIndex)].Get();
+				const int32 ImageIndex = SlotImages[Slot];
+				nvrhi::ITexture* Resolved = GetFallbackTexture(static_cast<EMaterialTextureSlot>(Slot));
+
+				if (ImageIndex >= 0 && static_cast<SizeType>(ImageIndex) < Textures.size() &&
+				    Textures[static_cast<SizeType>(ImageIndex)] != nullptr)
+				{
+					Resolved = Textures[static_cast<SizeType>(ImageIndex)].Get();
+				}
+
+				MaterialTextures[Index * SlotCount + Slot] = Resolved;
 			}
 		}
 
@@ -260,7 +300,7 @@ namespace Lime
 
 		Release();
 
-		if (!CreateSampler(Device) || !CreateFallbackTexture(Device, CommandList))
+		if (!CreateSampler(Device) || !CreateFallbackTextures(Device, CommandList))
 		{
 			return false;
 		}
@@ -285,7 +325,23 @@ namespace Lime
 			}
 		}
 
-		LIME_LOG_INFO(LIME_LOG_CATEGORY_SCENE, "Uploaded {} mesh(es) and {} texture(s) to the GPU", UploadedMeshes, Textures.size());
+		// The sRGB split is reported because it is the one property of a texture that is decided by
+		// inference rather than read from the file, and getting it wrong is visible but hard to attribute:
+		// a linear map read as sRGB bends normals and skews roughness without failing anything. A scene
+		// whose counts look implausible points at the slot resolution rather than at the shading.
+		uint32 SrgbCount = 0;
+		uint32 LinearCount = 0;
+		for (const FImageData& Image : Scene.GetImages())
+		{
+			if (!Image.IsValid())
+			{
+				continue;
+			}
+			Image.IsSrgb() ? ++SrgbCount : ++LinearCount;
+		}
+
+		LIME_LOG_INFO(LIME_LOG_CATEGORY_SCENE, "Uploaded {} mesh(es) and {} texture(s) to the GPU ({} sRGB, {} linear)", UploadedMeshes,
+		    Textures.size(), SrgbCount, LinearCount);
 		return true;
 	}
 
@@ -294,8 +350,8 @@ namespace Lime
 		Meshes.clear();
 		Textures.clear();
 		MaterialTextures.clear();
-		// The sampler and the white texture are kept: they do not depend on the scene, and recreating them
-		// on every scene change would be wasted work.
+		// The sampler and the fallback textures are kept: they do not depend on the scene, and recreating
+		// them on every scene change would be wasted work.
 		bUploaded = false;
 		UploadedRevision = 0;
 	}
@@ -313,11 +369,28 @@ namespace Lime
 
 	nvrhi::ITexture* FSceneGpuResources::GetBaseColorTexture(int32 MaterialIndex) const
 	{
-		if (MaterialIndex < 0 || static_cast<SizeType>(MaterialIndex) >= MaterialTextures.size())
+		return GetMaterialTexture(MaterialIndex, EMaterialTextureSlot::BaseColor);
+	}
+
+	nvrhi::ITexture* FSceneGpuResources::GetMaterialTexture(int32 MaterialIndex, EMaterialTextureSlot Slot) const
+	{
+		const SizeType SlotIndex = static_cast<SizeType>(Slot);
+		if (SlotIndex >= SlotCount)
 		{
-			// A primitive with no material still has to draw, so it gets white rather than nothing.
-			return FallbackTexture.Get();
+			return WhiteTexture.Get();
 		}
-		return MaterialTextures[static_cast<SizeType>(MaterialIndex)];
+
+		if (MaterialIndex < 0)
+		{
+			// A primitive with no material still has to draw, so it gets the neutral value rather than nothing.
+			return GetFallbackTexture(Slot);
+		}
+
+		const SizeType Flat = static_cast<SizeType>(MaterialIndex) * SlotCount + SlotIndex;
+		if (Flat >= MaterialTextures.size())
+		{
+			return GetFallbackTexture(Slot);
+		}
+		return MaterialTextures[Flat];
 	}
 } // namespace Lime

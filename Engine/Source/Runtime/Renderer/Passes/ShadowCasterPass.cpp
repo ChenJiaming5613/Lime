@@ -68,7 +68,7 @@ namespace Lime
 
 		// The full vertex layout even though only the position is read. The layout describes the buffer, and
 		// the same mesh buffers are drawn by the lit pass, so a shorter layout would misread the stride.
-		const std::array<nvrhi::VertexAttributeDesc, 3> Attributes = { {
+		const std::array<nvrhi::VertexAttributeDesc, 4> Attributes = { {
 			nvrhi::VertexAttributeDesc()
 			    .setName("POSITION")
 			    .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -78,6 +78,11 @@ namespace Lime
 			    .setName("NORMAL")
 			    .setFormat(nvrhi::Format::RGB32_FLOAT)
 			    .setOffset(offsetof(FStaticMeshVertex, Normal))
+			    .setElementStride(sizeof(FStaticMeshVertex)),
+			nvrhi::VertexAttributeDesc()
+			    .setName("TANGENT")
+			    .setFormat(nvrhi::Format::RGBA32_FLOAT)
+			    .setOffset(offsetof(FStaticMeshVertex, Tangent))
 			    .setElementStride(sizeof(FStaticMeshVertex)),
 			nvrhi::VertexAttributeDesc()
 			    .setName("TEXCOORD")

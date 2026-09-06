@@ -5,8 +5,8 @@
 // paying the cost on every shadow caster.
 //
 // Vertex layout must match FStaticMeshVertex, because the same meshes are drawn here and in the lit pass:
-// float3 position, float3 normal, float2 texcoord. Normal and texcoord are unused but must be declared,
-// since the input layout describes the whole vertex.
+// float3 position, float3 normal, float4 tangent, float2 texcoord. Everything but the position is unused
+// but must be declared, since the input layout describes the whole vertex.
 //
 // Every matrix is declared row_major explicitly rather than relying on the -Zpr compiler flag: DXC's
 // SPIR-V backend ignores that flag, so a shader that depends on it works on D3D12 and silently
@@ -28,6 +28,7 @@ struct FVertexInput
 {
 	float3 Position : POSITION;
 	float3 Normal : NORMAL;
+	float4 Tangent : TANGENT;
 	float2 TexCoord : TEXCOORD0;
 };
 

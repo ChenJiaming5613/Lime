@@ -14,6 +14,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 using Catch::Approx;
 using namespace Lime;
@@ -159,6 +160,127 @@ namespace
     "uri": "data:application/octet-stream;base64,AAABAAIAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA="
   } ]
 })";
+
+	// A triangle in the XY plane with an authored TANGENT, for the handedness conversion.
+	//
+	// Chosen so every expected value is exact: positions at the origin and along +X and +Y, normals at +Z,
+	// tangents at +X with handedness +1, and UVs whose U runs along +X and V along +Y. Both the reflection
+	// and the sign inversion are then readable off the result rather than being buried in arithmetic.
+	//
+	// Buffer, 152 bytes: 3 uint16 indices (6) + 2 padding, 3 positions (36), 3 normals (36), 3 VEC4
+	// tangents (48), 3 texcoords (24).
+	constexpr const char* TangentBuffer =
+	    "data:application/octet-stream;base64,AAABAAIAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAA"
+	    "AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAA"
+	    "AAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8=";
+
+	// Attributes are substituted, so the tangent-bearing and tangent-free cases describe the same geometry
+	// down to the byte. That is what lets the two be compared against each other: any difference in the
+	// resulting frame is the importer's doing, not the fixture's.
+	std::string MakeTangentGltf(bool bDeclareTangent)
+	{
+		std::string Attributes = R"("POSITION": 1, "NORMAL": 2, "TEXCOORD_0": 4)";
+		if (bDeclareTangent)
+		{
+			Attributes += R"(, "TANGENT": 3)";
+		}
+
+		std::string Json = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [ { "nodes": [ 0 ] } ],
+  "nodes": [ { "mesh": 0 } ],
+  "meshes": [ { "primitives": [ { "attributes": { ATTRIBUTES }, "indices": 0, "mode": 4 } ] } ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5123, "count": 3, "type": "SCALAR" },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3" },
+    { "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3" },
+    { "bufferView": 3, "componentType": 5126, "count": 3, "type": "VEC4" },
+    { "bufferView": 4, "componentType": 5126, "count": 3, "type": "VEC2" }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0,   "byteLength": 6 },
+    { "buffer": 0, "byteOffset": 8,   "byteLength": 36 },
+    { "buffer": 0, "byteOffset": 44,  "byteLength": 36 },
+    { "buffer": 0, "byteOffset": 80,  "byteLength": 48 },
+    { "buffer": 0, "byteOffset": 128, "byteLength": 24 }
+  ],
+  "buffers": [ { "byteLength": 152, "uri": "BUFFER" } ]
+})";
+
+		const std::string AttributePlaceholder = "ATTRIBUTES";
+		Json.replace(Json.find(AttributePlaceholder), AttributePlaceholder.size(), Attributes);
+		const std::string BufferPlaceholder = "BUFFER";
+		Json.replace(Json.find(BufferPlaceholder), BufferPlaceholder.size(), TangentBuffer);
+		return Json;
+	}
+
+	// A 1x1 opaque PNG, which stb decodes. Used wherever a slot needs a real image rather than a
+	// reference: the colour does not matter, only that the image is valid and gets a format assigned.
+	constexpr const char* OnePixelPng =
+	    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/"
+	    "q842iQAAAABJRU5ErkJggg==";
+
+	// Every metallic-roughness slot filled, each pointing at its own image.
+	//
+	// Distinct images per slot on purpose: the colour space is decided per slot, so sharing one image
+	// would hide whether the importer resolves them separately. Image 0 and 3 are colour, 1, 2 and 4 are
+	// measurements.
+	std::string MakeFullMaterialGltf()
+	{
+		std::string Json = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [ { "nodes": [ 0 ] } ],
+  "nodes": [ { "mesh": 0 } ],
+  "meshes": [ {
+    "primitives": [ { "attributes": { "POSITION": 1 }, "indices": 0, "material": 0, "mode": 4 } ]
+  } ],
+  "materials": [ {
+    "name": "Full",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [ 0.1, 0.2, 0.3, 1.0 ],
+      "baseColorTexture": { "index": 0 },
+      "metallicFactor": 0.25,
+      "roughnessFactor": 0.75,
+      "metallicRoughnessTexture": { "index": 1 }
+    },
+    "normalTexture": { "index": 2, "scale": 0.5 },
+    "emissiveFactor": [ 1.0, 0.5, 0.25 ],
+    "emissiveTexture": { "index": 3 },
+    "occlusionTexture": { "index": 4, "strength": 0.4 }
+  } ],
+  "textures": [
+    { "source": 0 }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 }
+  ],
+  "images": [ IMAGES ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5123, "count": 3, "type": "SCALAR" },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3" }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 6 },
+    { "buffer": 0, "byteOffset": 8, "byteLength": 36 }
+  ],
+  "buffers": [ {
+    "byteLength": 44,
+    "uri": "data:application/octet-stream;base64,AAABAAIAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA="
+  } ]
+})";
+
+		std::string Images;
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			Images += (Index == 0 ? "" : ", ");
+			Images += R"({ "uri": ")";
+			Images += OnePixelPng;
+			Images += R"(" })";
+		}
+
+		const std::string Placeholder = "IMAGES";
+		Json.replace(Json.find(Placeholder), Placeholder.size(), Images);
+		return Json;
+	}
 
 	FGltfImportResult Import(const char* Json)
 	{
@@ -424,6 +546,268 @@ TEST_CASE("An image stb cannot decode does not fail the import", "[Asset][Gltf]"
 	{
 		// Losing the texture must not lose the rest of the material.
 		REQUIRE(IsNearlyEqual(Result.Scene.Materials[0].BaseColorFactor, FVector4{ 0.5f, 0.6f, 0.7f, 1.0f }, 1.0e-3f));
+	}
+}
+
+TEST_CASE("An authored tangent is converted into the engine's handedness", "[Asset][Gltf][Tangent]")
+{
+	const std::string Json = MakeTangentGltf(true);
+	const FGltfImportResult Result = Import(Json.c_str());
+
+	INFO("importer message: " << Result.Message);
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.Scene.Meshes.size() == 1);
+
+	const FMeshData& Mesh = Result.Scene.Meshes[0];
+	REQUIRE(Mesh.Vertices.size() == 3);
+
+	SECTION("The direction reflects like a position")
+	{
+		// Authored along +X, which the Z reflection leaves alone. Included so a change that stopped
+		// converting the direction at all is still caught by the W case below rather than passing silently.
+		for (const FMeshVertex& Vertex : Mesh.Vertices)
+		{
+			const FVector3 Direction{ Vertex.Tangent.X, Vertex.Tangent.Y, Vertex.Tangent.Z };
+			REQUIRE(IsNearlyEqual(Direction, FVector3{ 1.0f, 0.0f, 0.0f }, 1.0e-5f));
+		}
+	}
+
+	SECTION("The handedness sign inverts")
+	{
+		// Authored as +1. The bitangent is cross(Normal, Tangent) * W, and a cross product picks up the
+		// determinant of whatever was applied to its operands: -1 for a reflection. Reflecting the normal
+		// and the tangent therefore flips the reconstructed bitangent by itself, and W has to flip back to
+		// cancel that. Passing W through unchanged is the bug this asserts against.
+		for (const FMeshVertex& Vertex : Mesh.Vertices)
+		{
+			REQUIRE(Vertex.Tangent.W == Approx(-1.0f));
+		}
+	}
+}
+
+TEST_CASE("A derived tangent frame matches what the file would have authored", "[Asset][Gltf][Tangent]")
+{
+	// The strongest check available on the handedness, because the two paths share no code: one reflects a
+	// value read from the file, the other solves for it from positions and UVs already in engine space. A
+	// sign error in either shows up as a disagreement, which no amount of testing one path alone would find.
+	const std::string WithTangent = MakeTangentGltf(true);
+	const std::string WithoutTangent = MakeTangentGltf(false);
+
+	const FGltfImportResult Authored = Import(WithTangent.c_str());
+	const FGltfImportResult Derived = Import(WithoutTangent.c_str());
+
+	REQUIRE(Authored.bSucceeded);
+	REQUIRE(Derived.bSucceeded);
+	REQUIRE(Authored.Scene.Meshes[0].Vertices.size() == Derived.Scene.Meshes[0].Vertices.size());
+
+	SECTION("Both paths agree on the whole frame")
+	{
+		for (SizeType Index = 0; Index < Authored.Scene.Meshes[0].Vertices.size(); ++Index)
+		{
+			const FVector4 A = Authored.Scene.Meshes[0].Vertices[Index].Tangent;
+			const FVector4 D = Derived.Scene.Meshes[0].Vertices[Index].Tangent;
+			INFO("vertex " << Index << " authored W " << A.W << " derived W " << D.W);
+			REQUIRE(IsNearlyEqual(A, D, 1.0e-5f));
+		}
+	}
+}
+
+TEST_CASE("A derived tangent follows the texture's U direction", "[Asset][Gltf][Tangent]")
+{
+	// A frame that is merely orthogonal is not enough: it has to line up with the UVs, or a normal map is
+	// applied rotated and the lighting leans the wrong way across the whole surface.
+	const std::string Json = MakeTangentGltf(false);
+	const FGltfImportResult Result = Import(Json.c_str());
+	REQUIRE(Result.bSucceeded);
+
+	const FMeshData& Mesh = Result.Scene.Meshes[0];
+	REQUIRE(Mesh.Vertices.size() == 3);
+
+	SECTION("The tangent runs along the axis U increases on")
+	{
+		// The fixture puts U along +X: vertex 1 sits at +X with U at 1 while the other two have U at 0.
+		for (const FMeshVertex& Vertex : Mesh.Vertices)
+		{
+			const FVector3 Direction{ Vertex.Tangent.X, Vertex.Tangent.Y, Vertex.Tangent.Z };
+			REQUIRE(IsNearlyEqual(Direction, FVector3{ 1.0f, 0.0f, 0.0f }, 1.0e-5f));
+		}
+	}
+
+	SECTION("The reconstructed bitangent runs along the axis V increases on")
+	{
+		// V runs along +Y in the fixture. Reconstructed exactly as the shader will, so the sign is checked
+		// the way it is going to be consumed rather than as an isolated number.
+		for (const FMeshVertex& Vertex : Mesh.Vertices)
+		{
+			const FVector3 Tangent{ Vertex.Tangent.X, Vertex.Tangent.Y, Vertex.Tangent.Z };
+			const FVector3 Bitangent = Cross(Vertex.Normal, Tangent) * Vertex.Tangent.W;
+			REQUIRE(IsNearlyEqual(Bitangent, FVector3{ 0.0f, 1.0f, 0.0f }, 1.0e-5f));
+		}
+	}
+}
+
+TEST_CASE("Every vertex gets a usable tangent frame", "[Asset][Gltf][Tangent]")
+{
+	// The invariants shading depends on, asserted on inputs that have no tangent to derive one from. A zero
+	// tangent collapses the frame and makes the mapped normal garbage rather than merely rotated, so the
+	// fallback has to produce something valid even when the UVs say nothing.
+	auto CheckFrame = [](const FGltfImportResult& Result)
+	{
+		REQUIRE(Result.bSucceeded);
+		REQUIRE_FALSE(Result.Scene.Meshes.empty());
+
+		for (const FMeshData& Mesh : Result.Scene.Meshes)
+		{
+			for (const FMeshVertex& Vertex : Mesh.Vertices)
+			{
+				const FVector3 Tangent{ Vertex.Tangent.X, Vertex.Tangent.Y, Vertex.Tangent.Z };
+
+				REQUIRE(Tangent.Length() == Approx(1.0f).margin(1.0e-3f));
+				// Perpendicular to the normal, which Gram-Schmidt is there to guarantee. A frame that is not
+				// orthogonal skews the mapped normal by an amount that varies across the surface.
+				REQUIRE(Dot(Tangent, Vertex.Normal) == Approx(0.0f).margin(1.0e-3f));
+				// Exactly one of the two, since the shader multiplies by it rather than testing it.
+				REQUIRE((Vertex.Tangent.W == Approx(1.0f) || Vertex.Tangent.W == Approx(-1.0f)));
+			}
+		}
+	};
+
+	SECTION("With no texture coordinates to derive from")
+	{
+		// No TEXCOORD_0 at all, so every triangle is degenerate in UV space and the arbitrary fallback runs.
+		CheckFrame(Import(NoNormalsGltf));
+	}
+
+	SECTION("With texture coordinates present")
+	{
+		CheckFrame(Import(TriangleGltf));
+	}
+}
+
+TEST_CASE("Every material channel is imported, not just base colour", "[Asset][Gltf][Material]")
+{
+	// The renderer shades with Blinn-Phong and reads only base colour, but the import is the expensive
+	// one-off step: a map left behind here can only be recovered by importing the scene again. These cases
+	// pin the whole material down so switching to PBR needs no importer change.
+	const std::string Json = MakeFullMaterialGltf();
+	const FGltfImportResult Result = Import(Json.c_str());
+
+	INFO("importer message: " << Result.Message);
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.Scene.Materials.size() == 1);
+	REQUIRE(Result.Scene.Images.size() == 5);
+
+	const FMaterialData& Material = Result.Scene.Materials[0];
+
+	SECTION("Every texture slot resolves to its own image")
+	{
+		// Distinct indices, so a slot cannot be quietly reading the one next to it.
+		REQUIRE(Material.BaseColorImage == 0);
+		REQUIRE(Material.MetallicRoughnessImage == 1);
+		REQUIRE(Material.NormalImage == 2);
+		REQUIRE(Material.EmissiveImage == 3);
+		REQUIRE(Material.OcclusionImage == 4);
+	}
+
+	SECTION("Factors are read from the slots that carry them")
+	{
+		REQUIRE(IsNearlyEqual(Material.BaseColorFactor, FVector4{ 0.1f, 0.2f, 0.3f, 1.0f }, 1.0e-3f));
+		REQUIRE(Material.MetallicFactor == Approx(0.25f));
+		REQUIRE(Material.RoughnessFactor == Approx(0.75f));
+		REQUIRE(IsNearlyEqual(Material.EmissiveFactor, FVector3{ 1.0f, 0.5f, 0.25f }, 1.0e-3f));
+
+		// These two live on the texture reference rather than on the material, which is easy to read from
+		// the wrong place.
+		REQUIRE(Material.NormalScale == Approx(0.5f));
+		REQUIRE(Material.OcclusionStrength == Approx(0.4f));
+	}
+
+	SECTION("Colour maps are decoded as sRGB and measurement maps as linear")
+	{
+		// The property the rest of the pipeline depends on. Nothing in a PNG says whether its values are
+		// encoded, so only the slot referencing it can decide, and reading linear data through an sRGB
+		// format makes the hardware decode it a second time: normals bend and roughness skews.
+		REQUIRE(Result.Scene.Images[0].IsSrgb()); // base colour
+		REQUIRE(Result.Scene.Images[3].IsSrgb()); // emissive
+
+		REQUIRE_FALSE(Result.Scene.Images[1].IsSrgb()); // metallic-roughness
+		REQUIRE_FALSE(Result.Scene.Images[2].IsSrgb()); // normal
+		REQUIRE_FALSE(Result.Scene.Images[4].IsSrgb()); // occlusion
+	}
+}
+
+TEST_CASE("A material that declares nothing gets the glTF defaults", "[Asset][Gltf][Material]")
+{
+	// TriangleGltf sets only a base colour factor, so every other channel falls back.
+	const FGltfImportResult Result = Import(TriangleGltf);
+	REQUIRE(Result.bSucceeded);
+	REQUIRE(Result.Scene.Materials.size() == 1);
+
+	const FMaterialData& Material = Result.Scene.Materials[0];
+
+	SECTION("Absent maps are marked absent rather than pointing at image zero")
+	{
+		// Zero is a valid image index, so a default of 0 would make every untextured material sample
+		// whichever image happened to be first.
+		REQUIRE(Material.MetallicRoughnessImage == FMaterialData::NoImage);
+		REQUIRE(Material.NormalImage == FMaterialData::NoImage);
+		REQUIRE(Material.EmissiveImage == FMaterialData::NoImage);
+		REQUIRE(Material.OcclusionImage == FMaterialData::NoImage);
+	}
+
+	SECTION("Factors follow the specification, not engine-flavoured defaults")
+	{
+		// glTF says both are 1, which makes an undeclared material a fully rough metal. Surprising, but
+		// changing it here would render such a material differently from every other glTF viewer.
+		REQUIRE(Material.MetallicFactor == Approx(1.0f));
+		REQUIRE(Material.RoughnessFactor == Approx(1.0f));
+
+		// Black, so a material that declares no emission does not glow.
+		REQUIRE(IsNearlyEqual(Material.EmissiveFactor, FVector3{ 0.0f, 0.0f, 0.0f }));
+
+		REQUIRE(Material.NormalScale == Approx(1.0f));
+		REQUIRE(Material.OcclusionStrength == Approx(1.0f));
+	}
+}
+
+TEST_CASE("Linear formats are recovered from their sRGB counterparts", "[Asset][Material]")
+{
+	// Used to correct a DDS whose file declares sRGB in a slot that must be linear, which exporters do
+	// produce for normal maps.
+	SECTION("Encoded formats map to their linear pair")
+	{
+		REQUIRE(ToLinearFormat(EPixelFormat::Rgba8Srgb) == EPixelFormat::Rgba8Unorm);
+		REQUIRE(ToLinearFormat(EPixelFormat::Bgra8Srgb) == EPixelFormat::Bgra8Unorm);
+		REQUIRE(ToLinearFormat(EPixelFormat::Bc1Srgb) == EPixelFormat::Bc1Unorm);
+		REQUIRE(ToLinearFormat(EPixelFormat::Bc3Srgb) == EPixelFormat::Bc3Unorm);
+		REQUIRE(ToLinearFormat(EPixelFormat::Bc7Srgb) == EPixelFormat::Bc7Unorm);
+	}
+
+	SECTION("Formats that are already linear are returned unchanged")
+	{
+		// Including the ones with no sRGB counterpart at all, which must not fall through to something else.
+		REQUIRE(ToLinearFormat(EPixelFormat::Rgba8Unorm) == EPixelFormat::Rgba8Unorm);
+		REQUIRE(ToLinearFormat(EPixelFormat::Bc5Snorm) == EPixelFormat::Bc5Snorm);
+		REQUIRE(ToLinearFormat(EPixelFormat::Bc6HUfloat) == EPixelFormat::Bc6HUfloat);
+		REQUIRE(ToLinearFormat(EPixelFormat::Unknown) == EPixelFormat::Unknown);
+	}
+
+	SECTION("Every sRGB format has a mapping")
+	{
+		// A new sRGB format added upstream without an entry here would silently stay encoded in a linear
+		// slot, so the mapping is required to be total rather than best effort.
+		constexpr EPixelFormat AllFormats[] = {
+			EPixelFormat::Rgba8Unorm, EPixelFormat::Rgba8Srgb, EPixelFormat::Bgra8Unorm, EPixelFormat::Bgra8Srgb,
+			EPixelFormat::Bc1Unorm,   EPixelFormat::Bc1Srgb,   EPixelFormat::Bc2Unorm,   EPixelFormat::Bc2Srgb,
+			EPixelFormat::Bc3Unorm,   EPixelFormat::Bc3Srgb,   EPixelFormat::Bc4Unorm,   EPixelFormat::Bc4Snorm,
+			EPixelFormat::Bc5Unorm,   EPixelFormat::Bc5Snorm,  EPixelFormat::Bc6HUfloat, EPixelFormat::Bc6HSfloat,
+			EPixelFormat::Bc7Unorm,   EPixelFormat::Bc7Srgb,
+		};
+
+		for (const EPixelFormat Format : AllFormats)
+		{
+			REQUIRE_FALSE(IsSrgbFormat(ToLinearFormat(Format)));
+		}
 	}
 }
 

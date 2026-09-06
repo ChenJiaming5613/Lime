@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -195,7 +196,129 @@ namespace Lime
 			}
 		}
 
-		FImageData ConvertImage(const tinygltf::Image& Source)
+		// Any unit vector perpendicular to the normal, for vertices whose UVs cannot say which way the
+		// tangent runs.
+		//
+		// Arbitrary is acceptable here but zero is not: a zero tangent collapses the shading frame and the
+		// mapped normal comes out as garbage rather than merely rotated. A mesh reaching this has no usable
+		// UVs, so the only thing it can sample is a flat normal, which any perpendicular frame shades
+		// identically.
+		FVector4 MakeArbitraryTangent(const FVector3& Normal)
+		{
+			// Crossed against whichever axis the normal is furthest from, so the product is never near zero.
+			const FVector3 Axis = std::abs(Normal.X) < 0.9f ? FVector3::UnitX() : FVector3::UnitY();
+			const FVector3 Tangent = Cross(Normal, Axis).GetNormalized();
+
+			// Only reachable from a zero normal, which the caller has already replaced, but a zero tangent
+			// here would defeat the purpose of the function.
+			return Tangent == FVector3::Zero() ? FVector4{ 1.0f, 0.0f, 0.0f, 1.0f } : FVector4{ Tangent, 1.0f };
+		}
+
+		// Derives a tangent frame for one primitive's triangles, for the common case of a glTF that ships no
+		// TANGENT attribute: 115 of the 150 Khronos sample models leave it out, the specification's position
+		// being that a client needing tangents should compute them. Sponza is one of the 35 that do author
+		// them, so both paths get exercised by the assets already on hand.
+		//
+		// The tangent has to follow the texture's U direction in space, which nothing but the UVs can say, so
+		// it is solved per triangle from the UV gradient and averaged at shared vertices. Averaging is what
+		// keeps a smooth surface from showing one facet per triangle, the same reason normals are averaged.
+		//
+		// Must run after the normals are final: the frame is orthogonalised against the normal, and doing
+		// that against a normal still being accumulated would orthogonalise to the wrong direction.
+		void GenerateTangents(std::vector<FMeshVertex>& Vertices, const std::vector<uint32>& Indices, uint32 FirstIndex,
+		                      uint32 IndexCount, uint32 VertexOffset, uint32 VertexCount)
+		{
+			if (VertexCount == 0 || VertexOffset + VertexCount > Vertices.size())
+			{
+				return;
+			}
+
+			// The bitangent is accumulated even though it is never stored, because the averaged version is
+			// what decides the handedness sign once the averaging is done.
+			std::vector<FVector3> TangentSum(VertexCount, FVector3::Zero());
+			std::vector<FVector3> BitangentSum(VertexCount, FVector3::Zero());
+
+			// Indices are rebased onto the primitive's slice, so subtracting the offset gives the local one.
+			// An index below the offset wraps to a large unsigned value, which the same bound then rejects.
+			const auto ToLocal = [VertexOffset, VertexCount](uint32 Index, uint32& OutLocal)
+			{
+				OutLocal = Index - VertexOffset;
+				return OutLocal < VertexCount;
+			};
+
+			for (uint32 Offset = 0; Offset + 2 < IndexCount; Offset += 3)
+			{
+				uint32 Local[3] = { 0, 0, 0 };
+				if (!ToLocal(Indices[FirstIndex + Offset], Local[0]) || !ToLocal(Indices[FirstIndex + Offset + 1], Local[1]) ||
+				    !ToLocal(Indices[FirstIndex + Offset + 2], Local[2]))
+				{
+					continue;
+				}
+
+				const FMeshVertex& V0 = Vertices[VertexOffset + Local[0]];
+				const FMeshVertex& V1 = Vertices[VertexOffset + Local[1]];
+				const FMeshVertex& V2 = Vertices[VertexOffset + Local[2]];
+
+				const FVector3 Edge1 = V1.Position - V0.Position;
+				const FVector3 Edge2 = V2.Position - V0.Position;
+
+				const float DeltaU1 = V1.TexCoord.X - V0.TexCoord.X;
+				const float DeltaV1 = V1.TexCoord.Y - V0.TexCoord.Y;
+				const float DeltaU2 = V2.TexCoord.X - V0.TexCoord.X;
+				const float DeltaV2 = V2.TexCoord.Y - V0.TexCoord.Y;
+
+				// Zero when the triangle collapses to a point or a line in UV space, which is what untextured
+				// geometry and degenerate seams look like. There is no U direction to recover, so the triangle
+				// contributes nothing and the fallback below covers a vertex left with no contribution at all.
+				const float Determinant = DeltaU1 * DeltaV2 - DeltaU2 * DeltaV1;
+				if (std::abs(Determinant) < 1.0e-12f)
+				{
+					continue;
+				}
+
+				const float Inverse = 1.0f / Determinant;
+				const FVector3 Tangent = (Edge1 * DeltaV2 - Edge2 * DeltaV1) * Inverse;
+				const FVector3 Bitangent = (Edge2 * DeltaU1 - Edge1 * DeltaU2) * Inverse;
+
+				// Unnormalized on purpose: the magnitude is proportional to the triangle's area in UV space,
+				// which weights a large triangle more heavily than a sliver. Normalizing first would let a
+				// degenerate sliver pull the average as hard as the face it sits on.
+				for (const uint32 Index : Local)
+				{
+					TangentSum[Index] = TangentSum[Index] + Tangent;
+					BitangentSum[Index] = BitangentSum[Index] + Bitangent;
+				}
+			}
+
+			for (uint32 Local = 0; Local < VertexCount; ++Local)
+			{
+				FMeshVertex& Vertex = Vertices[VertexOffset + Local];
+				const FVector3 Normal = Vertex.Normal;
+
+				// Gram-Schmidt. The averaged tangent is not perpendicular to the vertex normal, because the
+				// two were averaged over different triangle sets and an authored normal need not agree with
+				// the geometry at all. Removing the normal component squares the frame up without moving the
+				// normal, which is the vector shading is actually built on.
+				const FVector3 Projected = TangentSum[Local] - Normal * Dot(Normal, TangentSum[Local]);
+				const FVector3 Tangent = Projected.GetNormalized();
+
+				if (Tangent == FVector3::Zero())
+				{
+					// No usable UV gradient on any triangle touching this vertex, or a tangent that came out
+					// parallel to the normal and vanished under the projection.
+					Vertex.Tangent = MakeArbitraryTangent(Normal);
+					continue;
+				}
+
+				// Negative on a mirrored UV island, where the bitangent runs opposite to what the normal and
+				// tangent alone imply. Forcing +1 here is the classic normal mapping bug: it lights every
+				// mirrored half of a symmetric model as though the map were flipped in V.
+				const float Sign = Dot(Cross(Normal, Tangent), BitangentSum[Local]) < 0.0f ? -1.0f : 1.0f;
+				Vertex.Tangent = FVector4{ Tangent, Sign };
+			}
+		}
+
+		FImageData ConvertImage(const tinygltf::Image& Source, EImageColorSpace ColorSpace)
 		{
 			const uint32 Width = static_cast<uint32>(std::max(Source.width, 0));
 			const uint32 Height = static_cast<uint32>(std::max(Source.height, 0));
@@ -253,8 +376,11 @@ namespace Lime
 
 			FImageData Result;
 			Result.Name = Source.name;
-			// Base colour textures are authored in sRGB by definition, and this path only feeds base colour.
-			Result.SetSingleLevel(Width, Height, EPixelFormat::Rgba8Srgb, std::move(Pixels));
+			// A decoded PNG or JPEG carries no colour space of its own, so the slot that references it is the
+			// only thing that can say: sRGB for colour, linear for normals and the packed measurement maps.
+			// Unknown means nothing referenced it, and colour is the likelier guess.
+			const EPixelFormat Format = ColorSpace == EImageColorSpace::Linear ? EPixelFormat::Rgba8Unorm : EPixelFormat::Rgba8Srgb;
+			Result.SetSingleLevel(Width, Height, Format, std::move(Pixels));
 			return Result;
 		}
 
@@ -262,7 +388,8 @@ namespace Lime
 		//
 		// tinygltf hands image loading to stb, which does not know DDS, so those images arrive empty. The
 		// file is read here instead, keeping the block compressed payload intact all the way to the GPU.
-		FImageData LoadDdsImage(const tinygltf::Image& Source, const std::filesystem::path& BaseDirectory, std::string& OutWarning)
+		FImageData LoadDdsImage(const tinygltf::Image& Source, const std::filesystem::path& BaseDirectory,
+		                        EImageColorSpace ColorSpace, std::string& OutWarning)
 		{
 			if (Source.uri.empty() || BaseDirectory.empty())
 			{
@@ -281,7 +408,18 @@ namespace Lime
 				return {};
 			}
 
-			return Loaded.Image;
+			FImageData Image = Loaded.Image;
+
+			// A DDS states its format explicitly, so it is normally trusted over anything inferred. The one
+			// exception is an sRGB format in a slot that must be linear: exporters do write sRGB normal maps,
+			// and that pairing is always a mistake rather than an authoring choice. Left alone in the other
+			// direction, since a linear format in a colour slot can be deliberate.
+			if (ColorSpace == EImageColorSpace::Linear && IsSrgbFormat(Image.Format))
+			{
+				Image.Format = ToLinearFormat(Image.Format);
+			}
+
+			return Image;
 		}
 
 		// Resolves the image a texture actually refers to.
@@ -334,6 +472,18 @@ namespace Lime
 		{
 			OutMesh.Name = Source.name;
 
+			// Primitives whose tangents have to be derived, deferred until the normals are final because the
+			// derivation orthogonalises against them. Only the ranges are kept, since that is all the
+			// derivation needs and a primitive that authored its own tangents must not be touched.
+			struct FTangentRange
+			{
+				uint32 FirstIndex = 0;
+				uint32 IndexCount = 0;
+				uint32 VertexOffset = 0;
+				uint32 VertexCount = 0;
+			};
+			std::vector<FTangentRange> TangentRanges;
+
 			for (const tinygltf::Primitive& Primitive : Source.primitives)
 			{
 				// Only triangle lists are drawn. Strips, fans and point clouds appear in the sample assets;
@@ -380,6 +530,22 @@ namespace Lime
 					}
 				}
 
+				// glTF declares TANGENT as VEC4, the W being a handedness sign rather than a coordinate. A
+				// VEC3 tangent is malformed, and reading one as though the sign were there would take W from
+				// whatever follows in the buffer, so it is rejected instead.
+				const tinygltf::Accessor* TangentAccessor = nullptr;
+				if (const auto It = Primitive.attributes.find("TANGENT"); It != Primitive.attributes.end())
+				{
+					if (It->second >= 0 && It->second < static_cast<int>(Model.accessors.size()))
+					{
+						const tinygltf::Accessor& Candidate = Model.accessors[It->second];
+						if (Candidate.type == TINYGLTF_TYPE_VEC4)
+						{
+							TangentAccessor = &Candidate;
+						}
+					}
+				}
+
 				const uint32 VertexOffset = static_cast<uint32>(OutMesh.Vertices.size());
 				const uint32 FirstIndex = static_cast<uint32>(OutMesh.Indices.size());
 
@@ -412,6 +578,25 @@ namespace Lime
 						if (ReadAccessorAsFloats(Model, *TexCoordAccessor, Index, TexCoord, 2))
 						{
 							Vertex.TexCoord = { TexCoord[0], TexCoord[1] };
+						}
+					}
+
+					if (TangentAccessor != nullptr)
+					{
+						float Tangent[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+						if (ReadAccessorAsFloats(Model, *TangentAccessor, Index, Tangent, 4))
+						{
+							// The direction reflects like a position, being derived from differences of them.
+							const FVector3 Direction = ConvertPosition(Tangent[0], Tangent[1], Tangent[2]);
+
+							// The sign, however, inverts. The bitangent is cross(Normal, Tangent) * W, and a
+							// cross product picks up the determinant of the transform applied to its operands:
+							// for a reflection that is -1. So reflecting the normal and the tangent flips the
+							// reconstructed bitangent on its own, and W has to flip back to cancel it.
+							//
+							// Keeping W as authored is the bug this comment exists to prevent. It survives
+							// every symmetric test model and shows up as normal maps lit from the wrong side.
+							Vertex.Tangent = FVector4{ Direction, -Tangent[3] };
 						}
 					}
 
@@ -465,6 +650,13 @@ namespace Lime
 					GenerateFlatNormals(OutMesh.Vertices, OutMesh.Indices, FirstIndex, IndexCount);
 				}
 
+				// Recorded rather than derived now, because the derivation needs the finished normals and this
+				// primitive's may still be accumulating.
+				if (TangentAccessor == nullptr)
+				{
+					TangentRanges.push_back({ FirstIndex, IndexCount, VertexOffset, static_cast<uint32>(VertexCount) });
+				}
+
 				FMeshSection Section;
 				Section.FirstIndex = FirstIndex;
 				Section.IndexCount = IndexCount;
@@ -479,6 +671,15 @@ namespace Lime
 				// A degenerate triangle can leave a zero normal. Facing up is arbitrary but keeps the surface
 				// lit rather than black.
 				Vertex.Normal = Normalized == FVector3::Zero() ? FVector3::UnitY() : Normalized;
+			}
+
+			// Now that every normal is unit length and final. Authored tangents are already in place and are
+			// deliberately not revisited: the exporter knew the UV layout, and re-deriving would discard that
+			// for a guess.
+			for (const FTangentRange& Range : TangentRanges)
+			{
+				GenerateTangents(OutMesh.Vertices, OutMesh.Indices, Range.FirstIndex, Range.IndexCount, Range.VertexOffset,
+				                 Range.VertexCount);
 			}
 
 			return true;
@@ -566,18 +767,44 @@ namespace Lime
 			}
 		}
 
+		// Resolves a glTF texture reference to an image index, or -1 when it names nothing usable.
+		//
+		// Shared by every slot so MSFT_texture_dds is honoured uniformly: the extension redirects a texture
+		// to a different image, and a slot reading texture.source directly would miss it.
+		int32 ResolveTextureImage(const tinygltf::Model& Model, int TextureIndex)
+		{
+			if (TextureIndex < 0 || TextureIndex >= static_cast<int>(Model.textures.size()))
+			{
+				return FMaterialData::NoImage;
+			}
+
+			const int ImageIndex = GetTextureImageIndex(Model.textures[static_cast<size_t>(TextureIndex)]);
+			if (ImageIndex < 0 || ImageIndex >= static_cast<int>(Model.images.size()))
+			{
+				return FMaterialData::NoImage;
+			}
+			return ImageIndex;
+		}
+
 		FMaterialData ConvertMaterial(const tinygltf::Model& Model, const tinygltf::Material& Source)
 		{
 			FMaterialData Result;
 			Result.Name = Source.name;
 			Result.bDoubleSided = Source.doubleSided;
 
-			const std::vector<double>& Factor = Source.pbrMetallicRoughness.baseColorFactor;
+			const tinygltf::PbrMetallicRoughness& Pbr = Source.pbrMetallicRoughness;
+
+			const std::vector<double>& Factor = Pbr.baseColorFactor;
 			if (Factor.size() >= 4)
 			{
 				Result.BaseColorFactor = { static_cast<float>(Factor[0]), static_cast<float>(Factor[1]), static_cast<float>(Factor[2]),
 				                           static_cast<float>(Factor[3]) };
 			}
+
+			// tinygltf defaults these to the specification's 1.0, so they are taken as given rather than
+			// guarded: a material that omits them is a fully rough metal, which is what glTF says.
+			Result.MetallicFactor = static_cast<float>(Pbr.metallicFactor);
+			Result.RoughnessFactor = static_cast<float>(Pbr.roughnessFactor);
 
 			if (Source.alphaMode == "MASK")
 			{
@@ -585,15 +812,22 @@ namespace Lime
 			}
 
 			// The texture index points at a sampler/image pair; only the image is needed because sampling
-			// state is uniform for base colour in this renderer.
-			const int TextureIndex = Source.pbrMetallicRoughness.baseColorTexture.index;
-			if (TextureIndex >= 0 && TextureIndex < static_cast<int>(Model.textures.size()))
+			// state is uniform across the scene in this renderer.
+			Result.BaseColorImage = ResolveTextureImage(Model, Pbr.baseColorTexture.index);
+			Result.MetallicRoughnessImage = ResolveTextureImage(Model, Pbr.metallicRoughnessTexture.index);
+			Result.NormalImage = ResolveTextureImage(Model, Source.normalTexture.index);
+			Result.EmissiveImage = ResolveTextureImage(Model, Source.emissiveTexture.index);
+			Result.OcclusionImage = ResolveTextureImage(Model, Source.occlusionTexture.index);
+
+			// Carried on the texture reference rather than on the material, unlike every other factor: these
+			// two scale what the map says, so they mean nothing without one.
+			Result.NormalScale = static_cast<float>(Source.normalTexture.scale);
+			Result.OcclusionStrength = static_cast<float>(Source.occlusionTexture.strength);
+
+			if (Source.emissiveFactor.size() >= 3)
 			{
-				const int ImageIndex = GetTextureImageIndex(Model.textures[TextureIndex]);
-				if (ImageIndex >= 0 && ImageIndex < static_cast<int>(Model.images.size()))
-				{
-					Result.BaseColorImage = ImageIndex;
-				}
+				Result.EmissiveFactor = { static_cast<float>(Source.emissiveFactor[0]), static_cast<float>(Source.emissiveFactor[1]),
+				                          static_cast<float>(Source.emissiveFactor[2]) };
 			}
 
 			// After the standard path, because the extension is what the material is actually authored
@@ -601,6 +835,86 @@ namespace Lime
 			ApplySpecularGlossiness(Model, Source, Result);
 
 			return Result;
+		}
+
+		// Which colour space each image has to be decoded in, indexed by image.
+		//
+		// Run before the images are decoded, because that is the decision it feeds. The information only
+		// exists in the materials: an image file says nothing about whether its values are encoded, and glTF
+		// fixes it per slot instead.
+		//
+		// A conflict means one image is referenced by both a colour slot and a measurement slot, which no
+		// correct asset does. It is reported and resolved towards sRGB rather than refused: base colour is
+		// the slot that dominates what is seen, and refusing would fail the whole import over one bad
+		// reference. The ORM convention, where occlusion and metallic-roughness share a texture, is not a
+		// conflict — both are linear.
+		std::vector<EImageColorSpace> CollectImageColorSpaces(const tinygltf::Model& Model, std::string& OutWarning)
+		{
+			std::vector<EImageColorSpace> ColorSpaces(Model.images.size(), EImageColorSpace::Unknown);
+			uint32 ConflictCount = 0;
+
+			const auto Mark = [&](int32 ImageIndex, EImageColorSpace Space)
+			{
+				if (ImageIndex < 0 || static_cast<size_t>(ImageIndex) >= ColorSpaces.size())
+				{
+					return;
+				}
+
+				EImageColorSpace& Current = ColorSpaces[static_cast<size_t>(ImageIndex)];
+				if (Current == EImageColorSpace::Unknown)
+				{
+					Current = Space;
+					return;
+				}
+
+				if (Current != Space)
+				{
+					++ConflictCount;
+					Current = EImageColorSpace::Srgb;
+				}
+			};
+
+			for (const tinygltf::Material& Material : Model.materials)
+			{
+				const tinygltf::PbrMetallicRoughness& Pbr = Material.pbrMetallicRoughness;
+
+				Mark(ResolveTextureImage(Model, Pbr.baseColorTexture.index), EImageColorSpace::Srgb);
+				Mark(ResolveTextureImage(Model, Material.emissiveTexture.index), EImageColorSpace::Srgb);
+
+				Mark(ResolveTextureImage(Model, Pbr.metallicRoughnessTexture.index), EImageColorSpace::Linear);
+				Mark(ResolveTextureImage(Model, Material.normalTexture.index), EImageColorSpace::Linear);
+				Mark(ResolveTextureImage(Model, Material.occlusionTexture.index), EImageColorSpace::Linear);
+
+				// The specular-glossiness diffuse map lands in base colour, so it is colour too. Read here as
+				// well as in ApplySpecularGlossiness, since the decode happens before the materials are
+				// converted and Bistro's materials are almost entirely this extension.
+				const auto Extension = Material.extensions.find("KHR_materials_pbrSpecularGlossiness");
+				if (Extension == Material.extensions.end() || !Extension->second.Has("diffuseTexture"))
+				{
+					continue;
+				}
+
+				const tinygltf::Value& DiffuseTexture = Extension->second.Get("diffuseTexture");
+				if (!DiffuseTexture.Has("index"))
+				{
+					continue;
+				}
+
+				const tinygltf::Value& IndexValue = DiffuseTexture.Get("index");
+				if (IndexValue.IsInt())
+				{
+					Mark(ResolveTextureImage(Model, IndexValue.Get<int>()), EImageColorSpace::Srgb);
+				}
+			}
+
+			if (ConflictCount > 0)
+			{
+				OutWarning += (OutWarning.empty() ? "" : " ");
+				OutWarning += std::to_string(ConflictCount);
+				OutWarning += " image(s) are referenced as both colour and measurement data; they were decoded as sRGB.";
+			}
+
+			return ColorSpaces;
 		}
 
 		FSceneNodeData ConvertNode(const tinygltf::Node& Source)
@@ -768,16 +1082,24 @@ namespace Lime
 			}
 
 			std::string ImageWarnings;
+
+			// Before the decode, because it decides the format each image is decoded into: an image file says
+			// nothing about whether its values are sRGB encoded, and only the material slots referencing it do.
+			const std::vector<EImageColorSpace> ColorSpaces = CollectImageColorSpaces(Model, ImageWarnings);
+
 			Scene.Images.reserve(Model.images.size());
-			for (const tinygltf::Image& Image : Model.images)
+			for (SizeType ImageIndex = 0; ImageIndex < Model.images.size(); ++ImageIndex)
 			{
-				FImageData Converted = ConvertImage(Image);
+				const tinygltf::Image& Image = Model.images[ImageIndex];
+				const EImageColorSpace ColorSpace = ColorSpaces[ImageIndex];
+
+				FImageData Converted = ConvertImage(Image, ColorSpace);
 
 				// An image tinygltf could not decode arrives empty. When the uri names a DDS that is expected,
 				// since stb does not know the format, so it is read here instead.
 				if (!Converted.IsValid() && FDdsLoader::HasDdsExtension(std::filesystem::u8path(Image.uri)))
 				{
-					Converted = LoadDdsImage(Image, BaseDirectory, ImageWarnings);
+					Converted = LoadDdsImage(Image, BaseDirectory, ColorSpace, ImageWarnings);
 				}
 
 				Scene.Images.push_back(std::move(Converted));
@@ -803,12 +1125,21 @@ namespace Lime
 			}
 
 			// An image that failed to decode must not stay referenced, or the upload step would look for
-			// pixels that are not there.
+			// pixels that are not there. Every slot is checked, not just base colour: a scene where only the
+			// normal map failed would otherwise carry a live index to an empty image.
 			for (FMaterialData& Material : Scene.Materials)
 			{
-				if (Material.BaseColorImage >= 0 && !Scene.Images[static_cast<size_t>(Material.BaseColorImage)].IsValid())
+				int32* const Slots[] = {
+					&Material.BaseColorImage, &Material.MetallicRoughnessImage, &Material.NormalImage,
+					&Material.EmissiveImage,  &Material.OcclusionImage,
+				};
+
+				for (int32* Slot : Slots)
 				{
-					Material.BaseColorImage = -1;
+					if (*Slot >= 0 && !Scene.Images[static_cast<size_t>(*Slot)].IsValid())
+					{
+						*Slot = FMaterialData::NoImage;
+					}
 				}
 			}
 

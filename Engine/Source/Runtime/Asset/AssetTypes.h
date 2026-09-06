@@ -23,6 +23,15 @@ namespace Lime
 	{
 		FVector3 Position;
 		FVector3 Normal;
+		// Tangent frame for normal mapping. XYZ runs along increasing U; W is +1 or -1 and says which way
+		// the bitangent goes, reconstructed in the shader as cross(Normal, Tangent.xyz) * Tangent.W.
+		//
+		// Storing the sign rather than the bitangent itself costs one float instead of three, and the
+		// bitangent is fully determined by it: being perpendicular to both the normal and the tangent
+		// leaves only the direction in doubt. The sign is not redundant, because a mirrored UV island
+		// flips the bitangent while the normal and tangent stay put, and glTF stores TANGENT this way for
+		// the same reason.
+		FVector4 Tangent{ 1.0f, 0.0f, 0.0f, 1.0f };
 		FVector2 TexCoord;
 	};
 
@@ -64,15 +73,74 @@ namespace Lime
 		uint32 GetTriangleCount() const { return static_cast<uint32>(Indices.size() / 3); }
 	};
 
+	// The full glTF metallic-roughness material, imported whether or not the current renderer reads it.
+	//
+	// Every channel is carried because the import is the expensive, one-off part: re-importing a scene to
+	// pick up a map that was in the file all along is far worse than uploading one that nothing samples
+	// yet. Blinn-Phong reads only base colour, which costs it nothing — an unread slot is an index the
+	// shading never looks at.
+	//
+	// Factors follow the glTF defaults rather than engine-flavoured ones, so a material that omits a field
+	// behaves as the specification says. That matters most for the pair with a non-obvious default:
+	// metallic and roughness are both 1, meaning a material that declares neither is a fully rough metal.
+	//
+	// A texture index of -1 means the map is absent, and the factor alone applies. That is why the factors
+	// are multiplicative against a neutral fallback texture: the shading needs no branch and the pipeline
+	// no untextured variant.
 	struct FMaterialData
 	{
 		std::string Name;
+
+		// Index into FGltfSceneData::Images, or -1 when the map is absent.
+		static constexpr int32 NoImage = -1;
+
 		FVector4 BaseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
-		// Index into FGltfSceneData::Images, or -1 when the material is untextured.
-		int32 BaseColorImage = -1;
+		int32 BaseColorImage = NoImage;
+
+		// glTF packs both into one texture: roughness in G, metallic in B. One index, two factors.
+		float MetallicFactor = 1.0f;
+		float RoughnessFactor = 1.0f;
+		int32 MetallicRoughnessImage = NoImage;
+
+		// Tangent space normals. Scale attenuates the perturbation; 1 applies it as authored.
+		int32 NormalImage = NoImage;
+		float NormalScale = 1.0f;
+
+		// Black by default, so a material that declares no emission does not glow. The texture is
+		// multiplied by the factor, which is what makes a bare texture with no factor invisible.
+		FVector3 EmissiveFactor{ 0.0f, 0.0f, 0.0f };
+		int32 EmissiveImage = NoImage;
+
+		// Ambient occlusion in R. Frequently the same image as MetallicRoughnessImage: the ORM convention
+		// packs occlusion, roughness and metallic into one texture's R, G and B, and glTF expresses that as
+		// two slots pointing at one texture. Both indices are kept as the file gives them rather than
+		// deduplicated, so a consumer can tell an ORM pack from two separate maps.
+		int32 OcclusionImage = NoImage;
+		float OcclusionStrength = 1.0f;
+
 		// Alpha below this is discarded when the glTF alpha mode is MASK. Zero means no cutout.
 		float AlphaCutoff = 0.0f;
 		bool bDoubleSided = false;
+	};
+
+	// How an image's values are encoded, which decides the format it is uploaded in.
+	//
+	// Not a property of the image file but of the slot that references it: the same PNG is sRGB as a base
+	// colour map and linear as a normal map, and nothing in the file says which. glTF fixes this per slot,
+	// so the importer resolves it from the materials before decoding.
+	//
+	// Getting it wrong is not subtle in one direction and invisible in the other. Linear data read through
+	// an sRGB format is decoded a second time by the hardware, which bends normals and skews roughness;
+	// colour data read as linear merely looks washed out.
+	enum class EImageColorSpace : uint8
+	{
+		// Referenced by no material, or by none that decides. Treated as sRGB, since an unreferenced image
+		// is most likely colour.
+		Unknown,
+		// Colour: base colour and emissive.
+		Srgb,
+		// Measurements: normal, metallic-roughness and occlusion.
+		Linear,
 	};
 
 	// Pixel formats an image can arrive in.
@@ -125,6 +193,13 @@ namespace Lime
 	// True when the format carries an sRGB transfer function, which the shader must not decode a second
 	// time.
 	bool IsSrgbFormat(EPixelFormat Format);
+
+	// The linear counterpart of a format, or the format itself when it already is one.
+	//
+	// Used to correct an image whose file declares sRGB but whose slot requires linear. A DDS carries an
+	// explicit DXGI format and is normally trusted, but exporters do write sRGB normal maps, and that
+	// combination is always a mistake rather than an authoring choice.
+	EPixelFormat ToLinearFormat(EPixelFormat Format);
 
 	const char* ToString(EPixelFormat Format);
 

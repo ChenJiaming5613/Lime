@@ -23,12 +23,14 @@ namespace Lime
 	// because the two feed different pipelines and widening the simple one would change the vertex
 	// stride of every existing pass.
 	//
-	// Only the attributes the basic lit shading needs: no tangents, since normal mapping is out of
-	// scope and a tangent that is never read would waste bandwidth on every vertex.
+	// Must stay byte identical to FMeshVertex, which a static_assert checks where the two meet: imported
+	// mesh data is uploaded straight from the asset array with no conversion pass.
 	struct FStaticMeshVertex
 	{
 		FVector3 Position;
 		FVector3 Normal;
+		// See FMeshVertex::Tangent. W carries the bitangent's handedness, not a homogeneous coordinate.
+		FVector4 Tangent{ 1.0f, 0.0f, 0.0f, 1.0f };
 		FVector2 TexCoord;
 	};
 } // namespace Lime

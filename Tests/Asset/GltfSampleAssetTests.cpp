@@ -204,6 +204,95 @@ TEST_CASE("Sample assets import", "[Asset][Gltf][SampleAssets]")
 	}
 }
 
+TEST_CASE("Tangent frames survive real assets", "[Asset][Gltf][Tangent][SampleAssets]")
+{
+	// The embedded documents check the arithmetic on three vertices. These check it against files carrying
+	// the shapes those cannot: authored tangents at scale, and mirrored UV islands, which are the case the
+	// handedness sign exists for and the one a hand written fixture is least likely to reproduce.
+	const auto RequireUsableFrames = [](const FGltfImportResult& Result)
+	{
+		SizeType Checked = 0;
+		for (const FMeshData& Mesh : Result.Scene.Meshes)
+		{
+			for (const FMeshVertex& Vertex : Mesh.Vertices)
+			{
+				const FVector3 Tangent{ Vertex.Tangent.X, Vertex.Tangent.Y, Vertex.Tangent.Z };
+
+				// Asserted without a per-vertex INFO on purpose: these models have tens of thousands of
+				// vertices and Catch2 would spend the run building messages for assertions that pass.
+				REQUIRE(Tangent.Length() == Approx(1.0f).margin(1.0e-3f));
+				REQUIRE(Dot(Tangent, Vertex.Normal) == Approx(0.0f).margin(1.0e-2f));
+				REQUIRE((Vertex.Tangent.W == Approx(1.0f) || Vertex.Tangent.W == Approx(-1.0f)));
+				++Checked;
+			}
+		}
+
+		// A model that imported no vertices would pass every loop above without checking anything.
+		REQUIRE(Checked > 0);
+	};
+
+	SECTION("Authored tangents stay orthogonal to the normals")
+	{
+		const std::filesystem::path Path = FindModel("NormalTangentTest/glTF/NormalTangentTest.gltf");
+		if (Path.empty())
+		{
+			SKIP("glTF-Sample-Assets is not present");
+		}
+
+		const FGltfImportResult Result = FGltfImporter::LoadFromFile(Path);
+		INFO("importer message: " << Result.Message);
+		REQUIRE(Result.bSucceeded);
+		RequireUsableFrames(Result);
+	}
+
+	SECTION("A mirrored model keeps both handedness signs")
+	{
+		// The point of this asset: its UVs are mirrored across the model, so the bitangent runs one way on
+		// one half and the other way on the other. Both signs therefore have to appear. Code that dropped
+		// the sign, or forced it to +1, still passes every orthogonality check above and only fails here.
+		const std::filesystem::path Path = FindModel("NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf");
+		if (Path.empty())
+		{
+			SKIP("glTF-Sample-Assets is not present");
+		}
+
+		const FGltfImportResult Result = FGltfImporter::LoadFromFile(Path);
+		INFO("importer message: " << Result.Message);
+		REQUIRE(Result.bSucceeded);
+		RequireUsableFrames(Result);
+
+		bool bAnyPositive = false;
+		bool bAnyNegative = false;
+		for (const FMeshData& Mesh : Result.Scene.Meshes)
+		{
+			for (const FMeshVertex& Vertex : Mesh.Vertices)
+			{
+				bAnyPositive = bAnyPositive || Vertex.Tangent.W > 0.0f;
+				bAnyNegative = bAnyNegative || Vertex.Tangent.W < 0.0f;
+			}
+		}
+
+		REQUIRE(bAnyPositive);
+		REQUIRE(bAnyNegative);
+	}
+
+	SECTION("Derived tangents hold up on a model that authors none")
+	{
+		// AntiqueCamera ships normal maps but no TANGENT, which is the majority case among the samples and
+		// the one the derivation exists for. Run at full model scale rather than on a single triangle.
+		const std::filesystem::path Path = FindModel("AntiqueCamera/glTF/AntiqueCamera.gltf");
+		if (Path.empty())
+		{
+			SKIP("glTF-Sample-Assets is not present");
+		}
+
+		const FGltfImportResult Result = FGltfImporter::LoadFromFile(Path);
+		INFO("importer message: " << Result.Message);
+		REQUIRE(Result.bSucceeded);
+		RequireUsableFrames(Result);
+	}
+}
+
 TEST_CASE("Real DDS textures parse", "[Asset][Dds][SampleAssets]")
 {
 	// The DdsLoaderTests build headers by hand, which proves the layout maths but not that the maths matches

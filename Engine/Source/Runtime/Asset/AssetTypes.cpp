@@ -78,6 +78,29 @@ namespace Lime
 		}
 	}
 
+	EPixelFormat ToLinearFormat(EPixelFormat Format)
+	{
+		// Only the sRGB variants have anything to map; everything else, including the signed and float
+		// formats that have no sRGB counterpart at all, is already linear and returned unchanged.
+		switch (Format)
+		{
+			case EPixelFormat::Rgba8Srgb:
+				return EPixelFormat::Rgba8Unorm;
+			case EPixelFormat::Bgra8Srgb:
+				return EPixelFormat::Bgra8Unorm;
+			case EPixelFormat::Bc1Srgb:
+				return EPixelFormat::Bc1Unorm;
+			case EPixelFormat::Bc2Srgb:
+				return EPixelFormat::Bc2Unorm;
+			case EPixelFormat::Bc3Srgb:
+				return EPixelFormat::Bc3Unorm;
+			case EPixelFormat::Bc7Srgb:
+				return EPixelFormat::Bc7Unorm;
+			default:
+				return Format;
+		}
+	}
+
 	const char* ToString(EPixelFormat Format)
 	{
 		switch (Format)
