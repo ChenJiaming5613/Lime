@@ -30,6 +30,10 @@ namespace Lime
 		float AmbientStrength = 0.25f;
 		// Blinn-Phong exponent. Higher is a tighter, glossier highlight.
 		float SpecularPower = 32.0f;
+		// Whether materials that declare a normal map use it. Worth a switch rather than being always on,
+		// because it is the control that tells a wrong tangent frame apart from a wrong light: turning it off
+		// falls back to the vertex normals, which are independently verifiable.
+		bool bEnableNormalMaps = true;
 		bool bEnabled = true;
 	};
 
@@ -117,4 +121,5 @@ LIME_REFLECT(Lime::FBlinnPhongSettings)
 	LIME_PROPERTY(LightIntensity, Lime::FProp("Light Intensity").Range(0.0f, 10.0f));
 	LIME_PROPERTY(AmbientStrength, Lime::FProp("Ambient").Range(0.0f, 1.0f));
 	LIME_PROPERTY(SpecularPower, Lime::FProp("Specular Power").Range(1.0f, 128.0f));
+	LIME_PROPERTY(bEnableNormalMaps, Lime::FProp("Normal Maps"));
 }

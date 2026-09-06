@@ -24,6 +24,7 @@ namespace Lime
 		              "FMeshVertex and FStaticMeshVertex must match so imported data can be uploaded directly");
 		static_assert(offsetof(FMeshVertex, Position) == offsetof(FStaticMeshVertex, Position), "Vertex position offset mismatch");
 		static_assert(offsetof(FMeshVertex, Normal) == offsetof(FStaticMeshVertex, Normal), "Vertex normal offset mismatch");
+		static_assert(offsetof(FMeshVertex, Tangent) == offsetof(FStaticMeshVertex, Tangent), "Vertex tangent offset mismatch");
 		static_assert(offsetof(FMeshVertex, TexCoord) == offsetof(FStaticMeshVertex, TexCoord), "Vertex texcoord offset mismatch");
 
 		// Must match FSceneFrameConstants in BlinnPhong.hlsl, including the padding: HLSL constant buffers
@@ -53,7 +54,10 @@ namespace Lime
 			FVector4 BaseColorFactor;
 			float AlphaCutoff = 0.0f;
 			float SpecularPower = 32.0f;
-			float DrawPadding[2] = { 0.0f, 0.0f };
+			// Zero means "leave the vertex normal alone", which is how both an absent map and the disabled
+			// setting are expressed. The shader then needs no branch and no second pipeline.
+			float NormalScale = 0.0f;
+			float DrawPadding = 0.0f;
 		};
 
 		// Stand-in for a primitive that references no material, so drawing needs no special case.
@@ -111,7 +115,7 @@ namespace Lime
 		}
 
 		// Layout must match FStaticMeshVertex, which the static_asserts above tie to the imported data.
-		const std::array<nvrhi::VertexAttributeDesc, 3> Attributes = { {
+		const std::array<nvrhi::VertexAttributeDesc, 4> Attributes = { {
 			nvrhi::VertexAttributeDesc()
 			    .setName("POSITION")
 			    .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -121,6 +125,12 @@ namespace Lime
 			    .setName("NORMAL")
 			    .setFormat(nvrhi::Format::RGB32_FLOAT)
 			    .setOffset(offsetof(FStaticMeshVertex, Normal))
+			    .setElementStride(sizeof(FStaticMeshVertex)),
+			// Four components, the last being the bitangent's handedness rather than a coordinate.
+			nvrhi::VertexAttributeDesc()
+			    .setName("TANGENT")
+			    .setFormat(nvrhi::Format::RGBA32_FLOAT)
+			    .setOffset(offsetof(FStaticMeshVertex, Tangent))
 			    .setElementStride(sizeof(FStaticMeshVertex)),
 			nvrhi::VertexAttributeDesc()
 			    .setName("TEXCOORD")
@@ -158,7 +168,12 @@ namespace Lime
 		                                                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
 		                                                .addItem(nvrhi::BindingLayoutItem::Sampler(0))
 		                                                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1))
-		                                                .addItem(nvrhi::BindingLayoutItem::Sampler(1));
+		                                                .addItem(nvrhi::BindingLayoutItem::Sampler(1))
+		                                                // The normal map. No sampler of its own: it wants the
+		                                                // same wrapping and anisotropic filtering the base
+		                                                // colour does, and a second one would consume another
+		                                                // descriptor per material out of a capped heap.
+		                                                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(2));
 
 		BindingLayout = Device->createBindingLayout(LayoutDesc);
 		if (BindingLayout == nullptr)
@@ -341,7 +356,11 @@ namespace Lime
 		        // The graph's shadow map when one is connected, otherwise the stand-in. Either way the binding
 		        // is present, because the layout requires it.
 		        .addItem(nvrhi::BindingSetItem::Texture_SRV(1, ShadowTexture != nullptr ? ShadowTexture : FallbackShadowTexture.Get()))
-		        .addItem(nvrhi::BindingSetItem::Sampler(1, ShadowSampler));
+		        .addItem(nvrhi::BindingSetItem::Sampler(1, ShadowSampler))
+		        // Resolves to the flat normal stand-in when the material declares no map, so the binding is
+		        // always valid. The shader is additionally told not to perturb, via a zero NormalScale.
+		        .addItem(nvrhi::BindingSetItem::Texture_SRV(
+		            2, GpuResources.GetMaterialTexture(MaterialIndex, EMaterialTextureSlot::Normal)));
 
 		MaterialBindingSets[Slot] = Device->createBindingSet(Desc, BindingLayout);
 		return MaterialBindingSets[Slot].Get();
@@ -462,6 +481,13 @@ namespace Lime
 				DrawConstants.BaseColorFactor = Material.BaseColorFactor;
 				DrawConstants.AlphaCutoff = Material.AlphaCutoff;
 				DrawConstants.SpecularPower = Settings.SpecularPower;
+
+				// Left at zero unless this material actually has a map and the setting allows it. The stand-in
+				// texture bound in that case holds the flat normal, but 0.5 is not representable in 8 bit
+				// UNORM, so it decodes to 0.004 rather than 0 and would tilt the surface by a fraction of a
+				// degree. Zeroing the scale removes the tangential terms exactly instead.
+				const bool bHasNormalMap = Material.NormalImage != FMaterialData::NoImage;
+				DrawConstants.NormalScale = Settings.bEnableNormalMaps && bHasNormalMap ? Material.NormalScale : 0.0f;
 				Context.CommandList->writeBuffer(DrawConstantBuffer, &DrawConstants, sizeof(DrawConstants));
 
 				// Cached by material: createBindingSet allocates descriptors on every call with no caching of

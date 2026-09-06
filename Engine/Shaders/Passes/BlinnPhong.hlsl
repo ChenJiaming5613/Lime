@@ -1,6 +1,8 @@
 // Blinn-Phong shading for imported meshes. Shared by the D3D12 and Vulkan backends.
 //
-// Vertex layout must match FStaticMeshVertex: float3 position, float3 normal, float2 texcoord.
+// Vertex layout must match FStaticMeshVertex: float3 position, float3 normal, float4 tangent, float2
+// texcoord. The tangent is declared because the layout describes the whole vertex, and is not read yet:
+// normal mapping is the next step, and this shader still takes its normal straight from the vertex.
 //
 // Every matrix is declared row_major explicitly rather than relying on the -Zpr compiler flag: DXC's
 // SPIR-V backend ignores that flag, so a shader that depends on it works on D3D12 and silently
@@ -42,11 +44,19 @@ cbuffer FSceneDrawConstants : register(b1)
 	// Alpha below this is discarded. Zero disables the test, which is the common case.
 	float AlphaCutoff;
 	float SpecularPower;
-	float2 DrawPadding;
+	// Scales the mapped normal's tangential components, from the material's normalTexture.scale. 1 leaves
+	// the map as authored; 0 flattens it back to the vertex normal.
+	float NormalScale;
+	float DrawPadding;
 };
 
 Texture2D BaseColorTexture : register(t0);
 SamplerState BaseColorSampler : register(s0);
+
+// Tangent space normals. A material with none is bound a 1x1 texture holding the flat normal, which
+// decodes to (0, 0, 1) and leaves the vertex normal untouched: that is why this needs no branch and no
+// second pipeline variant.
+Texture2D NormalTexture : register(t2);
 
 // Always bound, because a shader cannot have an optional resource: when no shadow caster is connected the
 // pass binds a dummy and sets ShadowStrength to 0, so nothing here reads it.
@@ -60,6 +70,8 @@ struct FVertexInput
 {
 	float3 Position : POSITION;
 	float3 Normal : NORMAL;
+	// W is the bitangent's handedness, +1 or -1, not a homogeneous coordinate.
+	float4 Tangent : TANGENT;
 	float2 TexCoord : TEXCOORD0;
 };
 
@@ -68,6 +80,16 @@ struct FVertexOutput
 	float4 Position : SV_Position;
 	float3 WorldPosition : TEXCOORD1;
 	float3 Normal : NORMAL;
+	// The tangent frame, already in world space and with the handedness resolved.
+	//
+	// The bitangent is interpolated rather than rebuilt in the pixel shader from cross(N, T) * w. Rebuilding
+	// is the usual shortcut and it is wrong whenever the world matrix mirrors, which a negative node scale
+	// does: a cross product picks up the determinant of the transform applied to its operands, so the
+	// rebuilt vector would point the wrong way on exactly those meshes. Building it in object space, where
+	// the handedness sign was authored, and transforming it like any other tangential vector avoids the
+	// question entirely for the cost of one interpolator.
+	float3 Tangent : TANGENT;
+	float3 Bitangent : BINORMAL;
 	float2 TexCoord : TEXCOORD0;
 };
 
@@ -116,8 +138,49 @@ FVertexOutput MainVS(FVertexInput Input)
 	// Not normalized here: interpolation across the triangle denormalizes it anyway, so it is done once
 	// in the pixel shader instead.
 	Output.Normal = mul(NormalMatrix, float4(Input.Normal, 0.0f)).xyz;
+
+	// World rather than NormalMatrix, and the difference matters under a non uniform scale. A tangent lies
+	// along the surface and transforms like a direction between two points on it, which is what World does.
+	// A normal is perpendicular to the surface and transforms by the inverse transpose instead. Using
+	// NormalMatrix here would shear the frame away from the texture's U direction on any scaled node.
+	Output.Tangent = mul(World, float4(Input.Tangent.xyz, 0.0f)).xyz;
+
+	// Built in object space, where W was authored, then transformed like the tangent. See FVertexOutput.
+	const float3 ObjectBitangent = cross(Input.Normal, Input.Tangent.xyz) * Input.Tangent.w;
+	Output.Bitangent = mul(World, float4(ObjectBitangent, 0.0f)).xyz;
+
 	Output.TexCoord = Input.TexCoord;
 	return Output;
+}
+
+// The shading normal, after applying the tangent space map.
+//
+// Returns the vertex normal unchanged when the material has no map: the pass sets NormalScale to 0 in that
+// case, which zeroes the tangential terms exactly and leaves only the Z one. That is cheaper than a branch
+// and, unlike relying on the stand-in texture's value, it is exact: 0.5 is not representable in 8 bit
+// UNORM, so the flat normal decodes to 0.004 rather than 0 and would tilt every unmapped surface slightly.
+float3 ApplyNormalMap(FVertexOutput Input, float3 VertexNormal)
+{
+	const float3 Sampled = NormalTexture.Sample(BaseColorSampler, Input.TexCoord).xyz * 2.0f - 1.0f;
+
+	// Only X and Y are scaled, per the glTF definition of normalTexture.scale. Scaling Z as well would
+	// change the strength by an amount that depends on how steep the map already is.
+	const float3 TangentNormal = float3(Sampled.xy * NormalScale, Sampled.z);
+
+	// Re-orthogonalised against the normal rather than used as interpolated. Interpolating three vectors
+	// across a triangle does not preserve the right angles between them, and the error grows with how
+	// heavily the normals were smoothed. The normal is the one held fixed because it is what the diffuse and
+	// specular terms are built on.
+	float3 Tangent = normalize(Input.Tangent);
+	float3 Bitangent = normalize(Input.Bitangent);
+	Tangent = normalize(Tangent - VertexNormal * dot(VertexNormal, Tangent));
+	Bitangent = normalize(Bitangent - VertexNormal * dot(VertexNormal, Bitangent));
+
+	// No negation of Y. glTF defines the bitangent as cross(normal, tangent) * w and the map's green channel
+	// along it, and the importer derives its tangents from the same UV gradient that definition refers to,
+	// so the two already agree. Flipping Y here is the fix for content authored against the other
+	// convention, and applying it to glTF content instead turns every bump into a dent.
+	return normalize(Tangent * TangentNormal.x + Bitangent * TangentNormal.y + VertexNormal * TangentNormal.z);
 }
 
 float4 MainPS(FVertexOutput Input) : SV_Target0
@@ -131,8 +194,11 @@ float4 MainPS(FVertexOutput Input) : SV_Target0
 		discard;
 	}
 
-	float3 Normal = normalize(Input.Normal);
 	const float3 ViewDirection = normalize(CameraPosition - Input.WorldPosition);
+
+	// Mapped in the frame as authored, before the back face correction below. Correcting first would flip
+	// the frame's handedness and mirror the map's green channel on those faces.
+	float3 Normal = ApplyNormalMap(Input, normalize(Input.Normal));
 
 	// Back faces present normals pointing away from the viewer, because culling is disabled: glTF winding
 	// flips with a negative node scale. Flipping the normal keeps those faces lit instead of black.
