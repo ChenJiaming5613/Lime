@@ -38,6 +38,7 @@ else()
 		"${CMAKE_CURRENT_SOURCE_DIR}/RenderGraph/RenderGraphDescTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/RenderGraph/RenderGraphCompilerTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/RenderGraph/RenderGraphExampleTests.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/RenderGraph/RenderGraphInjectionTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/RenderGraph/RenderGraphJsonTests.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/RenderGraph/RenderGraphLayoutTests.cpp"
 	)

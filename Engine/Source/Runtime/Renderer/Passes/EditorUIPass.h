@@ -3,11 +3,15 @@
 // Only imgui_impl_glfw is reused for platform input; drawing lives here so D3D12 and Vulkan run the
 // same code path. Implements the 1.92 texture protocol (ImGuiBackendFlags_RendererHasTextures).
 //
-// A render pass like any other, but not one the scene graph executes. It draws into the swap chain and
-// samples what the graph produced, so it has to run after the graph's submission has completed; the
-// renderer keeps it as a separate stage for that reason rather than because it is special in kind.
-// It declares no graph resources: the target it draws into is the back buffer, which the graph does not
-// own.
+// A pass in the graph like any other, injected by the engine rather than named in the graph file: the
+// editor is not part of a project's rendering pipeline, so it must not be something a graph can forget to
+// include or wire up wrongly. It declares the back buffer as an imported output, which is what lets it
+// write the swap chain from inside the graph, and the presented scene as an optional input so it is
+// ordered after the pass that produced it.
+//
+// The input is nominal. A draw list can reference any number of textures, so what this pass samples is
+// decided per draw command through RegisterTexture, not by the graph. Declaring the scene anyway is what
+// gives the graph the dependency to order on and nvrhi the barrier it needs.
 
 #pragma once
 
@@ -15,6 +19,7 @@
 
 #include <imgui.h>
 
+#include <string>
 #include <unordered_map>
 
 namespace Lime
@@ -25,7 +30,14 @@ namespace Lime
 		// Always drawn last, into the swap chain rather than the scene target.
 		static constexpr ERenderPassPriority Priority = ERenderPassPriority::EditorUI;
 
+		// The field the engine binds the presented scene to. Named here so the injector and Reflect cannot
+		// drift apart.
+		static constexpr const char* SceneField = "scene";
+		static constexpr const char* TargetField = "target";
+
 		const char* GetName() const override { return "EditorUI"; }
+
+		void Reflect(FRenderGraphPassTypeDesc& OutType) const override;
 
 		bool Initialize(FRenderer& Renderer) override;
 		void Shutdown() override;
@@ -46,6 +58,13 @@ namespace Lime
 		};
 
 		bool CreatePipeline(nvrhi::IFramebuffer* Framebuffer);
+		// Returns the pipeline for this framebuffer's layout, creating it on first use.
+		//
+		// Keyed on FramebufferInfo rather than on the framebuffer object, because that is what nvrhi
+		// actually requires a pipeline to match. The swap chain hands out a different framebuffer per
+		// frame while its formats never change, so keying on the object rebuilt the pipeline on nearly
+		// every frame once the graph started supplying the target.
+		nvrhi::IGraphicsPipeline* GetPipelineFor(nvrhi::IFramebuffer* Framebuffer);
 		// Handles ImGui's create, update and destroy texture requests for the frame.
 		void UpdateTextures(nvrhi::ICommandList* CommandList, ImDrawData* DrawData);
 		void CreateTexture(nvrhi::ICommandList* CommandList, ImTextureData* TextureData);
@@ -60,7 +79,9 @@ namespace Lime
 		nvrhi::ShaderHandle PixelShader;
 		nvrhi::InputLayoutHandle InputLayout;
 		nvrhi::BindingLayoutHandle BindingLayout;
-		nvrhi::GraphicsPipelineHandle Pipeline;
+		// One per distinct framebuffer layout. In practice one entry: the editor only ever draws into the
+		// swap chain, whose format is fixed for the session.
+		std::unordered_map<std::string, nvrhi::GraphicsPipelineHandle> Pipelines;
 		nvrhi::SamplerHandle Sampler;
 		nvrhi::BufferHandle VertexBuffer;
 		nvrhi::BufferHandle IndexBuffer;

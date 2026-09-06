@@ -16,6 +16,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 #if LIME_WITH_EDITOR
 #include "Editor/EditorLayer.h"
@@ -68,9 +69,17 @@ namespace Lime
 		// Loads and compiles the configured render graph, then hands it to the renderer.
 		//
 		// Returns false when the project has no usable graph, which the caller treats as a warning rather
-		// than a failed startup: the engine then draws only the editor UI, and every reason is in the log.
-		// That is far more useful than refusing to open a window over a mistyped resource name.
+		// than a failed startup: the engine then draws only the injected passes, and every reason is in the
+		// log. That is far more useful than refusing to open a window over a mistyped resource name.
 		bool BuildConfiguredRenderGraph();
+
+		// The passes the engine appends to whatever the graph file described.
+		//
+		// In editor mode the UI pass, so editor chrome is ordered and synchronised by the graph like
+		// anything else; otherwise a blit, because no pass a graph describes writes the swap chain and
+		// without one nothing would reach the screen. Built per call rather than stored, since it depends
+		// only on whether the editor came up.
+		std::vector<FRenderGraphInjection> BuildRenderGraphInjections() const;
 
 		// Applies the configured camera and lighting, then starts the glTF import on a worker thread.
 		// Never fails the startup: a bad path is reported once here and the engine continues with an empty

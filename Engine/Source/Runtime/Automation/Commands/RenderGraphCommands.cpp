@@ -159,6 +159,10 @@ namespace Lime
 				FJson Entry;
 				Entry["name"] = Pass.PassName;
 				Entry["type"] = Pass.TypeName;
+				// The engine appends these after the compile, so they are in the running graph but in neither
+				// the file nor the panel. Reported because a script asserting the execution order would
+				// otherwise see a pass it has no way to account for.
+				Entry["injected"] = Pass.bInjected;
 				Order.push_back(std::move(Entry));
 			}
 			Runtime["executionOrder"] = std::move(Order);
@@ -176,6 +180,9 @@ namespace Lime
 				Entry["isDepth"] = Resource.bIsDepth;
 				Entry["isRenderTarget"] = Resource.bUsedAsRenderTarget;
 				Entry["isShaderResource"] = Resource.bUsedAsShaderResource;
+				// An imported resource is supplied by the engine per frame rather than allocated by the graph,
+				// so a script reading a zero size here is seeing the swap chain, not a bug.
+				Entry["imported"] = Resource.IsImported();
 				Resources.push_back(std::move(Entry));
 			}
 			Runtime["resources"] = std::move(Resources);

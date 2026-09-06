@@ -4,9 +4,12 @@
 #include "Core/Math/MathUtils.h"
 #include "Platform/PlatformPaths.h"
 #include "RenderGraph/RenderGraphCompiler.h"
+#include "RenderGraph/RenderGraphInjection.h"
 #include "RenderGraph/RenderGraphJson.h"
 #include "Renderer/Passes/BlinnPhongForwardLitPass.h"
+#include "Renderer/Passes/BlitPass.h"
 #include "Renderer/Passes/BuiltinPasses.h"
+#include "Renderer/Passes/EditorUIPass.h"
 #include "Renderer/RenderPassRegistry.h"
 
 #include "Asset/GltfImporter.h"
@@ -263,6 +266,12 @@ namespace Lime
 
 		// Not const: it is handed to the renderer by move, on the failure path as well as the success one.
 		FRenderGraphCompileResult Compiled = CompileRenderGraph(Graph, PassTypes);
+
+		// After the compile and before the renderer sees it, which is the only place the injected passes can
+		// go: the description is what the panel draws and what saving writes, so a pass added there would
+		// have to be filtered out of both.
+		InjectRenderGraphPasses(Compiled, BuildRenderGraphInjections(), PassTypes);
+
 		for (const FRenderGraphIssue& Issue : Compiled.Issues)
 		{
 			if (Issue.IsError())
@@ -296,6 +305,48 @@ namespace Lime
 		LIME_LOG_INFO(LIME_LOG_CATEGORY_RENDERER, "Render graph '{}' compiled: {} pass(es), {} resource(s)", Settings.RenderGraphPath,
 		              PassCount, ResourceCount);
 		return true;
+	}
+
+	std::vector<FRenderGraphInjection> FEngine::BuildRenderGraphInjections() const
+	{
+		std::vector<FRenderGraphInjection> Injections;
+
+#if LIME_WITH_EDITOR
+		if (bEditorEnabled)
+		{
+			// The editor UI, drawing the whole window: the scene reaches it through the viewport panel's
+			// texture rather than through the back buffer, so it clears its target.
+			//
+			// Bound to output slot 0 so the graph orders it after whatever produced the scene. That
+			// dependency is what the injection is for; the textures the UI actually samples are the ones
+			// RegisterTexture handed out.
+			FRenderGraphInjection EditorUI;
+			EditorUI.PassName = "$EditorUI";
+			EditorUI.TypeName = "EditorUI";
+			EditorUI.InputFromOutputSlot = 0;
+			EditorUI.InputFieldName = FEditorUIPass::SceneField;
+			EditorUI.ImportedTarget = FRenderer::BackBufferImport;
+			// The UI samples the viewport targets, which the renderer fills with a copy from the graph's
+			// outputs. That copy is submitted work the graph did not describe, so nvrhi's within-list
+			// tracking does not cover it and the boundary has to be explicit.
+			EditorUI.bBeginsNewSubmission = true;
+			Injections.push_back(std::move(EditorUI));
+			return Injections;
+		}
+#endif
+
+		// Without the editor nothing would reach the screen at all: every graph pass writes its own
+		// textures, and the swap chain is not one of them. A blit is what closes that gap, and it is the
+		// same mechanism rather than a second code path.
+		FRenderGraphInjection Present;
+		Present.PassName = "$Present";
+		Present.TypeName = "Blit";
+		Present.InputFromOutputSlot = 0;
+		Present.InputFieldName = FBlitPass::SourceField;
+		Present.ImportedTarget = FRenderer::BackBufferImport;
+		Injections.push_back(std::move(Present));
+
+		return Injections;
 	}
 
 	void FEngine::BeginLoadConfiguredScene()
@@ -547,10 +598,9 @@ namespace Lime
 
 		if (Renderer.BeginFrame(DeltaSeconds, Timer.GetTotalSeconds()))
 		{
-			// Two stages: the scene goes to the viewport target in editor mode and straight to the
-			// back buffer otherwise, while editor UI passes always target the back buffer.
-			Renderer.RenderScene();
-			Renderer.RenderEditorUI();
+			// One graph: the project's passes and the engine's injected ones, ordered together. The editor UI
+			// is a pass in it rather than a stage after it.
+			Renderer.RenderFrame();
 			Renderer.EndFrame();
 		}
 

@@ -14,7 +14,7 @@
 #include "Platform/PlatformPaths.h"
 #include "Platform/Window.h"
 #include "RHI/DeviceManager.h"
-#include "Renderer/ImGui/EditorUIPass.h"
+#include "Renderer/Passes/EditorUIPass.h"
 #include "Renderer/RenderPassRegistry.h"
 #include "Renderer/Renderer.h"
 

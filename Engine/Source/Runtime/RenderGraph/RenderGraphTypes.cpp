@@ -68,6 +68,33 @@ namespace Lime
 			return false;
 		}
 
+		// Transient is the unspecified value here, not a claim. A pass reading a resource has no opinion on
+		// who allocated it, so a transient reader against an imported producer keeps the import rather than
+		// being treated as a disagreement: ownership is a statement about the producer alone.
+		if (Other.Source == ERenderGraphResourceSource::Imported)
+		{
+			InOut.Source = ERenderGraphResourceSource::Imported;
+			if (InOut.ImportName.empty())
+			{
+				InOut.ImportName = Other.ImportName;
+			}
+			else if (!Other.ImportName.empty() && InOut.ImportName != Other.ImportName)
+			{
+				// Two different engine slots for one resource has no meaning: the resource is one texture, and
+				// which one the engine binds could not be decided.
+				OutIssue.Severity = FRenderGraphIssue::ESeverity::Error;
+				OutIssue.Message = "'" + ContextName + "' is connected to endpoints that name different imported targets.";
+				return false;
+			}
+		}
+
+		// The load action belongs to the writing end, so a reader never overrides one that was set. This is
+		// not a merge of equals: an input has no contents to preserve or discard.
+		if (InOut.LoadAction == ERenderGraphLoadAction::Unspecified)
+		{
+			InOut.LoadAction = Other.LoadAction;
+		}
+
 		// The description is documentation rather than a requirement, so the first non-empty one wins
 		// instead of a mismatch being reported.
 		if (InOut.Description.empty())

@@ -192,6 +192,8 @@ namespace Lime
 				Resource.Width = Desc.Width;
 				Resource.Height = Desc.Height;
 				Resource.bIsDepth = Desc.IsDepth();
+				Resource.Source = Desc.Source;
+				Resource.ImportName = Desc.ImportName;
 				OutResources.push_back(std::move(Resource));
 				return OutResources.size() - 1;
 			};
@@ -465,7 +467,15 @@ namespace Lime
 				const auto Found = ResourceByField.find(MakeFieldKey(Context.Instance->Name, Output.Name));
 				if (Found != ResourceByField.end())
 				{
-					Compiled.Bindings.push_back(FCompiledPassBinding{ Output.Name, Found->second, ERenderGraphResourceVisibility::Output });
+					FCompiledPassBinding Binding;
+					Binding.FieldName = Output.Name;
+					Binding.ResourceIndex = Found->second;
+					Binding.Visibility = ERenderGraphResourceVisibility::Output;
+					// A transient attachment is fully written every frame, so the default is to clear: keeping
+					// the previous frame would blend two frames wherever the pass did not cover the surface.
+					Binding.LoadAction =
+					    Output.LoadAction != ERenderGraphLoadAction::Unspecified ? Output.LoadAction : ERenderGraphLoadAction::Clear;
+					Compiled.Bindings.push_back(std::move(Binding));
 				}
 			}
 
@@ -474,7 +484,11 @@ namespace Lime
 				const auto Found = ResourceByField.find(MakeFieldKey(Context.Instance->Name, Input.Name));
 				if (Found != ResourceByField.end())
 				{
-					Compiled.Bindings.push_back(FCompiledPassBinding{ Input.Name, Found->second, ERenderGraphResourceVisibility::Input });
+					FCompiledPassBinding Binding;
+					Binding.FieldName = Input.Name;
+					Binding.ResourceIndex = Found->second;
+					Binding.Visibility = ERenderGraphResourceVisibility::Input;
+					Compiled.Bindings.push_back(std::move(Binding));
 				}
 			}
 

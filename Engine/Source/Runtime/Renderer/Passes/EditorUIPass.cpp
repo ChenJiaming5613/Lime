@@ -1,4 +1,4 @@
-#include "Renderer/ImGui/EditorUIPass.h"
+#include "Renderer/Passes/EditorUIPass.h"
 
 #include "Core/Logging/LogManager.h"
 #include "Core/Math/Matrix.h"
@@ -29,9 +29,35 @@ namespace Lime
 		}
 	} // namespace
 
-	bool FEditorUIPass::Initialize(FRenderer& Renderer)
+	void FEditorUIPass::Reflect(FRenderGraphPassTypeDesc& OutType) const
 	{
-		Device = Renderer.GetDevice();
+		OutType.Description = "The editor's ImGui chrome. Injected by the engine in editor mode.";
+
+		// Optional, and deliberately so: a graph that failed to compile produces nothing to draw over, and
+		// that has to leave a usable editor rather than a failed frame. Reporting why is the editor's job,
+		// which it cannot do if it is not drawn.
+		//
+		// Nominal as well. What the UI samples is decided per draw command by the ids RegisterTexture
+		// handed out, not by this binding; declaring it is what orders this pass after the scene and gives
+		// nvrhi the write-then-read it needs to insert a barrier for.
+		FRenderGraphResourceDesc Scene = MakeTextureResource(SceneField, ERenderGraphResourceVisibility::Input);
+		Scene.bOptional = true;
+		Scene.Description = "The presented scene, drawn inside the viewport panel.";
+		OutType.Inputs.push_back(std::move(Scene));
+
+		// The swap chain, which the graph does not own: it rotates between frames, so the engine binds it
+		// per frame instead of the graph allocating it.
+		FRenderGraphResourceDesc Target = MakeTextureResource(TargetField, ERenderGraphResourceVisibility::Output);
+		Target.Source = ERenderGraphResourceSource::Imported;
+		// Clear, because the editor owns the whole window: the scene it shows arrives through the viewport
+		// panel's texture rather than by having been drawn into the back buffer underneath.
+		Target.LoadAction = ERenderGraphLoadAction::Clear;
+		Target.Description = "The swap chain back buffer.";
+		OutType.Outputs.push_back(std::move(Target));
+	}
+
+	bool FEditorUIPass::Initialize(FRenderer& Renderer)
+	{		Device = Renderer.GetDevice();
 		if (Device == nullptr || ImGui::GetCurrentContext() == nullptr)
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "FEditorUIPass requires a device and an active ImGui context");
@@ -127,7 +153,7 @@ namespace Lime
 
 		// Clears both ImGui owned and externally registered entries.
 		Textures.clear();
-		Pipeline = nullptr;
+		Pipelines.clear();
 		BindingLayout = nullptr;
 		ConstantBuffer = nullptr;
 		IndexBuffer = nullptr;
@@ -145,9 +171,35 @@ namespace Lime
 
 	bool FEditorUIPass::CreatePipeline(nvrhi::IFramebuffer* Framebuffer)
 	{
-		if (Framebuffer == nullptr)
+		return GetPipelineFor(Framebuffer) != nullptr;
+	}
+
+	nvrhi::IGraphicsPipeline* FEditorUIPass::GetPipelineFor(nvrhi::IFramebuffer* Framebuffer)
+	{
+		if (Framebuffer == nullptr || Device == nullptr)
 		{
-			return false;
+			return nullptr;
+		}
+
+		// The layout, not the object. Two framebuffers with the same formats are interchangeable as far as
+		// a pipeline is concerned, which is exactly the swap chain's case.
+		const nvrhi::FramebufferInfoEx& Info = Framebuffer->getFramebufferInfo();
+		std::string Key;
+		Key.reserve(Info.colorFormats.size() * 4 + 8);
+		for (const nvrhi::Format ColorFormat : Info.colorFormats)
+		{
+			Key += std::to_string(static_cast<uint32>(ColorFormat));
+			Key += ',';
+		}
+		Key += '|';
+		Key += std::to_string(static_cast<uint32>(Info.depthFormat));
+		Key += '|';
+		Key += std::to_string(Info.sampleCount);
+
+		const auto Cached = Pipelines.find(Key);
+		if (Cached != Pipelines.end())
+		{
+			return Cached->second;
 		}
 
 		nvrhi::BlendState::RenderTarget BlendTarget;
@@ -167,27 +219,32 @@ namespace Lime
 		RenderState.rasterState.setCullNone().setScissorEnable(true);
 
 		const nvrhi::GraphicsPipelineDesc PipelineDesc = nvrhi::GraphicsPipelineDesc()
-		                                                     .setPrimType(nvrhi::PrimitiveType::TriangleList)
-		                                                     .setInputLayout(InputLayout)
-		                                                     .setVertexShader(VertexShader)
-		                                                     .setPixelShader(PixelShader)
-		                                                     .addBindingLayout(BindingLayout)
-		                                                     .setRenderState(RenderState);
+		     .setPrimType(nvrhi::PrimitiveType::TriangleList)
+		       .setInputLayout(InputLayout)
+		       .setVertexShader(VertexShader)
+		.setPixelShader(PixelShader)
+		     .addBindingLayout(BindingLayout)
+		   .setRenderState(RenderState);
 
-		Pipeline = Device->createGraphicsPipeline(PipelineDesc, Framebuffer->getFramebufferInfo());
+		nvrhi::GraphicsPipelineHandle Pipeline = Device->createGraphicsPipeline(PipelineDesc, Framebuffer->getFramebufferInfo());
 		if (Pipeline == nullptr)
 		{
 			LIME_LOG_ERROR(LIME_LOG_CATEGORY_RENDERER, "createGraphicsPipeline failed for the ImGui renderer");
-			return false;
+			return nullptr;
 		}
 
-		return true;
+		nvrhi::IGraphicsPipeline* Result = Pipeline;
+		Pipelines.emplace(std::move(Key), std::move(Pipeline));
+		return Result;
 	}
 
 	void FEditorUIPass::OnFramebufferChanged(nvrhi::IFramebuffer* Framebuffer)
 	{
-		Pipeline = nullptr;
-		CreatePipeline(Framebuffer);
+		// Dropped rather than rebuilt for the new framebuffer. A null argument means the swap chain is
+		// going away, so the pipelines that pin its textures have to go; a non-null one is rebuilt lazily
+		// by the first draw, which is when the layout is known to be current.
+		Pipelines.clear();
+		LIME_UNUSED(Framebuffer);
 	}
 
 	bool FEditorUIPass::EnsureGeometryCapacity(uint32 RequiredVertexCount, uint32 RequiredIndexCount)
@@ -413,7 +470,17 @@ namespace Lime
 			return;
 		}
 
-		if (Pipeline == nullptr && !CreatePipeline(Context.Framebuffer))
+		// The graph supplies the target through the frame context, having resolved the imported back buffer
+		// for this frame. Falling back to the context's own framebuffer keeps the pass usable outside a
+		// graph, which is what the automation harness relies on.
+		nvrhi::IFramebuffer* Framebuffer = Context.Framebuffer;
+		if (Framebuffer == nullptr)
+		{
+			return;
+		}
+
+		nvrhi::IGraphicsPipeline* Pipeline = GetPipelineFor(Framebuffer);
+		if (Pipeline == nullptr)
 		{
 			return;
 		}
@@ -504,8 +571,8 @@ namespace Lime
 
 				const nvrhi::GraphicsState State =
 				    nvrhi::GraphicsState()
-				        .setPipeline(Pipeline)
-				        .setFramebuffer(Context.Framebuffer)
+				 .setPipeline(Pipeline)
+				      .setFramebuffer(Framebuffer)
 				        .addBindingSet(BindingSet)
 				        .addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(VertexBuffer).setSlot(0).setOffset(0))
 				        .setIndexBuffer(nvrhi::IndexBufferBinding().setBuffer(IndexBuffer).setFormat(IndexFormat).setOffset(0))

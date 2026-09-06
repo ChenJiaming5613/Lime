@@ -119,7 +119,7 @@ namespace Lime
 		                                         .setIsTypeless(true)
 		                                         .setInitialState(nvrhi::ResourceStates::DepthWrite)
 		                                         .setKeepInitialState(true)
-		                                         // Must match the value RenderScene clears with, or D3D12
+		                                         // Must match the value the graph executor clears with, or D3D12
 		                                         // loses the fast clear path and warns about it.
 		                                         .setClearValue(nvrhi::Color(1.0f))
 		                                         .setDebugName("ViewportDepth");

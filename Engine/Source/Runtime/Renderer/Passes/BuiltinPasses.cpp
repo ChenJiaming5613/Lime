@@ -2,6 +2,7 @@
 
 #include "Core/CoreTypes.h"
 #include "Renderer/Passes/BlinnPhongForwardLitPass.h"
+#include "Renderer/Passes/BlitPass.h"
 #include "Renderer/Passes/DebugVisualizerPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
 #include "Renderer/Passes/ShadowCasterPass.h"
@@ -39,6 +40,10 @@ namespace Lime
 			RegisterPass<FPostProcessPass>();
 			RegisterPass<FDebugVisualizerPass>();
 			RegisterPass<FSkyboxPass>();
+			// Registered like any other pass even though only the engine injects it, so that the injector
+			// resolves it through the same factory table as everything else and the reflected type table
+			// describes it. A graph file naming it is refused by the reserved prefix, not by its absence.
+			RegisterPass<FBlitPass>();
 			return true;
 		}();
 		LIME_UNUSED(bRegistered);

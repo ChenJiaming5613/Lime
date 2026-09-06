@@ -94,17 +94,17 @@ TEST_CASE("The registry rejects null factories", "[Renderer][PassRegistry]")
 	REQUIRE(FRenderPassRegistry::Get().GetRegistrations().size() == CountBefore);
 }
 
-TEST_CASE("The priority also decides the render stage", "[Renderer][PassRegistry]")
+TEST_CASE("The priority orders passes without deciding a stage", "[Renderer][PassRegistry]")
 {
-	// Scene passes draw into the viewport target in editor mode; editor UI passes always draw into the
-	// back buffer. The split point is the EditorUI priority, so this mapping is part of the contract.
-	// Overlay staying on the scene side is what lets in-world UI be composited into the scene image.
-	const auto IsEditorUIStage = [](ERenderPassPriority Priority)
-	{ return static_cast<int32>(Priority) >= static_cast<int32>(ERenderPassPriority::EditorUI); };
-
-	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::Background));
-	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::Scene));
-	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::PostProcess));
-	REQUIRE_FALSE(IsEditorUIStage(ERenderPassPriority::Overlay));
-	REQUIRE(IsEditorUIStage(ERenderPassPriority::EditorUI));
+	// The priority used to decide which target a pass drew into: anything at or above EditorUI went to the
+	// back buffer and everything else to the scene target. That split is gone. The frame is one graph, and
+	// which target a pass writes comes from the resources it declared, so an injected pass writing the swap
+	// chain is ordered by its dependencies like any other.
+	//
+	// What remains is a total order over the registrations, which is what this checks: the values stay
+	// distinct and ascending, so registration order never decides placement between two priorities.
+	REQUIRE(static_cast<int32>(ERenderPassPriority::Background) < static_cast<int32>(ERenderPassPriority::Scene));
+	REQUIRE(static_cast<int32>(ERenderPassPriority::Scene) < static_cast<int32>(ERenderPassPriority::PostProcess));
+	REQUIRE(static_cast<int32>(ERenderPassPriority::PostProcess) < static_cast<int32>(ERenderPassPriority::Overlay));
+	REQUIRE(static_cast<int32>(ERenderPassPriority::Overlay) < static_cast<int32>(ERenderPassPriority::EditorUI));
 }

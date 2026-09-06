@@ -20,12 +20,45 @@
 #include <nvrhi/nvrhi.h>
 
 #include <string>
+#include <string_view>
 
 namespace Lime
 {
 	enum class ERenderGraphResourceKind : uint8
 	{
 		Texture
+	};
+
+	// Who owns the texture behind a resource.
+	//
+	// Transient is the normal case: the graph creates it and keeps it for as long as the graph is loaded.
+	// Imported means the engine supplies it every frame and the graph only writes into it. The swap chain
+	// back buffer is the reason this exists: it rotates between frames and is not the graph's to allocate,
+	// which is what previously kept the editor UI pass outside the graph entirely.
+	//
+	// Transient doubles as "unspecified" when the two ends of an edge are reconciled, since a pass reading
+	// a resource has no opinion on who allocated it. A reader therefore cannot demand that a resource be
+	// transient, which is deliberate: that would be a statement about the producer, not about the read.
+	enum class ERenderGraphResourceSource : uint8
+	{
+		Transient,
+		Imported
+	};
+
+	// What happens to an attachment's existing contents before a pass writes to it.
+	//
+	// Unspecified lets the graph decide, which resolves to Clear for anything the graph allocated: every
+	// transient attachment is fully written each frame, and keeping the previous frame would blend two
+	// frames wherever a pass did not cover the whole surface.
+	//
+	// Load is what an imported target needs when something has already been drawn into it this frame. The
+	// editor UI draws over the presented scene, so clearing there would erase it.
+	enum class ERenderGraphLoadAction : uint8
+	{
+		Unspecified,
+		Clear,
+		Load,
+		DontCare
 	};
 
 	// Whether a field is read, written, or both.
@@ -56,6 +89,17 @@ namespace Lime
 		uint32 Width = 0;
 		uint32 Height = 0;
 		ERenderGraphResourceVisibility Visibility = ERenderGraphResourceVisibility::Input;
+		// Who allocates the texture. A pass declaring an imported output is saying the engine will hand it
+		// a target every frame, which is how a pass writes into the swap chain from inside the graph.
+		ERenderGraphResourceSource Source = ERenderGraphResourceSource::Transient;
+		// What to do with the target's contents before writing. Only meaningful on an output.
+		ERenderGraphLoadAction LoadAction = ERenderGraphLoadAction::Unspecified;
+		// The name the engine binds this resource under, for an imported resource only.
+		//
+		// Separate from Name because the two answer to different owners: Name is the pass's own field, and
+		// this is the engine wide slot it resolves to. Two passes can both write "$BackBuffer" through
+		// fields they each call something else.
+		std::string ImportName;
 		// When true the pass still runs with this input unconnected, with reduced behaviour: a lit pass
 		// with no shadow map draws without shadows rather than failing to compile.
 		bool bOptional = false;
@@ -124,5 +168,17 @@ namespace Lime
 	//
 	// ContextName is the resource being merged, used only to phrase the issue.
 	bool MergeResourceDesc(FRenderGraphResourceDesc& InOut, const FRenderGraphResourceDesc& Other, const std::string& ContextName,
-	                       FRenderGraphIssue& OutIssue);
+	         FRenderGraphIssue& OutIssue);
+
+	// The prefix the engine reserves for names it injects itself.
+	//
+	// A graph file is meant to be hand edited, so the injected passes need a namespace a hand written name
+	// cannot wander into. Rejecting the prefix at every entry point is what makes an injected name
+	// unambiguous rather than merely unlikely.
+	constexpr std::string_view RenderGraphReservedPrefix = "$";
+
+	inline bool IsReservedRenderGraphName(std::string_view Name)
+	{
+		return !Name.empty() && Name.substr(0, RenderGraphReservedPrefix.size()) == RenderGraphReservedPrefix;
+	}
 } // namespace Lime

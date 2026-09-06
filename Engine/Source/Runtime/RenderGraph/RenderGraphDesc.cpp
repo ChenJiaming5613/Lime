@@ -53,6 +53,16 @@ namespace Lime
 			return false;
 		}
 
+		// The engine injects passes under this prefix after the compile. Refusing it here is what makes an
+		// injected name unambiguous rather than merely unlikely, and a hand edited file is expected.
+		if (IsReservedRenderGraphName(InstanceName))
+		{
+			OutIssue = MakeIssue(FRenderGraphIssue::ESeverity::Error,
+			 "Pass name '" + InstanceName + "' starts with '" + std::string(RenderGraphReservedPrefix) +
+			  "', which the engine reserves for the passes it injects itself.");
+			return false;
+		}
+
 		if (FindPass(InstanceName) != nullptr)
 		{
 			OutIssue = MakeIssue(FRenderGraphIssue::ESeverity::Error,
